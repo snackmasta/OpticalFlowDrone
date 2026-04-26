@@ -35,21 +35,40 @@ def gen_frames():
         frame = picam2.capture_array()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
-        if p1 is not None and p0 is not None:
-            good_new = p1[st == 1]
-            good_old = p0[st == 1]
+        img = frame
+        if p1 is not None and p0 is not None and err is not None:
+            # Filter: lost points (st==1) and high error points
+            error_threshold = 20.0  # You can adjust this value
+            good_points = (st.flatten() == 1) & (err.flatten() < error_threshold)
+            good_new = p1[good_points]
+            good_old = p0[good_points]
             for i, (new, old) in enumerate(zip(good_new, good_old)):
                 a, b = new.ravel()
                 c, d = old.ravel()
                 mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (0, 255, 0), 2)
-                frame = cv2.circle(frame, (int(a), int(b)), 5, (0, 0, 255), -1)
-            img = cv2.add(frame, mask)
-            old_gray = frame_gray.copy()
-            p0 = good_new.reshape(-1, 1, 2)
+                img = cv2.circle(img, (int(a), int(b)), 5, (0, 0, 255), -1)
+            img = cv2.add(img, mask)
+            # Always keep detecting new features if number drops below threshold
+            min_features = 30
+            if len(good_new) < min_features:
+                # Detect new features and add them to the current set
+                new_features = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
+                if new_features is not None:
+                    # Combine old and new features with correct shape
+                    good_new = np.concatenate((good_new.reshape(-1, 2), new_features.reshape(-1, 2)), axis=0)
+                    good_new = good_new.reshape(-1, 1, 2)
+            if len(good_new) > 0:
+                old_gray = frame_gray.copy()
+                p0 = good_new.reshape(-1, 1, 2)
+            else:
+                # If all points lost, re-detect features
+                p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
+                old_gray = frame_gray.copy()
+                mask = np.zeros_like(frame)
         else:
             p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
             old_gray = frame_gray.copy()
-            img = frame
+            mask = np.zeros_like(frame)
         # Encode as JPEG
         ret, buffer = cv2.imencode('.jpg', img)
         if not ret:
