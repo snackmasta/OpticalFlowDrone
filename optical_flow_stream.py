@@ -34,6 +34,10 @@ def gen_frames():
     while True:
         frame = picam2.capture_array()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Fade the mask so traces vanish in ~1s (assuming ~30 FPS)
+        fade_factor = 0.9  # Adjust for your FPS; 0.9 for 30 FPS, 0.8 for 10 FPS, etc.
+        global mask
+        mask = cv2.addWeighted(mask, fade_factor, np.zeros_like(mask), 1 - fade_factor, 0)
         p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
         img = frame
         if p1 is not None and p0 is not None and err is not None:
