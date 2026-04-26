@@ -1,2 +1,5 @@
 opencv-python
 numpy
+picamera2
+mavproxy
+pymavlink

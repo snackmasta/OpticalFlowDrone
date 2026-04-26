@@ -5,7 +5,16 @@ from picamera2 import Picamera2
 import time
 
 # Initialize PiCamera2
+
 picam2 = Picamera2()
+# Set camera to maximum FPS
+camera_config = picam2.create_preview_configuration()
+try:
+    # Set the shortest possible frame duration for max FPS
+    camera_config['controls']['FrameDurationLimits'] = (1000, 1000)  # 1ms min, 1ms max
+except Exception:
+    pass  # If not supported, ignore
+picam2.configure(camera_config)
 picam2.start()
 time.sleep(2)  # Allow camera to warm up
 
