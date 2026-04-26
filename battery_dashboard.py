@@ -16,9 +16,9 @@ import time
 from datetime import datetime
 import queue
 
+
 # Configuration
-SERIAL_PORT = '/dev/serial0'
-BAUD_RATE = 921600
+MAVLINK_CONNECTION_STRING = 'udp:127.0.0.1:14550'
 LOG_DIR = './battery_logs'
 
 # Create log directory if it doesn't exist
@@ -45,10 +45,10 @@ log_file_handle = None
 app = Flask(__name__)
 
 def connect_to_vehicle():
-    """Establish MAVLink connection to the flight controller"""
+    """Establish MAVLink connection to the flight controller via UDP"""
     try:
-        print(f"Connecting to vehicle on {SERIAL_PORT} at {BAUD_RATE} baud...")
-        master = mavutil.mavlink_connection(SERIAL_PORT, baud=BAUD_RATE)
+        print(f"Connecting to vehicle on {MAVLINK_CONNECTION_STRING} ...")
+        master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
         master.wait_heartbeat()
         print("✓ Connected to vehicle!")
         vehicle_state['connected'] = True
