@@ -41,8 +41,19 @@ vehicle_state = {
 data_queue = queue.Queue()
 logging_lock = threading.Lock()
 log_file_handle = None
+arm_start_time = None
 
 app = Flask(__name__)
+
+
+def parse_log_timestamp(timestamp_str):
+    """Parse supported log timestamp formats into a datetime object."""
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(timestamp_str, fmt)
+        except ValueError:
+            continue
+    return None
 
 def connect_to_vehicle():
     """Establish MAVLink connection to the flight controller via UDP"""
@@ -107,6 +118,8 @@ def log_battery_data(voltage, current, remaining, flight_time):
 
 def mavlink_receiver(master):
     """MAVLink message receiver thread"""
+    global arm_start_time
+
     while True:
         try:
             msg = master.recv_match(blocking=True, timeout=1)
@@ -125,10 +138,14 @@ def mavlink_receiver(master):
                 if is_armed and not vehicle_state['armed']:
                     print("✓ Drone ARMED - Starting battery log")
                     vehicle_state['armed'] = True
+                    arm_start_time = time.time()
+                    vehicle_state['flight_time'] = 0
                     start_battery_logging()
                 elif not is_armed and vehicle_state['armed']:
                     print("✓ Drone DISARMED - Stopping battery log")
                     vehicle_state['armed'] = False
+                    arm_start_time = None
+                    vehicle_state['flight_time'] = 0
                     stop_battery_logging()
                 
                 vehicle_state['system_status'] = mode
@@ -150,6 +167,8 @@ def mavlink_receiver(master):
                     
                     # Log if armed
                     if vehicle_state['armed']:
+                        if arm_start_time is not None:
+                            vehicle_state['flight_time'] = int(max(0, time.time() - arm_start_time))
                         log_battery_data(voltage, current, remaining, vehicle_state['flight_time'])
             
             # Get flight time from ATTITUDE message (or other time-based messages)
@@ -173,19 +192,38 @@ def read_log_file(filename):
         'remaining': [],
         'flight_times': []
     }
+    parsed_timestamps = []
     
     try:
         with open(filepath, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 try:
-                    data['timestamps'].append(row['Timestamp'])
+                    timestamp_raw = row['Timestamp']
+                    data['timestamps'].append(timestamp_raw)
                     data['voltages'].append(float(row['Voltage (V)']))
                     data['currents'].append(float(row['Current (A)']))
                     data['remaining'].append(int(row['Remaining (%)']))
                     data['flight_times'].append(int(row['Flight Time (s)']))
+                    parsed_timestamps.append(parse_log_timestamp(timestamp_raw))
                 except (ValueError, KeyError):
                     continue
+
+        # Backward compatibility: older logs can have all-zero flight_time.
+        # If so, derive elapsed seconds from Timestamp values.
+        if data['flight_times']:
+            duration_from_flight_time = max(data['flight_times']) - min(data['flight_times'])
+            if duration_from_flight_time <= 0 and len(parsed_timestamps) == len(data['flight_times']):
+                first_valid = next((ts for ts in parsed_timestamps if ts is not None), None)
+                if first_valid is not None:
+                    derived_times = []
+                    for ts in parsed_timestamps:
+                        if ts is None:
+                            derived_times.append(derived_times[-1] if derived_times else 0)
+                        else:
+                            derived_times.append(int((ts - first_valid).total_seconds()))
+                    data['flight_times'] = derived_times
+
         return data
     except Exception as e:
         print(f"Error reading log file: {e}")
