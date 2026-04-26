@@ -1,17 +1,25 @@
 # Lightweight optical flow recorder
-# Requirements: opencv-python, numpy, picamera2
+# Requirements: opencv-python, numpy, picamera2, pymavlink
 
 import cv2
 import numpy as np
+import threading
 from picamera2 import Picamera2
 import time
 from datetime import datetime
 from pathlib import Path
+from pymavlink import mavutil
 
 TARGET_FPS = 60
 FRAME_INTERVAL_S = 1.0 / TARGET_FPS
 RECORDINGS_DIR = Path("recordings")
+MAVLINK_CONNECTION_STRING = "udp:127.0.0.1:14551"
 
+distance_state = {
+    "current_distance": None,
+    "last_update": 0.0,
+}
+distance_lock = threading.Lock()
 picam2 = Picamera2()
 camera_config = picam2.create_preview_configuration()
 try:
@@ -44,9 +52,60 @@ def ensure_bgr(frame):
         return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
     return frame
 
+
+def start_distance_sensor_reader():
+    def reader():
+        try:
+            master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
+            master.wait_heartbeat()
+            print(f"Connected to MAVLink on {MAVLINK_CONNECTION_STRING}")
+
+            while True:
+                msg = master.recv_match(type="DISTANCE_SENSOR", blocking=True, timeout=1)
+                if msg is None:
+                    continue
+
+                with distance_lock:
+                    distance_state["current_distance"] = msg.current_distance
+                    distance_state["last_update"] = time.time()
+        except Exception as e:
+            print(f"MAVLink distance reader error: {e}")
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    return thread
+
+
+def draw_osd(frame):
+    with distance_lock:
+        current_distance = distance_state["current_distance"]
+
+    lines = [
+        f"DIST: {current_distance if current_distance is not None else 'N/A'} cm",
+    ]
+
+    overlay = frame.copy()
+    x, y = 12, 28
+    box_w = 0
+    for line in lines:
+        (text_w, text_h), baseline = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        box_w = max(box_w, text_w)
+
+    box_h = 18 * len(lines) + 14
+    cv2.rectangle(overlay, (8, 8), (20 + box_w, 12 + box_h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(overlay, 0.45, frame, 0.55, 0)
+
+    for line in lines:
+        cv2.putText(frame, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1, cv2.LINE_AA)
+        y += 18
+
+    return frame
+
 old_frame = ensure_bgr(picam2.capture_array())
 old_gray = to_small_gray(old_frame)
 p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+
+start_distance_sensor_reader()
 
 RECORDINGS_DIR.mkdir(exist_ok=True)
 output_path = RECORDINGS_DIR / f"optical_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
@@ -108,6 +167,7 @@ def record_optical_flow():
             p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
 
         old_gray = frame_gray.copy()
+        img = draw_osd(img)
         writer.write(img)
 
 if __name__ == '__main__':
