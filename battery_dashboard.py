@@ -8,7 +8,7 @@ MAVLink Battery Dashboard with Automatic Logging
 """
 
 from pymavlink import mavutil
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request
 import threading
 import csv
 import os
@@ -779,15 +779,77 @@ def dashboard():
                             item.innerHTML = `
                                 <div class="log-item-name">${logFile}</div>
                                 <div class="log-item-stats">Click to view details</div>
+                                <div class="button-group" style="margin-top:10px;">
+                                    <button class="btn-primary rename-btn">✏️ Rename</button>
+                                    <button class="btn-danger delete-btn">🗑️ Delete</button>
+                                </div>
                             `;
-                            item.onclick = () => loadLogData(logFile);
+
+                            const renameBtn = item.querySelector('.rename-btn');
+                            const deleteBtn = item.querySelector('.delete-btn');
+
+                            renameBtn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                renameLogPrompt(logFile);
+                            });
+
+                            deleteBtn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                deleteLogFile(logFile);
+                            });
+
+                            item.addEventListener('click', () => loadLogData(logFile, item));
                             listContainer.appendChild(item);
                         });
                     })
                     .catch(error => console.error('Error loading logs:', error));
             }
+
+            function renameLogPrompt(filename) {
+                const newName = prompt('Enter new filename (must end with .csv):', filename);
+                if (!newName || newName === filename) return;
+                if (!newName.endsWith('.csv')) {
+                    alert('Filename must end with .csv');
+                    return;
+                }
+
+                fetch('/api/logs/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_name: filename, new_name: newName })
+                })
+                .then(response => response.json())
+                .then(res => {
+                    if (res.success) {
+                        alert('Log renamed successfully.');
+                        loadLogsList();
+                    } else {
+                        alert('Rename failed: ' + (res.error || 'Unknown error'));
+                    }
+                });
+            }
+
+            function deleteLogFile(filename) {
+                if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+
+                fetch('/api/logs/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                })
+                .then(response => response.json())
+                .then(res => {
+                    if (res.success) {
+                        alert('Log deleted successfully.');
+                        loadLogsList();
+                        document.getElementById('log-viewer-container').innerHTML = '<div class="card"><div class="no-data">Select a log file to view</div></div>';
+                    } else {
+                        alert('Delete failed: ' + (res.error || 'Unknown error'));
+                    }
+                });
+            }
             
-            function loadLogData(filename) {
+            function loadLogData(filename, selectedItem = null) {
                 fetch(`/api/logs/data/${filename}`)
                     .then(response => response.json())
                     .then(data => {
@@ -803,7 +865,9 @@ def dashboard():
                         document.querySelectorAll('.log-item').forEach(item => {
                             item.classList.remove('selected');
                         });
-                        event.target.closest('.log-item').classList.add('selected');
+                        if (selectedItem) {
+                            selectedItem.classList.add('selected');
+                        }
                     })
                     .catch(error => console.error('Error loading log data:', error));
             }
@@ -1075,7 +1139,7 @@ def api_status():
 def list_logs():
     """List available log files"""
     try:
-        log_files = [f for f in os.listdir(LOG_DIR) if f.startswith('battery_log_')]
+        log_files = [f for f in os.listdir(LOG_DIR) if f.endswith('.csv')]
         log_files.sort(reverse=True)
         return jsonify({'logs': log_files})
     except Exception as e:
@@ -1107,6 +1171,52 @@ def download_log(filename):
         with open(filepath, 'r') as f:
             content = f.read()
         return content, 200, {'Content-Disposition': f'attachment; filename={filename}'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/logs/rename', methods=['POST'])
+def rename_log():
+    """Rename a log file"""
+    data = request.get_json()
+    old_name = data.get('old_name')
+    new_name = data.get('new_name')
+
+    if not old_name or not new_name:
+        return jsonify({'error': 'Missing filename(s)'}), 400
+    if '..' in old_name or '/' in old_name or '..' in new_name or '/' in new_name:
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    old_path = os.path.join(LOG_DIR, old_name)
+    new_path = os.path.join(LOG_DIR, new_name)
+    if not os.path.exists(old_path):
+        return jsonify({'error': 'Original file not found'}), 404
+    if os.path.exists(new_path):
+        return jsonify({'error': 'Target filename already exists'}), 409
+
+    try:
+        os.rename(old_path, new_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/logs/delete', methods=['POST'])
+def delete_log():
+    """Delete a log file"""
+    data = request.get_json()
+    filename = data.get('filename')
+
+    if not filename:
+        return jsonify({'error': 'Missing filename'}), 400
+    if '..' in filename or '/' in filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    filepath = os.path.join(LOG_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        os.remove(filepath)
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
