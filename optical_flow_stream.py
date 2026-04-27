@@ -1,11 +1,12 @@
 # Lightweight optical flow recorder
-# Requirements: opencv-python, numpy, picamera2, pymavlink
+# Requirements: opencv-python, numpy, picamera2, pymavlink, smbus2
 
 import cv2
 import numpy as np
 import threading
 import subprocess
 import math
+from smbus2 import SMBus
 from picamera2 import Picamera2
 import time
 from datetime import datetime
@@ -18,6 +19,13 @@ RECORDINGS_DIR = Path("recordings")
 PROJECT_ROOT = Path(__file__).resolve().parent
 MEDIAMTX_BIN = PROJECT_ROOT / ".tools" / "mediamtx" / "mediamtx"
 MAVLINK_CONNECTION_STRING = "udp:127.0.0.1:14551"
+GYRO_I2C_BUS = 1
+GYRO_I2C_ADDR = 0x68
+GYRO_PWR_MGMT_1 = 0x6B
+GYRO_XOUT_H = 0x43
+GYRO_YOUT_H = 0x45
+GYRO_ZOUT_H = 0x47
+GYRO_LSB_PER_DPS = 131.0
 
 distance_state = {
     "current_distance": None,
@@ -79,55 +87,83 @@ def ensure_bgr(frame):
     return frame
 
 
+def read_i2c_word(bus, addr, reg):
+    high = bus.read_byte_data(addr, reg)
+    low = bus.read_byte_data(addr, reg + 1)
+    value = (high << 8) | low
+    if value >= 0x8000:
+        value -= 65536
+    return value
+
+
 def start_distance_sensor_reader():
-    def reader():
+    def distance_reader():
         try:
             master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
             master.wait_heartbeat()
             print(f"Connected to MAVLink on {MAVLINK_CONNECTION_STRING}")
 
-            last_imu_ts = None
             while True:
-                msg = master.recv_match(type=["DISTANCE_SENSOR", "RAW_IMU"], blocking=True, timeout=1)
+                msg = master.recv_match(type="DISTANCE_SENSOR", blocking=True, timeout=1)
                 if msg is None:
                     continue
 
                 now = time.time()
 
-                if msg.get_type() == "DISTANCE_SENSOR":
-                    with distance_lock:
-                        distance_state["current_distance"] = msg.current_distance
-                        distance_state["last_update"] = now
-
-                elif msg.get_type() == "RAW_IMU":
-                    xgyro_dps = math.degrees(msg.xgyro)
-                    ygyro_dps = math.degrees(msg.ygyro)
-                    zgyro_dps = math.degrees(msg.zgyro)
-
-                    with attitude_lock:
-                        attitude_state["xgyro_dps"] = xgyro_dps
-                        attitude_state["ygyro_dps"] = ygyro_dps
-                        attitude_state["zgyro_dps"] = zgyro_dps
-
-                        if last_imu_ts is not None:
-                            dt = now - last_imu_ts
-                            if dt > 0:
-                                attitude_state["roll_deg"] += xgyro_dps * dt
-                                attitude_state["pitch_deg"] += ygyro_dps * dt
-                                attitude_state["yaw_deg"] += zgyro_dps * dt
-
-                                attitude_state["roll_deg"] = ((attitude_state["roll_deg"] + 180.0) % 360.0) - 180.0
-                                attitude_state["pitch_deg"] = ((attitude_state["pitch_deg"] + 180.0) % 360.0) - 180.0
-                                attitude_state["yaw_deg"] = ((attitude_state["yaw_deg"] + 180.0) % 360.0) - 180.0
-
-                        attitude_state["last_update"] = now
-                    last_imu_ts = now
+                with distance_lock:
+                    distance_state["current_distance"] = msg.current_distance
+                    distance_state["last_update"] = now
         except Exception as e:
             print(f"MAVLink distance reader error: {e}")
 
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
-    return thread
+    def gyro_reader():
+        try:
+            bus = SMBus(GYRO_I2C_BUS)
+            bus.write_byte_data(GYRO_I2C_ADDR, GYRO_PWR_MGMT_1, 0)
+            time.sleep(0.2)
+            print(f"Connected to I2C gyro on bus {GYRO_I2C_BUS} address 0x{GYRO_I2C_ADDR:02X}")
+
+            last_imu_ts = None
+            while True:
+                now = time.time()
+                gx_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_XOUT_H)
+                gy_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_YOUT_H)
+                gz_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_ZOUT_H)
+
+                xgyro_dps = gx_raw / GYRO_LSB_PER_DPS
+                ygyro_dps = gy_raw / GYRO_LSB_PER_DPS
+                zgyro_dps = gz_raw / GYRO_LSB_PER_DPS
+
+                with attitude_lock:
+                    attitude_state["xgyro_dps"] = xgyro_dps
+                    attitude_state["ygyro_dps"] = ygyro_dps
+                    attitude_state["zgyro_dps"] = zgyro_dps
+
+                    if last_imu_ts is not None:
+                        dt = now - last_imu_ts
+                        if dt > 0:
+                            attitude_state["roll_deg"] += xgyro_dps * dt
+                            attitude_state["pitch_deg"] += ygyro_dps * dt
+                            attitude_state["yaw_deg"] += zgyro_dps * dt
+
+                            attitude_state["roll_deg"] = ((attitude_state["roll_deg"] + 180.0) % 360.0) - 180.0
+                            attitude_state["pitch_deg"] = ((attitude_state["pitch_deg"] + 180.0) % 360.0) - 180.0
+                            attitude_state["yaw_deg"] = ((attitude_state["yaw_deg"] + 180.0) % 360.0) - 180.0
+
+                    attitude_state["last_update"] = now
+
+                last_imu_ts = now
+                time.sleep(0.02)
+        except Exception as e:
+            print(f"I2C gyro reader error: {e}")
+
+    distance_thread = threading.Thread(target=distance_reader, daemon=True)
+    distance_thread.start()
+
+    gyro_thread = threading.Thread(target=gyro_reader, daemon=True)
+    gyro_thread.start()
+
+    return distance_thread, gyro_thread
 
 
 def draw_osd(frame):
