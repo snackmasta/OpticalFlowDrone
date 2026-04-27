@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import threading
 import subprocess
+import math
 from picamera2 import Picamera2
 import time
 from datetime import datetime
@@ -23,6 +24,16 @@ distance_state = {
     "last_update": 0.0,
 }
 distance_lock = threading.Lock()
+attitude_state = {
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "yaw_deg": 0.0,
+    "xgyro_dps": 0.0,
+    "ygyro_dps": 0.0,
+    "zgyro_dps": 0.0,
+    "last_update": 0.0,
+}
+attitude_lock = threading.Lock()
 picam2 = Picamera2()
 camera_config = picam2.create_preview_configuration()
 try:
@@ -35,14 +46,26 @@ picam2.start()
 time.sleep(2)
 
 # Optical flow parameters
-TRACK_FEATURE_COUNT = 5
+TRACK_FEATURE_COUNT = 10
 FLOW_SCALE = 0.5
+CAMERA_HORIZONTAL_FOV_DEG = 62.2
+MAX_FLOW_STEP_PX = 80.0
+MIN_INLIERS_FOR_VELOCITY = 3
+RETICLE_COLOR = (0, 220, 220)
 feature_params = dict(maxCorners=TRACK_FEATURE_COUNT, qualityLevel=0.3, minDistance=5, blockSize=5)
 lk_params = dict(
     winSize=(9, 9),
     maxLevel=0,
     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 8, 0.03),
 )
+
+velocity_state = {
+    "vx_mps": 0.0,
+    "vy_mps": 0.0,
+    "speed_mps": 0.0,
+    "inliers": 0,
+    "last_update": 0.0,
+}
 
 
 def to_small_gray(frame):
@@ -63,14 +86,42 @@ def start_distance_sensor_reader():
             master.wait_heartbeat()
             print(f"Connected to MAVLink on {MAVLINK_CONNECTION_STRING}")
 
+            last_imu_ts = None
             while True:
-                msg = master.recv_match(type="DISTANCE_SENSOR", blocking=True, timeout=1)
+                msg = master.recv_match(type=["DISTANCE_SENSOR", "RAW_IMU"], blocking=True, timeout=1)
                 if msg is None:
                     continue
 
-                with distance_lock:
-                    distance_state["current_distance"] = msg.current_distance
-                    distance_state["last_update"] = time.time()
+                now = time.time()
+
+                if msg.get_type() == "DISTANCE_SENSOR":
+                    with distance_lock:
+                        distance_state["current_distance"] = msg.current_distance
+                        distance_state["last_update"] = now
+
+                elif msg.get_type() == "RAW_IMU":
+                    xgyro_dps = math.degrees(msg.xgyro)
+                    ygyro_dps = math.degrees(msg.ygyro)
+                    zgyro_dps = math.degrees(msg.zgyro)
+
+                    with attitude_lock:
+                        attitude_state["xgyro_dps"] = xgyro_dps
+                        attitude_state["ygyro_dps"] = ygyro_dps
+                        attitude_state["zgyro_dps"] = zgyro_dps
+
+                        if last_imu_ts is not None:
+                            dt = now - last_imu_ts
+                            if dt > 0:
+                                attitude_state["roll_deg"] += xgyro_dps * dt
+                                attitude_state["pitch_deg"] += ygyro_dps * dt
+                                attitude_state["yaw_deg"] += zgyro_dps * dt
+
+                                attitude_state["roll_deg"] = ((attitude_state["roll_deg"] + 180.0) % 360.0) - 180.0
+                                attitude_state["pitch_deg"] = ((attitude_state["pitch_deg"] + 180.0) % 360.0) - 180.0
+                                attitude_state["yaw_deg"] = ((attitude_state["yaw_deg"] + 180.0) % 360.0) - 180.0
+
+                        attitude_state["last_update"] = now
+                    last_imu_ts = now
         except Exception as e:
             print(f"MAVLink distance reader error: {e}")
 
@@ -82,9 +133,26 @@ def start_distance_sensor_reader():
 def draw_osd(frame):
     with distance_lock:
         current_distance = distance_state["current_distance"]
+    with attitude_lock:
+        roll_deg = attitude_state["roll_deg"]
+        pitch_deg = attitude_state["pitch_deg"]
+        yaw_deg = attitude_state["yaw_deg"]
+        xgyro_dps = attitude_state["xgyro_dps"]
+        ygyro_dps = attitude_state["ygyro_dps"]
+        zgyro_dps = attitude_state["zgyro_dps"]
+
+    vx_mps = velocity_state["vx_mps"]
+    vy_mps = velocity_state["vy_mps"]
+    speed_mps = velocity_state["speed_mps"]
+    inliers = velocity_state["inliers"]
 
     lines = [
         f"DIST: {current_distance if current_distance is not None else 'N/A'} cm",
+        f"VX: {vx_mps:+.3f} m/s",
+        f"VY: {vy_mps:+.3f} m/s",
+        f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
+        f"GYRO: {xgyro_dps:+.1f} {ygyro_dps:+.1f} {zgyro_dps:+.1f} dps",
+        f"ATT: {roll_deg:+.1f} {pitch_deg:+.1f} {yaw_deg:+.1f} deg",
     ]
 
     overlay = frame.copy()
@@ -103,6 +171,41 @@ def draw_osd(frame):
         y += 18
 
     return frame
+
+
+def draw_ground_reticle(frame):
+    h, w = frame.shape[:2]
+    cx, cy = w // 2, h // 2
+    radius_outer = max(24, min(w, h) // 7)
+    radius_inner = max(12, radius_outer // 2)
+    arm = max(16, radius_outer // 2)
+
+    with attitude_lock:
+        roll_deg = attitude_state["roll_deg"]
+        pitch_deg = attitude_state["pitch_deg"]
+        yaw_deg = attitude_state["yaw_deg"]
+
+    pitch_px = int(np.clip(-pitch_deg * 2.0, -h * 0.2, h * 0.2))
+    roll_px = int(np.clip(roll_deg * 1.2, -w * 0.2, w * 0.2))
+    center = (cx + roll_px, cy + pitch_px)
+
+    overlay = frame.copy()
+    rotation_matrix = cv2.getRotationMatrix2D(center, -yaw_deg, 1.0)
+
+    reticle = np.zeros_like(frame)
+    cv2.circle(reticle, center, radius_outer, RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.circle(reticle, center, radius_inner, RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.line(reticle, (center[0] - radius_outer - arm, center[1]), (center[0] + radius_outer + arm, center[1]), RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.line(reticle, (center[0], center[1] - radius_outer - arm), (center[0], center[1] + radius_outer + arm), RETICLE_COLOR, 1, cv2.LINE_AA)
+
+    tick = max(6, radius_outer // 5)
+    cv2.line(reticle, (center[0], center[1] - radius_outer), (center[0], center[1] - radius_outer - tick), RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.line(reticle, (center[0] + radius_outer, center[1]), (center[0] + radius_outer + tick, center[1]), RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.line(reticle, (center[0], center[1] + radius_outer), (center[0], center[1] + radius_outer + tick), RETICLE_COLOR, 1, cv2.LINE_AA)
+    cv2.line(reticle, (center[0] - radius_outer, center[1]), (center[0] - radius_outer - tick, center[1]), RETICLE_COLOR, 1, cv2.LINE_AA)
+
+    reticle = cv2.warpAffine(reticle, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    return cv2.addWeighted(frame, 1.0, reticle, 0.9, 0)
 
 
 def choose_output_mode():
@@ -258,6 +361,61 @@ def create_output_sink(frame_size, fps):
         return RtspSink(frame_size, fps, publish_url), True, server
     return FileSink(frame_size, fps), False, None
 
+
+def focal_length_px(frame_width):
+    return frame_width / (2.0 * math.tan(math.radians(CAMERA_HORIZONTAL_FOV_DEG / 2.0)))
+
+
+def reject_outlier_tracks(good_old, good_new):
+    good_old = np.asarray(good_old, dtype=np.float32).reshape(-1, 2)
+    good_new = np.asarray(good_new, dtype=np.float32).reshape(-1, 2)
+
+    if len(good_old) != len(good_new):
+        pair_count = min(len(good_old), len(good_new))
+        good_old = good_old[:pair_count]
+        good_new = good_new[:pair_count]
+
+    if len(good_new) < MIN_INLIERS_FOR_VELOCITY:
+        return good_old, good_new
+
+    motion = (good_new - good_old).astype(np.float32)
+    magnitudes = np.linalg.norm(motion, axis=1)
+    basic_mask = magnitudes < MAX_FLOW_STEP_PX
+    if np.count_nonzero(basic_mask) < MIN_INLIERS_FOR_VELOCITY:
+        return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
+
+    old_filtered = good_old[basic_mask]
+    new_filtered = good_new[basic_mask]
+    affine_result = cv2.estimateAffinePartial2D(old_filtered, new_filtered, method=cv2.RANSAC, ransacReprojThreshold=2.0)
+    if affine_result is None:
+        return old_filtered, new_filtered
+
+    _, inlier_mask = affine_result
+    if inlier_mask is None:
+        return old_filtered, new_filtered
+
+    inlier_mask = inlier_mask.ravel().astype(bool)
+    if np.count_nonzero(inlier_mask) < MIN_INLIERS_FOR_VELOCITY:
+        return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
+
+    return old_filtered[inlier_mask], new_filtered[inlier_mask]
+
+
+def estimate_body_velocity_mps(good_old, good_new, altitude_cm, dt_s, fx_px, fy_px):
+    if altitude_cm is None or altitude_cm <= 0 or dt_s <= 0:
+        return None
+    if len(good_new) < MIN_INLIERS_FOR_VELOCITY:
+        return None
+
+    displacement = good_new - good_old
+    median_dx_px = float(np.median(displacement[:, 0]))
+    median_dy_px = float(np.median(displacement[:, 1]))
+
+    altitude_m = altitude_cm / 100.0
+    vx_mps = (median_dx_px * altitude_m) / (fx_px * dt_s)
+    vy_mps = (median_dy_px * altitude_m) / (fy_px * dt_s)
+    return vx_mps, vy_mps
+
 old_frame = ensure_bgr(picam2.capture_array())
 old_gray = to_small_gray(old_frame)
 p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
@@ -265,6 +423,8 @@ p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
 start_distance_sensor_reader()
 
 frame_height, frame_width = old_frame.shape[:2]
+focal_length_x_px = focal_length_px(frame_width)
+focal_length_y_px = focal_length_x_px
 output_sink, rtsp_selected, rtsp_server = create_output_sink((frame_width, frame_height), TARGET_FPS)
 fallback_sink = None
 print("Press Ctrl+C to stop")
@@ -281,11 +441,15 @@ def switch_to_file_sink(frame_size, fps, reason):
 def record_optical_flow():
     global old_gray, p0, output_sink
     next_frame_time = time.perf_counter()
+    previous_frame_ts = time.perf_counter()
     while True:
         now = time.perf_counter()
         if now < next_frame_time:
             time.sleep(next_frame_time - now)
-        next_frame_time = time.perf_counter() + FRAME_INTERVAL_S
+        frame_ts = time.perf_counter()
+        dt_s = frame_ts - previous_frame_ts
+        previous_frame_ts = frame_ts
+        next_frame_time = frame_ts + FRAME_INTERVAL_S
 
         frame = ensure_bgr(picam2.capture_array())
         frame_gray = to_small_gray(frame)
@@ -297,8 +461,35 @@ def record_optical_flow():
             if p1 is not None and st is not None:
                 good_new = p1[st.flatten() == 1]
                 good_old = p0[st.flatten() == 1]
+                inlier_old, inlier_new = reject_outlier_tracks(good_old, good_new)
 
-                for new, old in zip(good_new, good_old):
+                with distance_lock:
+                    altitude_cm = distance_state["current_distance"]
+
+                velocity_estimate = estimate_body_velocity_mps(
+                    inlier_old,
+                    inlier_new,
+                    altitude_cm,
+                    dt_s,
+                    focal_length_x_px,
+                    focal_length_y_px,
+                )
+
+                if velocity_estimate is not None:
+                    vx_mps, vy_mps = velocity_estimate
+                    velocity_state["vx_mps"] = vx_mps
+                    velocity_state["vy_mps"] = vy_mps
+                    velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
+                    velocity_state["inliers"] = len(inlier_new)
+                    velocity_state["last_update"] = frame_ts
+                else:
+                    velocity_state["vx_mps"] = 0.0
+                    velocity_state["vy_mps"] = 0.0
+                    velocity_state["speed_mps"] = 0.0
+                    velocity_state["inliers"] = 0
+                    velocity_state["last_update"] = frame_ts
+
+                for new, old in zip(inlier_new, inlier_old):
                     a, b = new.ravel()
                     c, d = old.ravel()
                     ax, by = int(a * draw_scale), int(b * draw_scale)
@@ -324,6 +515,7 @@ def record_optical_flow():
             p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
 
         old_gray = frame_gray.copy()
+        img = draw_ground_reticle(img)
         img = draw_osd(img)
         try:
             output_sink.write(img)
