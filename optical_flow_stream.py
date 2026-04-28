@@ -22,6 +22,10 @@ MAVLINK_CONNECTION_STRING = "udp:127.0.0.1:14551"
 GYRO_I2C_BUS = 1
 GYRO_I2C_ADDR = 0x68
 GYRO_PWR_MGMT_1 = 0x6B
+ACCEL_XOUT_H = 0x3B
+ACCEL_YOUT_H = 0x3D
+ACCEL_ZOUT_H = 0x3F
+ACCEL_LSB_PER_G = 16384.0
 GYRO_XOUT_H = 0x43
 GYRO_YOUT_H = 0x45
 GYRO_ZOUT_H = 0x47
@@ -47,6 +51,13 @@ attitude_state = {
     "last_mavlink_update": 0.0,
 }
 attitude_lock = threading.Lock()
+accel_state = {
+    "x_g": 0.0,
+    "y_g": 0.0,
+    "z_g": 0.0,
+    "last_update": 0.0,
+}
+accel_lock = threading.Lock()
 picam2 = Picamera2()
 camera_config = picam2.create_preview_configuration()
 try:
@@ -103,6 +114,10 @@ def read_i2c_word(bus, addr, reg):
 
 def normalize_angle_deg(angle_deg):
     return ((angle_deg + 180.0) % 360.0) - 180.0
+
+
+def blend_value(current_value, target_value, blend):
+    return current_value + ((target_value - current_value) * blend)
 
 
 def update_attitude_from_mavlink(msg):
@@ -167,13 +182,25 @@ def start_distance_sensor_reader():
             last_imu_ts = None
             while True:
                 now = time.time()
+                ax_raw = read_i2c_word(bus, GYRO_I2C_ADDR, ACCEL_XOUT_H)
+                ay_raw = read_i2c_word(bus, GYRO_I2C_ADDR, ACCEL_YOUT_H)
+                az_raw = read_i2c_word(bus, GYRO_I2C_ADDR, ACCEL_ZOUT_H)
                 gx_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_XOUT_H)
                 gy_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_YOUT_H)
                 gz_raw = read_i2c_word(bus, GYRO_I2C_ADDR, GYRO_ZOUT_H)
 
+                xaccel_g = ax_raw / ACCEL_LSB_PER_G
+                yaccel_g = ay_raw / ACCEL_LSB_PER_G
+                zaccel_g = az_raw / ACCEL_LSB_PER_G
                 xgyro_dps = gx_raw / GYRO_LSB_PER_DPS
                 ygyro_dps = gy_raw / GYRO_LSB_PER_DPS
                 zgyro_dps = gz_raw / GYRO_LSB_PER_DPS
+
+                with accel_lock:
+                    accel_state["x_g"] = blend_value(accel_state["x_g"], xaccel_g, 0.2)
+                    accel_state["y_g"] = blend_value(accel_state["y_g"], yaccel_g, 0.2)
+                    accel_state["z_g"] = blend_value(accel_state["z_g"], zaccel_g, 0.2)
+                    accel_state["last_update"] = now
 
                 with attitude_lock:
                     attitude_state["xgyro_dps"] = xgyro_dps
@@ -220,6 +247,10 @@ def draw_osd(frame):
         xgyro_dps = attitude_state["xgyro_dps"]
         ygyro_dps = attitude_state["ygyro_dps"]
         zgyro_dps = attitude_state["zgyro_dps"]
+    with accel_lock:
+        xaccel_g = accel_state["x_g"]
+        yaccel_g = accel_state["y_g"]
+        zaccel_g = accel_state["z_g"]
 
     vx_mps = velocity_state["vx_mps"]
     vy_mps = velocity_state["vy_mps"]
@@ -232,6 +263,7 @@ def draw_osd(frame):
         # f"VY: {vy_mps:+.3f} m/s",
         # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
         # f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
+        f"ACCEL: X:{xaccel_g:+.2f}g Y:{yaccel_g:+.2f}g Z:{zaccel_g:+.2f}g",
         f"ROLL: {roll_deg:+.1f} deg (MAV: {mav_roll_deg:+.1f})",
         f"PITCH: {pitch_deg:+.1f} deg (MAV: {mav_pitch_deg:+.1f})",
         f"YAW: {yaw_deg:+.1f} deg (MAV: {mav_yaw_deg:+.1f})",
@@ -253,6 +285,8 @@ def draw_osd(frame):
         color = (0, 255, 0)
         if line.startswith("ROLL") or line.startswith("PITCH") or line.startswith("YAW"):
             color = (0, 200, 255)
+        elif line.startswith("ACCEL"):
+            color = (255, 200, 0)
         cv2.putText(frame, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
         y += 18
 
@@ -270,6 +304,9 @@ def draw_ground_reticle(frame):
         roll_deg = attitude_state["roll_deg"]
         pitch_deg = attitude_state["pitch_deg"]
         yaw_deg = attitude_state["yaw_deg"]
+    with accel_lock:
+        xaccel_g = accel_state["x_g"]
+        yaccel_g = accel_state["y_g"]
 
     # increase sensitivity: amplify pitch and roll movement, and allow larger clamp
     pitch_px = int(np.clip(-pitch_deg * 3.0, -h * 0.3, h * 0.3))
@@ -292,7 +329,16 @@ def draw_ground_reticle(frame):
     cv2.line(reticle, (center[0] - radius_outer, center[1]), (center[0] - radius_outer - tick, center[1]), RETICLE_COLOR, 1, cv2.LINE_AA)
 
     reticle = cv2.warpAffine(reticle, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
-    return cv2.addWeighted(frame, 1.0, reticle, 0.9, 0)
+    frame = cv2.addWeighted(frame, 1.0, reticle, 0.9, 0)
+
+    arrow_scale = 45.0
+    arrow_dx = int(np.clip(xaccel_g * arrow_scale, -w * 0.25, w * 0.25))
+    arrow_dy = int(np.clip(-yaccel_g * arrow_scale, -h * 0.25, h * 0.25))
+    arrow_end = (cx + arrow_dx, cy + arrow_dy)
+    cv2.arrowedLine(frame, (cx, cy), arrow_end, (255, 200, 0), 3, cv2.LINE_AA, tipLength=0.25)
+    cv2.circle(frame, (cx, cy), 4, (255, 200, 0), -1, cv2.LINE_AA)
+
+    return frame
 
 
 def choose_output_mode():
