@@ -187,8 +187,10 @@ def draw_osd(frame):
         f"VX: {vx_mps:+.3f} m/s",
         f"VY: {vy_mps:+.3f} m/s",
         f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
-        f"GYRO: {xgyro_dps:+.1f} {ygyro_dps:+.1f} {zgyro_dps:+.1f} dps",
-        f"ATT: {roll_deg:+.1f} {pitch_deg:+.1f} {yaw_deg:+.1f} deg",
+        f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
+        f"ROLL: {roll_deg:+.1f} deg",
+        f"PITCH: {pitch_deg:+.1f} deg",
+        f"YAW: {yaw_deg:+.1f} deg",
     ]
 
     overlay = frame.copy()
@@ -203,7 +205,11 @@ def draw_osd(frame):
     frame = cv2.addWeighted(overlay, 0.45, frame, 0.55, 0)
 
     for line in lines:
-        cv2.putText(frame, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1, cv2.LINE_AA)
+        # highlight attitude values with brighter color for quick visual cue
+        color = (0, 255, 0)
+        if line.startswith("ROLL") or line.startswith("PITCH") or line.startswith("YAW"):
+            color = (0, 200, 255)
+        cv2.putText(frame, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
         y += 18
 
     return frame
