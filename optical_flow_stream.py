@@ -26,6 +26,7 @@ GYRO_XOUT_H = 0x43
 GYRO_YOUT_H = 0x45
 GYRO_ZOUT_H = 0x47
 GYRO_LSB_PER_DPS = 131.0
+MAVLINK_ATTITUDE_MESSAGES = ("ATTITUDE", "AHRS2")
 
 distance_state = {
     "current_distance": None,
@@ -39,7 +40,11 @@ attitude_state = {
     "xgyro_dps": 0.0,
     "ygyro_dps": 0.0,
     "zgyro_dps": 0.0,
+    "mav_roll_deg": 0.0,
+    "mav_pitch_deg": 0.0,
+    "mav_yaw_deg": 0.0,
     "last_update": 0.0,
+    "last_mavlink_update": 0.0,
 }
 attitude_lock = threading.Lock()
 picam2 = Picamera2()
@@ -96,25 +101,61 @@ def read_i2c_word(bus, addr, reg):
     return value
 
 
+def normalize_angle_deg(angle_deg):
+    return ((angle_deg + 180.0) % 360.0) - 180.0
+
+
+def update_attitude_from_mavlink(msg):
+    msg_type = msg.get_type()
+    if msg_type not in MAVLINK_ATTITUDE_MESSAGES:
+        return False
+
+    if not hasattr(msg, "roll") or not hasattr(msg, "pitch") or not hasattr(msg, "yaw"):
+        return False
+
+    roll_deg = math.degrees(msg.roll)
+    pitch_deg = math.degrees(msg.pitch)
+    yaw_deg = math.degrees(msg.yaw)
+    now = time.time()
+
+    with attitude_lock:
+        attitude_state["mav_roll_deg"] = roll_deg
+        attitude_state["mav_pitch_deg"] = pitch_deg
+        attitude_state["mav_yaw_deg"] = yaw_deg
+        attitude_state["roll_deg"] = normalize_angle_deg(roll_deg)
+        attitude_state["pitch_deg"] = normalize_angle_deg(pitch_deg)
+        attitude_state["yaw_deg"] = normalize_angle_deg(yaw_deg)
+        attitude_state["last_mavlink_update"] = now
+        attitude_state["last_update"] = now
+
+    return True
+
+
 def start_distance_sensor_reader():
-    def distance_reader():
+    def mavlink_reader():
         try:
             master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
             master.wait_heartbeat()
             print(f"Connected to MAVLink on {MAVLINK_CONNECTION_STRING}")
 
             while True:
-                msg = master.recv_match(type="DISTANCE_SENSOR", blocking=True, timeout=1)
+                msg = master.recv_match(blocking=True, timeout=1)
                 if msg is None:
                     continue
 
+                msg_type = msg.get_type()
                 now = time.time()
 
-                with distance_lock:
-                    distance_state["current_distance"] = msg.current_distance
-                    distance_state["last_update"] = now
+                if msg_type == "DISTANCE_SENSOR":
+                    with distance_lock:
+                        distance_state["current_distance"] = msg.current_distance
+                        distance_state["last_update"] = now
+                    continue
+
+                if update_attitude_from_mavlink(msg):
+                    continue
         except Exception as e:
-            print(f"MAVLink distance reader error: {e}")
+            print(f"MAVLink reader error: {e}")
 
     def gyro_reader():
         try:
@@ -157,7 +198,7 @@ def start_distance_sensor_reader():
         except Exception as e:
             print(f"I2C gyro reader error: {e}")
 
-    distance_thread = threading.Thread(target=distance_reader, daemon=True)
+    distance_thread = threading.Thread(target=mavlink_reader, daemon=True)
     distance_thread.start()
 
     gyro_thread = threading.Thread(target=gyro_reader, daemon=True)
@@ -173,6 +214,9 @@ def draw_osd(frame):
         roll_deg = attitude_state["roll_deg"]
         pitch_deg = attitude_state["pitch_deg"]
         yaw_deg = attitude_state["yaw_deg"]
+        mav_roll_deg = attitude_state["mav_roll_deg"]
+        mav_pitch_deg = attitude_state["mav_pitch_deg"]
+        mav_yaw_deg = attitude_state["mav_yaw_deg"]
         xgyro_dps = attitude_state["xgyro_dps"]
         ygyro_dps = attitude_state["ygyro_dps"]
         zgyro_dps = attitude_state["zgyro_dps"]
@@ -184,13 +228,13 @@ def draw_osd(frame):
 
     lines = [
         f"DIST: {current_distance if current_distance is not None else 'N/A'} cm",
-        f"VX: {vx_mps:+.3f} m/s",
-        f"VY: {vy_mps:+.3f} m/s",
-        f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
-        f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
-        f"ROLL: {roll_deg:+.1f} deg",
-        f"PITCH: {pitch_deg:+.1f} deg",
-        f"YAW: {yaw_deg:+.1f} deg",
+        # f"VX: {vx_mps:+.3f} m/s",
+        # f"VY: {vy_mps:+.3f} m/s",
+        # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
+        # f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
+        f"ROLL: {roll_deg:+.1f} deg (MAV: {mav_roll_deg:+.1f})",
+        f"PITCH: {pitch_deg:+.1f} deg (MAV: {mav_pitch_deg:+.1f})",
+        f"YAW: {yaw_deg:+.1f} deg (MAV: {mav_yaw_deg:+.1f})",
     ]
 
     overlay = frame.copy()
@@ -227,8 +271,9 @@ def draw_ground_reticle(frame):
         pitch_deg = attitude_state["pitch_deg"]
         yaw_deg = attitude_state["yaw_deg"]
 
-    pitch_px = int(np.clip(-pitch_deg * 2.0, -h * 0.2, h * 0.2))
-    roll_px = int(np.clip(roll_deg * 1.2, -w * 0.2, w * 0.2))
+    # increase sensitivity: amplify pitch and roll movement, and allow larger clamp
+    pitch_px = int(np.clip(-pitch_deg * 3.0, -h * 0.3, h * 0.3))
+    roll_px = int(np.clip(roll_deg * 2.0, -w * 0.3, w * 0.3))
     center = (cx + roll_px, cy + pitch_px)
 
     overlay = frame.copy()
