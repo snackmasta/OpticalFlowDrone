@@ -273,11 +273,11 @@ def draw_ground_reticle(frame):
 
     # increase sensitivity: amplify pitch and roll movement, and allow larger clamp
     pitch_px = int(np.clip(-pitch_deg * 3.0, -h * 0.3, h * 0.3))
-    roll_px = int(np.clip(roll_deg * 2.0, -w * 0.3, w * 0.3))
+    roll_px = int(np.clip(-roll_deg * 2.0, -w * 0.3, w * 0.3))
     center = (cx + roll_px, cy + pitch_px)
 
     overlay = frame.copy()
-    rotation_matrix = cv2.getRotationMatrix2D(center, -yaw_deg, 1.0)
+    rotation_matrix = cv2.getRotationMatrix2D(center, yaw_deg, 1.0)
 
     reticle = np.zeros_like(frame)
     cv2.circle(reticle, center, radius_outer, RETICLE_COLOR, 1, cv2.LINE_AA)
