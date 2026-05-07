@@ -30,7 +30,13 @@ GYRO_XOUT_H = 0x43
 GYRO_YOUT_H = 0x45
 GYRO_ZOUT_H = 0x47
 GYRO_LSB_PER_DPS = 131.0
-MAVLINK_ATTITUDE_MESSAGES = ("ATTITUDE", "AHRS2")
+COMPLEMENTARY_FILTER_ALPHA = 0.96
+
+gyro_bias = {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+}
 
 distance_state = {
     "current_distance": None,
@@ -44,11 +50,7 @@ attitude_state = {
     "xgyro_dps": 0.0,
     "ygyro_dps": 0.0,
     "zgyro_dps": 0.0,
-    "mav_roll_deg": 0.0,
-    "mav_pitch_deg": 0.0,
-    "mav_yaw_deg": 0.0,
     "last_update": 0.0,
-    "last_mavlink_update": 0.0,
 }
 attitude_lock = threading.Lock()
 accel_state = {
@@ -120,30 +122,40 @@ def blend_value(current_value, target_value, blend):
     return current_value + ((target_value - current_value) * blend)
 
 
-def update_attitude_from_mavlink(msg):
-    msg_type = msg.get_type()
-    if msg_type not in MAVLINK_ATTITUDE_MESSAGES:
-        return False
+def accel_to_roll_pitch(ax_g, ay_g, az_g):
+    magnitude = math.sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g)
+    if magnitude < 0.1:
+        return 0.0, 0.0
 
-    if not hasattr(msg, "roll") or not hasattr(msg, "pitch") or not hasattr(msg, "yaw"):
-        return False
+    ax_g /= magnitude
+    ay_g /= magnitude
+    az_g /= magnitude
 
-    roll_deg = math.degrees(msg.roll)
-    pitch_deg = math.degrees(msg.pitch)
-    yaw_deg = math.degrees(msg.yaw)
-    now = time.time()
+    roll_deg = math.degrees(math.atan2(ay_g, az_g))
+    pitch_deg = math.degrees(math.atan2(-ax_g, math.sqrt((ay_g * ay_g) + (az_g * az_g))))
+    return normalize_angle_deg(roll_deg), normalize_angle_deg(pitch_deg)
 
-    with attitude_lock:
-        attitude_state["mav_roll_deg"] = roll_deg
-        attitude_state["mav_pitch_deg"] = pitch_deg
-        attitude_state["mav_yaw_deg"] = yaw_deg
-        attitude_state["roll_deg"] = normalize_angle_deg(roll_deg)
-        attitude_state["pitch_deg"] = normalize_angle_deg(pitch_deg)
-        attitude_state["yaw_deg"] = normalize_angle_deg(yaw_deg)
-        attitude_state["last_mavlink_update"] = now
-        attitude_state["last_update"] = now
 
-    return True
+def calibrate_gyro_bias(bus, sample_count=200):
+    gx_total = 0.0
+    gy_total = 0.0
+    gz_total = 0.0
+
+    for _ in range(sample_count):
+        gx_total += read_i2c_word(bus, IMU_I2C_ADDR, GYRO_XOUT_H) / GYRO_LSB_PER_DPS
+        gy_total += read_i2c_word(bus, IMU_I2C_ADDR, GYRO_YOUT_H) / GYRO_LSB_PER_DPS
+        gz_total += read_i2c_word(bus, IMU_I2C_ADDR, GYRO_ZOUT_H) / GYRO_LSB_PER_DPS
+        time.sleep(0.01)
+
+    gyro_bias["x"] = gx_total / sample_count
+    gyro_bias["y"] = gy_total / sample_count
+    gyro_bias["z"] = gz_total / sample_count
+    print(
+        "Calibrated gyro bias: "
+        f"x={gyro_bias['x']:.4f} dps, "
+        f"y={gyro_bias['y']:.4f} dps, "
+        f"z={gyro_bias['z']:.4f} dps"
+    )
 
 
 def start_distance_sensor_reader():
@@ -165,10 +177,6 @@ def start_distance_sensor_reader():
                     with distance_lock:
                         distance_state["current_distance"] = msg.current_distance
                         distance_state["last_update"] = now
-                    continue
-
-                if update_attitude_from_mavlink(msg):
-                    continue
         except Exception as e:
             print(f"MAVLink reader error: {e}")
 
@@ -178,6 +186,8 @@ def start_distance_sensor_reader():
             bus.write_byte_data(IMU_I2C_ADDR, IMU_PWR_MGMT_1, 0)
             time.sleep(0.2)
             print(f"Connected to I2C MPU6050 on bus {IMU_I2C_BUS} address 0x{IMU_I2C_ADDR:02X}")
+
+            calibrate_gyro_bias(bus)
 
             last_imu_ts = None
             while True:
@@ -192,9 +202,11 @@ def start_distance_sensor_reader():
                 xaccel_g = ax_raw / ACCEL_LSB_PER_G
                 yaccel_g = ay_raw / ACCEL_LSB_PER_G
                 zaccel_g = az_raw / ACCEL_LSB_PER_G
-                xgyro_dps = gx_raw / GYRO_LSB_PER_DPS
-                ygyro_dps = gy_raw / GYRO_LSB_PER_DPS
-                zgyro_dps = gz_raw / GYRO_LSB_PER_DPS
+                xgyro_dps = (gx_raw / GYRO_LSB_PER_DPS) - gyro_bias["x"]
+                ygyro_dps = (gy_raw / GYRO_LSB_PER_DPS) - gyro_bias["y"]
+                zgyro_dps = (gz_raw / GYRO_LSB_PER_DPS) - gyro_bias["z"]
+
+                roll_accel_deg, pitch_accel_deg = accel_to_roll_pitch(xaccel_g, yaccel_g, zaccel_g)
 
                 with accel_lock:
                     accel_state["x_g"] = blend_value(accel_state["x_g"], xaccel_g, 0.2)
@@ -209,14 +221,20 @@ def start_distance_sensor_reader():
 
                     if last_imu_ts is not None:
                         dt = now - last_imu_ts
-                        if dt > 0:
-                            attitude_state["roll_deg"] += xgyro_dps * dt
-                            attitude_state["pitch_deg"] += ygyro_dps * dt
-                            attitude_state["yaw_deg"] += zgyro_dps * dt
+                        if 0 < dt < 0.1:
+                            roll_gyro_deg = attitude_state["roll_deg"] + (xgyro_dps * dt)
+                            pitch_gyro_deg = attitude_state["pitch_deg"] + (ygyro_dps * dt)
+                            yaw_gyro_deg = attitude_state["yaw_deg"] + (zgyro_dps * dt)
 
-                            attitude_state["roll_deg"] = ((attitude_state["roll_deg"] + 180.0) % 360.0) - 180.0
-                            attitude_state["pitch_deg"] = ((attitude_state["pitch_deg"] + 180.0) % 360.0) - 180.0
-                            attitude_state["yaw_deg"] = ((attitude_state["yaw_deg"] + 180.0) % 360.0) - 180.0
+                            attitude_state["roll_deg"] = normalize_angle_deg(
+                                (COMPLEMENTARY_FILTER_ALPHA * roll_gyro_deg)
+                                + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * roll_accel_deg)
+                            )
+                            attitude_state["pitch_deg"] = normalize_angle_deg(
+                                (COMPLEMENTARY_FILTER_ALPHA * pitch_gyro_deg)
+                                + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * pitch_accel_deg)
+                            )
+                            attitude_state["yaw_deg"] = normalize_angle_deg(yaw_gyro_deg)
 
                     attitude_state["last_update"] = now
 
@@ -244,9 +262,6 @@ def draw_osd(frame):
         xgyro_dps = attitude_state["xgyro_dps"]
         ygyro_dps = attitude_state["ygyro_dps"]
         zgyro_dps = attitude_state["zgyro_dps"]
-        mav_roll_deg = attitude_state["mav_roll_deg"]
-        mav_pitch_deg = attitude_state["mav_pitch_deg"]
-        mav_yaw_deg = attitude_state["mav_yaw_deg"]
     with accel_lock:
         xaccel_g = accel_state["x_g"]
         yaccel_g = accel_state["y_g"]
@@ -264,9 +279,9 @@ def draw_osd(frame):
         # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
         f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
         f"ACCEL: X:{xaccel_g:+.2f}g Y:{yaccel_g:+.2f}g Z:{zaccel_g:+.2f}g",
-        f"ROLL: {roll_deg:+.1f} deg (MAV: {mav_roll_deg:+.1f})",
-        f"PITCH: {pitch_deg:+.1f} deg (MAV: {mav_pitch_deg:+.1f})",
-        f"YAW: {yaw_deg:+.1f} deg (MAV: {mav_yaw_deg:+.1f})",
+        f"ROLL: {roll_deg:+.1f} deg",
+        f"PITCH: {pitch_deg:+.1f} deg",
+        f"YAW: {yaw_deg:+.1f} deg",
     ]
 
     overlay = frame.copy()
