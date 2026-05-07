@@ -26,6 +26,10 @@ ACCEL_XOUT_H = 0x3B
 ACCEL_YOUT_H = 0x3D
 ACCEL_ZOUT_H = 0x3F
 ACCEL_LSB_PER_G = 16384.0
+GYRO_XOUT_H = 0x43
+GYRO_YOUT_H = 0x45
+GYRO_ZOUT_H = 0x47
+GYRO_LSB_PER_DPS = 131.0
 MAVLINK_ATTITUDE_MESSAGES = ("ATTITUDE", "AHRS2")
 
 distance_state = {
@@ -37,6 +41,9 @@ attitude_state = {
     "roll_deg": 0.0,
     "pitch_deg": 0.0,
     "yaw_deg": 0.0,
+    "xgyro_dps": 0.0,
+    "ygyro_dps": 0.0,
+    "zgyro_dps": 0.0,
     "mav_roll_deg": 0.0,
     "mav_pitch_deg": 0.0,
     "mav_yaw_deg": 0.0,
@@ -172,21 +179,48 @@ def start_distance_sensor_reader():
             time.sleep(0.2)
             print(f"Connected to I2C MPU6050 on bus {IMU_I2C_BUS} address 0x{IMU_I2C_ADDR:02X}")
 
+            last_imu_ts = None
             while True:
                 now = time.time()
                 ax_raw = read_i2c_word(bus, IMU_I2C_ADDR, ACCEL_XOUT_H)
                 ay_raw = read_i2c_word(bus, IMU_I2C_ADDR, ACCEL_YOUT_H)
                 az_raw = read_i2c_word(bus, IMU_I2C_ADDR, ACCEL_ZOUT_H)
+                gx_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_XOUT_H)
+                gy_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_YOUT_H)
+                gz_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_ZOUT_H)
 
                 xaccel_g = ax_raw / ACCEL_LSB_PER_G
                 yaccel_g = ay_raw / ACCEL_LSB_PER_G
                 zaccel_g = az_raw / ACCEL_LSB_PER_G
+                xgyro_dps = gx_raw / GYRO_LSB_PER_DPS
+                ygyro_dps = gy_raw / GYRO_LSB_PER_DPS
+                zgyro_dps = gz_raw / GYRO_LSB_PER_DPS
 
                 with accel_lock:
                     accel_state["x_g"] = blend_value(accel_state["x_g"], xaccel_g, 0.2)
                     accel_state["y_g"] = blend_value(accel_state["y_g"], yaccel_g, 0.2)
                     accel_state["z_g"] = blend_value(accel_state["z_g"], zaccel_g, 0.2)
                     accel_state["last_update"] = now
+
+                with attitude_lock:
+                    attitude_state["xgyro_dps"] = xgyro_dps
+                    attitude_state["ygyro_dps"] = ygyro_dps
+                    attitude_state["zgyro_dps"] = zgyro_dps
+
+                    if last_imu_ts is not None:
+                        dt = now - last_imu_ts
+                        if dt > 0:
+                            attitude_state["roll_deg"] += xgyro_dps * dt
+                            attitude_state["pitch_deg"] += ygyro_dps * dt
+                            attitude_state["yaw_deg"] += zgyro_dps * dt
+
+                            attitude_state["roll_deg"] = ((attitude_state["roll_deg"] + 180.0) % 360.0) - 180.0
+                            attitude_state["pitch_deg"] = ((attitude_state["pitch_deg"] + 180.0) % 360.0) - 180.0
+                            attitude_state["yaw_deg"] = ((attitude_state["yaw_deg"] + 180.0) % 360.0) - 180.0
+
+                    attitude_state["last_update"] = now
+
+                last_imu_ts = now
                 time.sleep(0.02)
         except Exception as e:
             print(f"I2C IMU reader error: {e}")
@@ -207,6 +241,9 @@ def draw_osd(frame):
         roll_deg = attitude_state["roll_deg"]
         pitch_deg = attitude_state["pitch_deg"]
         yaw_deg = attitude_state["yaw_deg"]
+        xgyro_dps = attitude_state["xgyro_dps"]
+        ygyro_dps = attitude_state["ygyro_dps"]
+        zgyro_dps = attitude_state["zgyro_dps"]
         mav_roll_deg = attitude_state["mav_roll_deg"]
         mav_pitch_deg = attitude_state["mav_pitch_deg"]
         mav_yaw_deg = attitude_state["mav_yaw_deg"]
@@ -225,6 +262,7 @@ def draw_osd(frame):
         # f"VX: {vx_mps:+.3f} m/s",
         # f"VY: {vy_mps:+.3f} m/s",
         # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
+        f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
         f"ACCEL: X:{xaccel_g:+.2f}g Y:{yaccel_g:+.2f}g Z:{zaccel_g:+.2f}g",
         f"ROLL: {roll_deg:+.1f} deg (MAV: {mav_roll_deg:+.1f})",
         f"PITCH: {pitch_deg:+.1f} deg (MAV: {mav_pitch_deg:+.1f})",
