@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MPU6050 Real-Time Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .status {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        
+        .status.connected {
+            color: #4ade80;
+        }
+        
+        .status.disconnected {
+            color: #ef4444;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        
+        .chart-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+            text-align: center;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+        
+        .values-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+        
+        .value-item {
+            text-align: center;
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .value-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .value-number {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .unit {
+            font-size: 0.8em;
+            color: #999;
+            margin-left: 5px;
+        }
+        
+        @media (max-width: 1024px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            header h1 {
+                font-size: 1.8em;
+            }
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 30px;
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 MPU6050 Sensor Dashboard</h1>
+            <p>Real-Time Accelerometer & Gyroscope Data</p>
+        </header>
+        
+        <div class="status connected" id="status">
+            ● Connected to Sensor
+        </div>
+        
+        <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="ymin" style="font-weight: bold; color: #333;">Y-Axis Min:</label>
+                    <input type="number" id="ymin" value="-2" step="0.5" style="width: 100px; padding: 8px; border: 2px solid #667eea; border-radius: 6px; font-size: 1em;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="ymax" style="font-weight: bold; color: #333;">Y-Axis Max:</label>
+                    <input type="number" id="ymax" value="2" step="0.5" style="width: 100px; padding: 8px; border: 2px solid #667eea; border-radius: 6px; font-size: 1em;">
+                </div>
+                <button id="applyRange" style="padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 1em;">Apply Range</button>
+                <button id="autoRange" style="padding: 8px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 1em;">Auto Range</button>
+            </div>
+        </div>
+        
+        <div class="charts-grid">
+            <!-- Accelerometer Chart -->
+            <div class="chart-container">
+                <div class="chart-title">📈 Accelerometer (g)</div>
+                <div class="chart-wrapper">
+                    <canvas id="accelChart"></canvas>
+                </div>
+                <div class="values-grid">
+                    <div class="value-item">
+                        <div class="value-label">X Axis</div>
+                        <div class="value-number"><span id="accel-x">0.0000</span><span class="unit">g</span></div>
+                    </div>
+                    <div class="value-item">
+                        <div class="value-label">Y Axis</div>
+                        <div class="value-number"><span id="accel-y">0.0000</span><span class="unit">g</span></div>
+                    </div>
+                    <div class="value-item">
+                        <div class="value-label">Z Axis</div>
+                        <div class="value-number"><span id="accel-z">0.0000</span><span class="unit">g</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gyroscope Chart -->
+            <div class="chart-container">
+                <div class="chart-title">🔄 Gyroscope (°/s)</div>
+                <div class="chart-wrapper">
+                    <canvas id="gyroChart"></canvas>
+                </div>
+                <div class="values-grid">
+                    <div class="value-item">
+                        <div class="value-label">X Axis</div>
+                        <div class="value-number"><span id="gyro-x">0.00</span><span class="unit">°/s</span></div>
+                    </div>
+                    <div class="value-item">
+                        <div class="value-label">Y Axis</div>
+                        <div class="value-number"><span id="gyro-y">0.00</span><span class="unit">°/s</span></div>
+                    </div>
+                    <div class="value-item">
+                        <div class="value-label">Z Axis</div>
+                        <div class="value-number"><span id="gyro-z">0.00</span><span class="unit">°/s</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            🚁 Drone Sensor Monitoring System | Auto-refreshing every 100ms
+        </div>
+    </div>
+
+    <script>
+        // Chart.js configuration
+        const accelCtx = document.getElementById('accelChart').getContext('2d');
+        const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+        
+        let yAxisMin = -2;
+        let yAxisMax = 2;
+        let autoRangeMode = true;
+        
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 0
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15,
+                        font: {
+                            size: 12,
+                            weight: 'bold'
+                        }
+                    }
+                },
+                filler: {
+                    propagate: true
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Time (seconds)'
+                    }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Value'
+                    },
+                    min: yAxisMin,
+                    max: yAxisMax
+                }
+            }
+        };
+        
+        const accelChart = new Chart(accelCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'X Axis',
+                        data: [],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Y Axis',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Z Axis',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: chartOptions
+        });
+        
+        const gyroChart = new Chart(gyroCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'X Axis',
+                        data: [],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Y Axis',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Z Axis',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: chartOptions
+        });
+        
+        // Update chart Y-axis range
+        function updateYAxisRange() {
+            accelChart.options.scales.y.min = autoRangeMode ? undefined : yAxisMin;
+            accelChart.options.scales.y.max = autoRangeMode ? undefined : yAxisMax;
+            gyroChart.options.scales.y.min = autoRangeMode ? undefined : yAxisMin;
+            gyroChart.options.scales.y.max = autoRangeMode ? undefined : yAxisMax;
+            accelChart.update();
+            gyroChart.update();
+        }
+        
+        // Event listeners for range controls
+        document.getElementById('applyRange').addEventListener('click', () => {
+            yAxisMin = parseFloat(document.getElementById('ymin').value);
+            yAxisMax = parseFloat(document.getElementById('ymax').value);
+            autoRangeMode = false;
+            updateYAxisRange();
+        });
+        
+        document.getElementById('autoRange').addEventListener('click', () => {
+            autoRangeMode = true;
+            updateYAxisRange();
+        });
+        
+        // Allow applying range with Enter key
+        document.getElementById('ymin').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('applyRange').click();
+        });
+        document.getElementById('ymax').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('applyRange').click();
+        });
+        
+        // Fetch and update data
+        async function updateCharts() {
+            try {
+                const response = await fetch('/api/sensor-data');
+                const data = await response.json();
+                
+                // Update accelerometer chart
+                accelChart.data.labels = data.timestamps;
+                accelChart.data.datasets[0].data = data.accel_x;
+                accelChart.data.datasets[1].data = data.accel_y;
+                accelChart.data.datasets[2].data = data.accel_z;
+                accelChart.update();
+                
+                // Update gyroscope chart
+                gyroChart.data.labels = data.timestamps;
+                gyroChart.data.datasets[0].data = data.gyro_x;
+                gyroChart.data.datasets[1].data = data.gyro_y;
+                gyroChart.data.datasets[2].data = data.gyro_z;
+                gyroChart.update();
+                
+                // Update value displays
+                if (data.accel_x.length > 0) {
+                    document.getElementById('accel-x').textContent = data.accel_x[data.accel_x.length - 1].toFixed(4);
+                    document.getElementById('accel-y').textContent = data.accel_y[data.accel_y.length - 1].toFixed(4);
+                    document.getElementById('accel-z').textContent = data.accel_z[data.accel_z.length - 1].toFixed(4);
+                    
+                    document.getElementById('gyro-x').textContent = data.gyro_x[data.gyro_x.length - 1].toFixed(2);
+                    document.getElementById('gyro-y').textContent = data.gyro_y[data.gyro_y.length - 1].toFixed(2);
+                    document.getElementById('gyro-z').textContent = data.gyro_z[data.gyro_z.length - 1].toFixed(2);
+                }
+                
+                // Update status
+                document.getElementById('status').textContent = '● Connected to Sensor';
+                document.getElementById('status').className = 'status connected';
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                document.getElementById('status').textContent = '● Disconnected from Sensor';
+                document.getElementById('status').className = 'status disconnected';
+            }
+        }
+        
+        // Update charts every 100ms
+        setInterval(updateCharts, 100);
+        
+        // Initial update
+        updateCharts();
+    </script>
+</body>
+</html>
