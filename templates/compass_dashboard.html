@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compass Dashboard</title>
+    <style>
+        :root {
+            --bg-1: #08111f;
+            --bg-2: #10243d;
+            --panel: rgba(10, 16, 28, 0.78);
+            --panel-border: rgba(148, 163, 184, 0.18);
+            --text: #e5eefc;
+            --muted: #96a8c4;
+            --accent: #4ade80;
+            --accent-2: #38bdf8;
+            --danger: #fb7185;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top, rgba(56, 189, 248, 0.25), transparent 32%),
+                radial-gradient(circle at 80% 20%, rgba(74, 222, 128, 0.15), transparent 26%),
+                linear-gradient(160deg, var(--bg-1), var(--bg-2));
+        }
+
+        body {
+            padding: 24px;
+        }
+
+        .shell {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: clamp(2rem, 5vw, 3.6rem);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .hero p {
+            margin: 10px 0 0;
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .pill {
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--panel-border);
+            color: var(--muted);
+            backdrop-filter: blur(12px);
+        }
+
+        .pill strong {
+            color: var(--text);
+        }
+
+        .pill.connected strong {
+            color: var(--accent);
+        }
+
+        .pill.disconnected strong {
+            color: var(--danger);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 24px;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 18px 22px 0;
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 1.05rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+        }
+
+        .compass-stage {
+            padding: 22px;
+            display: grid;
+            place-items: center;
+        }
+
+        .compass {
+            width: min(72vw, 540px);
+            aspect-ratio: 1;
+            position: relative;
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at center, rgba(255,255,255,0.18), rgba(15, 23, 42, 0.15) 35%, rgba(2, 6, 23, 0.8) 68%, rgba(2, 6, 23, 0.95) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow:
+                inset 0 0 0 10px rgba(255,255,255,0.04),
+                inset 0 0 35px rgba(56, 189, 248, 0.12),
+                0 0 0 8px rgba(2, 6, 23, 0.5);
+        }
+
+        .compass::before {
+            content: "";
+            position: absolute;
+            inset: 18px;
+            border-radius: 50%;
+            border: 1px dashed rgba(148, 163, 184, 0.35);
+        }
+
+        .ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: conic-gradient(
+                rgba(248, 113, 113, 0.95) 0deg 3deg,
+                transparent 3deg 90deg,
+                rgba(56, 189, 248, 0.35) 90deg 92deg,
+                transparent 92deg 180deg,
+                rgba(74, 222, 128, 0.35) 180deg 182deg,
+                transparent 182deg 270deg,
+                rgba(56, 189, 248, 0.35) 270deg 272deg,
+                transparent 272deg 360deg
+            );
+            mask: radial-gradient(circle, transparent 0 77%, black 78% 100%);
+            opacity: 0.8;
+        }
+
+        .cardinal {
+            position: absolute;
+            inset: 0;
+            font-size: clamp(0.95rem, 2vw, 1.2rem);
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: rgba(229, 238, 252, 0.9);
+        }
+
+        .cardinal span {
+            position: absolute;
+            transform: translate(-50%, -50%);
+        }
+
+        .cardinal .north { top: 6%; left: 50%; color: #fb7185; }
+        .cardinal .east { top: 50%; left: 94%; }
+        .cardinal .south { top: 94%; left: 50%; }
+        .cardinal .west { top: 50%; left: 6%; }
+
+        .marks {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at center, transparent 0 58%, rgba(255,255,255,0.08) 58.5% 59.3%, transparent 59.6% 100%),
+                repeating-conic-gradient(from -2deg, rgba(255,255,255,0.15) 0deg 1deg, transparent 1deg 15deg);
+            mask: radial-gradient(circle, transparent 0 57%, black 58% 100%);
+        }
+
+        .needle {
+            position: absolute;
+            inset: 0;
+            transform: rotate(var(--heading, 0deg));
+            transition: transform 180ms linear;
+        }
+
+        .needle::before,
+        .needle::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .needle::before {
+            top: 12%;
+            width: 0;
+            height: 0;
+            border-left: 18px solid transparent;
+            border-right: 18px solid transparent;
+            border-bottom: 150px solid rgba(248, 113, 113, 0.95);
+            filter: drop-shadow(0 0 18px rgba(248, 113, 113, 0.45));
+        }
+
+        .needle::after {
+            bottom: 12%;
+            width: 0;
+            height: 0;
+            border-left: 18px solid transparent;
+            border-right: 18px solid transparent;
+            border-top: 150px solid rgba(56, 189, 248, 0.95);
+            filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.4));
+        }
+
+        .hub {
+            position: absolute;
+            inset: 50% auto auto 50%;
+            width: 42px;
+            height: 42px;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background: linear-gradient(145deg, #e2e8f0, #64748b);
+            border: 4px solid rgba(15, 23, 42, 0.85);
+            box-shadow: 0 0 0 10px rgba(255,255,255,0.06);
+        }
+
+        .readout {
+            display: grid;
+            gap: 16px;
+            padding: 0 22px 22px;
+        }
+
+        .heading-value {
+            font-size: clamp(2.5rem, 7vw, 4.6rem);
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+        }
+
+        .heading-subtitle {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stat {
+            padding: 14px;
+            border-radius: 18px;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .timeline {
+            display: grid;
+            gap: 8px;
+            padding: 0 22px 22px;
+        }
+
+        .sparkline {
+            height: 100px;
+            border-radius: 18px;
+            background:
+                linear-gradient(180deg, rgba(148,163,184,0.12), rgba(15,23,42,0.7)),
+                repeating-linear-gradient(90deg, transparent 0 19px, rgba(255,255,255,0.06) 19px 20px);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .sparkline::after {
+            content: "";
+            position: absolute;
+            inset: auto 0 0 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, rgba(74, 222, 128, 0.95), rgba(56, 189, 248, 0.95), transparent);
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: var(--accent);
+            box-shadow: 0 0 14px rgba(74, 222, 128, 0.85);
+        }
+
+        .status-dot.offline {
+            background: var(--danger);
+            box-shadow: 0 0 14px rgba(251, 113, 133, 0.85);
+        }
+
+        @media (max-width: 960px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="hero">
+            <h1>Compass Dashboard</h1>
+            <p>Live HMC5883L heading visualization</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="pill" id="connectionPill"><span class="status-dot" id="statusDot"></span><strong id="statusText">Connecting</strong></div>
+            <div class="pill">Heading: <strong id="smallHeading">0.0°</strong></div>
+            <div class="pill">Direction: <strong id="smallCardinal">N</strong></div>
+        </div>
+
+        <div class="grid">
+            <section class="panel">
+                <div class="panel-head">
+                    <h2 class="panel-title">Compass Rose</h2>
+                </div>
+                <div class="compass-stage">
+                    <div class="compass" id="compass" style="--heading: 0deg;">
+                        <div class="ring"></div>
+                        <div class="marks"></div>
+                        <div class="cardinal">
+                            <span class="north">N</span>
+                            <span class="east">E</span>
+                            <span class="south">S</span>
+                            <span class="west">W</span>
+                        </div>
+                        <div class="needle" id="needle"></div>
+                        <div class="hub"></div>
+                    </div>
+                </div>
+                <div class="readout">
+                    <div class="heading-value"><span id="headingValue">0.0</span>°</div>
+                    <div class="heading-subtitle">The red tip points magnetic north relative to the sensor.</div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2 class="panel-title">Sensor Readings</h2>
+                </div>
+                <div class="readout">
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-label">X Axis</div>
+                            <div class="stat-value" id="xValue">0</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Y Axis</div>
+                            <div class="stat-value" id="yValue">0</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Z Axis</div>
+                            <div class="stat-value" id="zValue">0</div>
+                        </div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-label">Compass Direction</div>
+                            <div class="stat-value" id="cardinalValue">N</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Samples</div>
+                            <div class="stat-value" id="sampleCount">0</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Status</div>
+                            <div class="stat-value" id="statusValue">Live</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="timeline">
+                    <div class="sparkline"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        const compass = document.getElementById('compass');
+        const headingValue = document.getElementById('headingValue');
+        const smallHeading = document.getElementById('smallHeading');
+        const smallCardinal = document.getElementById('smallCardinal');
+        const cardinalValue = document.getElementById('cardinalValue');
+        const xValue = document.getElementById('xValue');
+        const yValue = document.getElementById('yValue');
+        const zValue = document.getElementById('zValue');
+        const sampleCount = document.getElementById('sampleCount');
+        const statusText = document.getElementById('statusText');
+        const statusValue = document.getElementById('statusValue');
+        const statusDot = document.getElementById('statusDot');
+        const connectionPill = document.getElementById('connectionPill');
+
+        function headingToCardinal(heading) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            return directions[Math.floor((heading + 22.5) / 45) % 8];
+        }
+
+        async function updateCompass() {
+            try {
+                const response = await fetch('/api/compass-data');
+                const data = await response.json();
+                const latest = data.latest || {};
+                const heading = latest.heading ?? 0;
+                const cardinal = latest.cardinal || headingToCardinal(heading);
+
+                compass.style.setProperty('--heading', `${heading}deg`);
+                headingValue.textContent = Number(heading).toFixed(1);
+                smallHeading.textContent = `${Number(heading).toFixed(1)}°`;
+                smallCardinal.textContent = cardinal;
+                cardinalValue.textContent = cardinal;
+                xValue.textContent = latest.x ?? 0;
+                yValue.textContent = latest.y ?? 0;
+                zValue.textContent = latest.z ?? 0;
+                sampleCount.textContent = data.heading ? data.heading.length : 0;
+                statusText.textContent = 'Connected';
+                statusValue.textContent = 'Live';
+                statusDot.classList.remove('offline');
+                connectionPill.classList.remove('disconnected');
+                connectionPill.classList.add('connected');
+            } catch (error) {
+                statusText.textContent = 'Disconnected';
+                statusValue.textContent = 'Retrying';
+                statusDot.classList.add('offline');
+                connectionPill.classList.remove('connected');
+                connectionPill.classList.add('disconnected');
+                console.error('Failed to update compass:', error);
+            }
+        }
+
+        updateCompass();
+        setInterval(updateCompass, 100);
+    </script>
+</body>
+</html>
