@@ -75,6 +75,9 @@ accel_state = {
     "x_g": 0.0,
     "y_g": 0.0,
     "z_g": 0.0,
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "tilt_deg": 0.0,
     "last_update": 0.0,
 }
 accel_lock = threading.Lock()
@@ -149,7 +152,7 @@ def invert_compass_heading_deg(heading_deg):
 
 
 def compass_cardinal_from_heading_deg(heading_deg):
-    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    directions = ["N", "NW", "W", "SW", "S", "SE", "E", "NE"]   
     normalized_heading_deg = heading_deg % 360.0
     index = int((normalized_heading_deg + 22.5) // 45.0) % 8
     return directions[index]
@@ -200,6 +203,43 @@ def draw_compass_widget(frame, heading_deg, age_s):
     cv2.putText(compass_overlay, label, (center[0] - radius_outer, center[1] + radius_outer + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 255), 1, cv2.LINE_AA)
 
     return cv2.addWeighted(frame, 1.0, compass_overlay, 0.85, 0)
+
+
+def draw_imu_analysis_widget(frame, imu_roll_deg, imu_pitch_deg, imu_yaw_deg, accel_roll_deg, accel_pitch_deg, accel_tilt_deg):
+    h, w = frame.shape[:2]
+    box_w = min(300, max(220, int(w * 0.34)))
+    box_h = 166
+    x0 = w - box_w - 14
+    y0 = min(max(130, h // 5), h - box_h - 14)
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(overlay, 0.48, frame, 0.52, 0)
+
+    cv2.putText(frame, "IMU / ACCEL ANALYSIS", (x0 + 10, y0 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 1, cv2.LINE_AA)
+
+    def draw_signed_bar(label, value_deg, row, color):
+        y = y0 + 38 + (row * 22)
+        bar_x0 = x0 + 104
+        bar_x1 = x0 + box_w - 12
+        center_x = (bar_x0 + bar_x1) // 2
+        span = (bar_x1 - bar_x0) // 2
+        v = float(np.clip(value_deg, -180.0, 180.0))
+        end_x = int(center_x + (v / 180.0) * span)
+
+        cv2.putText(frame, f"{label} {value_deg:+6.1f}", (x0 + 10, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.46, color, 1, cv2.LINE_AA)
+        cv2.line(frame, (bar_x0, y), (bar_x1, y), (110, 110, 110), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y - 4), (center_x, y + 4), (150, 150, 150), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y), (end_x, y), color, 2, cv2.LINE_AA)
+
+    draw_signed_bar("IMU R", imu_roll_deg, 0, (0, 180, 255))
+    draw_signed_bar("IMU P", imu_pitch_deg, 1, (0, 180, 255))
+    draw_signed_bar("IMU Y", imu_yaw_deg, 2, (0, 180, 255))
+    draw_signed_bar("ACC R", accel_roll_deg, 3, (0, 255, 255))
+    draw_signed_bar("ACC P", accel_pitch_deg, 4, (0, 255, 255))
+    draw_signed_bar("A TLT", accel_tilt_deg, 5, (0, 255, 140))
+
+    return frame
 
 
 def blend_value(current_value, target_value, blend):
@@ -393,6 +433,14 @@ def start_distance_sensor_reader():
                     accel_state["x_g"] = blend_value(accel_state["x_g"], xaccel_g, 0.2)
                     accel_state["y_g"] = blend_value(accel_state["y_g"], yaccel_g, 0.2)
                     accel_state["z_g"] = blend_value(accel_state["z_g"], zaccel_g, 0.2)
+                    accel_state["roll_deg"] = roll_accel_deg
+                    accel_state["pitch_deg"] = pitch_accel_deg
+                    accel_state["tilt_deg"] = math.degrees(
+                        math.atan2(
+                            math.sqrt((xaccel_g * xaccel_g) + (yaccel_g * yaccel_g)),
+                            max(1e-6, abs(zaccel_g)),
+                        )
+                    )
                     accel_state["last_update"] = now
 
                 with attitude_lock:
@@ -464,6 +512,9 @@ def draw_osd(frame):
         xaccel_g = accel_state["x_g"]
         yaccel_g = accel_state["y_g"]
         zaccel_g = accel_state["z_g"]
+        accel_roll_deg = accel_state["roll_deg"]
+        accel_pitch_deg = accel_state["pitch_deg"]
+        accel_tilt_deg = accel_state["tilt_deg"]
     with compass_lock:
         compass_heading_deg = compass_state["heading_deg"]
         compass_timestamp = compass_state["timestamp"]
@@ -510,6 +561,15 @@ def draw_osd(frame):
     if compass_timestamp:
         compass_age_s = max(0.0, time.time() - compass_timestamp)
     frame = draw_compass_widget(frame, compass_heading_deg, compass_age_s)
+    frame = draw_imu_analysis_widget(
+        frame,
+        roll_deg,
+        pitch_deg,
+        yaw_deg,
+        accel_roll_deg,
+        accel_pitch_deg,
+        accel_tilt_deg,
+    )
 
     return frame
 
