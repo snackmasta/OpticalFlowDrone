@@ -99,6 +99,8 @@ CAMERA_HORIZONTAL_FOV_DEG = 62.2
 MAX_FLOW_STEP_PX = 80.0
 MIN_INLIERS_FOR_VELOCITY = 3
 RETICLE_COLOR = (0, 220, 220)
+RETICLE_ROLL_SCALE_PX_PER_DEG = 4.5
+RETICLE_PITCH_SCALE_PX_PER_DEG = 6.0
 feature_params = dict(maxCorners=TRACK_FEATURE_COUNT, qualityLevel=0.3, minDistance=5, blockSize=5)
 lk_params = dict(
     winSize=(9, 9),
@@ -589,9 +591,9 @@ def draw_ground_reticle(frame):
         xaccel_g = accel_state["x_g"]
         yaccel_g = accel_state["y_g"]
 
-    # increase sensitivity: amplify pitch and roll movement, and allow larger clamp
-    pitch_px = int(np.clip(-pitch_deg * 3.0, -h * 0.3, h * 0.3))
-    roll_px = int(np.clip(roll_deg * 2.0, -w * 0.3, w * 0.3))
+    # plane-style HUD motion: stronger pitch and roll offsets than the previous tuning
+    pitch_px = int(np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -h * 0.35, h * 0.35))
+    roll_px = int(np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -w * 0.35, w * 0.35))
     center = (cx + roll_px, cy + pitch_px)
 
     overlay = frame.copy()
