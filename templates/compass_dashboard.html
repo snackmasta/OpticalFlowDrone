@@ -524,6 +524,35 @@
         const vectorY = document.getElementById('vectorY');
         const vectorZ = document.getElementById('vectorZ');
         const magnitudeDisplay = document.getElementById('magnitude');
+        // Use a continuous (unwrapped) angle for CSS rotation so transitions
+        // always take the shortest path. Keep a separate normalized value for
+        // numeric readouts.
+        let displayedAngleContinuous = null;
+
+        function normalizeHeading(heading) {
+            return ((heading % 360) + 360) % 360;
+        }
+
+        function shortestHeadingDelta(fromHeading, toHeading) {
+            return ((toHeading - fromHeading + 540) % 360) - 180;
+        }
+
+        function updateDisplayedHeading(rawHeading) {
+            const target = normalizeHeading(rawHeading);
+
+            if (displayedAngleContinuous === null) {
+                displayedAngleContinuous = target;
+            } else {
+                const currentNorm = normalizeHeading(displayedAngleContinuous);
+                const delta = shortestHeadingDelta(currentNorm, target);
+                // Smooth toward the target along the shortest arc
+                displayedAngleContinuous += delta * 0.25;
+            }
+
+            // Return a normalized heading for numeric displays, but keep
+            // displayedAngleContinuous as the absolute angle used for CSS.
+            return normalizeHeading(displayedAngleContinuous);
+        }
 
         // Three.js 3D Scene Setup
         let scene, camera, renderer, vectorArrow, coordinateAxes;
@@ -670,14 +699,19 @@
                 const response = await fetch('/api/compass-data');
                 const data = await response.json();
                 const latest = data.latest || {};
-                const heading = latest.heading ?? 0;
+                const rawHeading = latest.heading ?? 0;
+                const heading = updateDisplayedHeading(Number(rawHeading) || 0);
                 const cardinal = latest.cardinal || headingToCardinal(heading);
                 const x = latest.x ?? 0;
                 const y = latest.y ?? 0;
                 const z = latest.z ?? 0;
 
                 // Update 2D compass
-                compass.style.setProperty('--heading', `${heading}deg`);
+                // For the visual rotation use the continuous angle so CSS
+                // transitions rotate the short way. Fall back to `heading` if
+                // the continuous angle isn't yet initialized.
+                const visualAngle = (displayedAngleContinuous !== null) ? displayedAngleContinuous : heading;
+                compass.style.setProperty('--heading', `${visualAngle}deg`);
                 headingValue.textContent = Number(heading).toFixed(1);
                 smallHeading.textContent = `${Number(heading).toFixed(1)}°`;
                 smallCardinal.textContent = cardinal;
@@ -711,24 +745,17 @@
             }
         }
 
-        // Initialize Three.js when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
+        function startCompassDashboard() {
             initThreeJS();
             updateCompass();
             setInterval(updateCompass, 100);
-        });
-
-        // Fallback in case DOMContentLoaded already fired
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                initThreeJS();
-            });
-        } else {
-            initThreeJS();
         }
 
-        updateCompass();
-        setInterval(updateCompass, 100);
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startCompassDashboard);
+        } else {
+            startCompassDashboard();
+        }
     </script>
 </body>
 </html>
