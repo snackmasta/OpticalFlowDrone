@@ -6,6 +6,8 @@ Real-time magnetic heading visualization via web interface.
 
 import json
 import math
+import struct
+from multiprocessing import shared_memory
 from pathlib import Path
 import threading
 import time
@@ -25,6 +27,13 @@ DATA_Y_MSB = 0x07
 
 DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
+SHM_NAME = "compass_heading_stream"
+SHM_MAGIC = b"CHDG"
+SHM_HEADER_FORMAT = "<4sII"
+SHM_RECORD_FORMAT = "<6d"
+SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
+SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
+SHM_SIZE = SHM_HEADER_SIZE + (MAX_SAMPLES * SHM_RECORD_SIZE)
 
 heading_zero_offset = 0.0
 ZERO_OFFSET_FILE = Path(__file__).resolve().with_name("compass_zero_offset.json")
@@ -51,6 +60,8 @@ latest_state = {
 
 app = Flask(__name__)
 data_lock = threading.Lock()
+shared_memory_lock = threading.Lock()
+heading_stream_shm = None
 
 
 def normalize_heading(heading):
@@ -88,6 +99,69 @@ def save_heading_zero_offset():
         tmp_file.replace(ZERO_OFFSET_FILE)
     except OSError as exc:
         print(f"Compass zero offset save failed: {exc}")
+
+
+def attach_heading_stream_shm():
+    global heading_stream_shm
+
+    with shared_memory_lock:
+        if heading_stream_shm is not None:
+            return heading_stream_shm
+
+        try:
+            heading_stream_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
+        except FileExistsError:
+            heading_stream_shm = shared_memory.SharedMemory(name=SHM_NAME, create=False)
+            if heading_stream_shm.size < SHM_SIZE:
+                heading_stream_shm.close()
+                try:
+                    heading_stream_shm.unlink()
+                except FileNotFoundError:
+                    pass
+                heading_stream_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
+
+        struct.pack_into(SHM_HEADER_FORMAT, heading_stream_shm.buf, 0, SHM_MAGIC, 0, 0)
+        return heading_stream_shm
+
+
+def write_heading_stream_sample(timestamp, raw_heading, heading, x, y, z):
+    shm = attach_heading_stream_shm()
+
+    with shared_memory_lock:
+        _, write_index, sample_count = struct.unpack_from(SHM_HEADER_FORMAT, shm.buf, 0)
+        record_offset = SHM_HEADER_SIZE + (write_index * SHM_RECORD_SIZE)
+        struct.pack_into(
+            SHM_RECORD_FORMAT,
+            shm.buf,
+            record_offset,
+            float(timestamp),
+            float(raw_heading),
+            float(heading),
+            float(x),
+            float(y),
+            float(z),
+        )
+
+        write_index = (write_index + 1) % MAX_SAMPLES
+        sample_count = min(sample_count + 1, MAX_SAMPLES)
+        struct.pack_into(SHM_HEADER_FORMAT, shm.buf, 0, SHM_MAGIC, write_index, sample_count)
+
+
+def close_heading_stream_shm():
+    global heading_stream_shm
+
+    with shared_memory_lock:
+        if heading_stream_shm is None:
+            return
+
+        try:
+            heading_stream_shm.close()
+        finally:
+            try:
+                heading_stream_shm.unlink()
+            except FileNotFoundError:
+                pass
+            heading_stream_shm = None
 
 
 def read_word(bus, reg):
@@ -158,6 +232,8 @@ def compass_thread_worker():
                     "zero_offset": round(heading_zero_offset, 2),
                     "error": None,
                 })
+
+            write_heading_stream_sample(timestamp, raw_heading, heading, x, y, z)
 
             time.sleep(0.1)
         except Exception as exc:
@@ -231,6 +307,7 @@ def reset_compass_zero():
 
 def main():
     load_heading_zero_offset()
+    attach_heading_stream_shm()
 
     sensor_thread = threading.Thread(target=compass_thread_worker, daemon=True)
     sensor_thread.start()
@@ -242,7 +319,10 @@ def main():
     print("Open your browser to: http://localhost:5002")
     print("=" * 60 + "\n")
 
-    app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+    try:
+        app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
+    finally:
+        close_heading_stream_shm()
 
 
 if __name__ == "__main__":
