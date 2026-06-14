@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Memory Registry & Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        :root {
+            --bg-base: #060b16;
+            --bg-surface: rgba(13, 22, 41, 0.75);
+            --bg-card: rgba(22, 38, 70, 0.4);
+            --border-glow: rgba(14, 165, 233, 0.15);
+            --border-color: rgba(148, 163, 184, 0.12);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent-primary: #0ea5e9;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --accent-purple: #a855f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            padding: 24px;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(14, 165, 233, 0.12) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.1) 0%, transparent 40%);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        .brand h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #38bdf8 0%, #a855f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-top: 4px;
+        }
+
+        .system-status {
+            display: flex;
+            gap: 16px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 99px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-success);
+            box-shadow: 0 0 10px var(--accent-success);
+        }
+
+        .badge .dot.offline {
+            background: var(--accent-danger);
+            box-shadow: 0 0 10px var(--accent-danger);
+        }
+
+        .layout-grid {
+            display: grid;
+            grid-template-columns: 450px 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1100px) {
+            .layout-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            backdrop-filter: blur(16px);
+            padding: 24px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            margin-bottom: 24px;
+            transition: border-color 0.3s ease;
+        }
+
+        .card.active-card {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 20px var(--border-glow);
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            letter-spacing: 0.02em;
+        }
+
+        /* Registry Styles */
+        .shm-item {
+            padding: 16px;
+            border-radius: 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .shm-item:hover {
+            border-color: rgba(14, 165, 233, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .shm-item.selected {
+            border-color: var(--accent-primary);
+            background: rgba(14, 165, 233, 0.08);
+        }
+
+        .shm-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .shm-name {
+            font-weight: 700;
+            font-size: 1.05rem;
+        }
+
+        .status-indicator {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 800;
+        }
+
+        .status-active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+        }
+
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-danger);
+        }
+
+        .shm-details {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        /* Console/Hex table style */
+        .hex-table {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .hex-table th {
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--accent-primary);
+        }
+
+        .hex-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            vertical-align: top;
+        }
+
+        .hex-addr {
+            color: var(--accent-purple);
+            font-weight: bold;
+        }
+
+        .hex-bytes {
+            color: var(--text-main);
+            letter-spacing: 1px;
+        }
+
+        .hex-ascii {
+            color: var(--accent-success);
+        }
+
+        /* Buttons & Controls */
+        button {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--text-muted);
+        }
+
+        button.btn-primary {
+            background: var(--accent-primary);
+            color: #fff;
+            border: none;
+        }
+
+        button.btn-primary:hover {
+            background: #0284c7;
+            box-shadow: 0 0 12px rgba(14, 165, 233, 0.4);
+        }
+
+        button.btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-danger);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        button.btn-danger:hover {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        button.btn-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        button.btn-success:hover {
+            background: var(--accent-success);
+            color: #fff;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Data table styles */
+        .data-table-container {
+            overflow-x: auto;
+            max-height: 350px;
+            margin-top: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+
+        .data-table th {
+            background: rgba(15, 27, 50, 0.95);
+            padding: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+        }
+
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .data-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .data-table tr.newest-row {
+            background: rgba(16, 185, 129, 0.08);
+            animation: highlight-fade 1.5s ease-out;
+        }
+
+        @keyframes highlight-fade {
+            0% { background: rgba(16, 185, 129, 0.3); }
+            100% { background: rgba(16, 185, 129, 0.08); }
+        }
+
+        /* Forms */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .form-group input, .form-group select {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            color: var(--text-main);
+            font-family: inherit;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .mock-controls {
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 16px;
+            border: 1px dashed var(--border-color);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 220px;
+            width: 100%;
+            margin-top: 16px;
+        }
+
+        .panel-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <h1>Shared Memory Telemetry</h1>
+                <p>Real-time visual inspection & data mocking utility</p>
+            </div>
+            <div class="system-status">
+                <div class="badge">
+                    <span class="dot"></span>
+                    <span>Service Online</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="layout-grid">
+            <!-- Sidebar: Registry list -->
+            <div class="sidebar">
+                <div class="card">
+                    <h2>Registered Segments</h2>
+                    <div id="shm-registry-list">
+                        <!-- Filled dynamically -->
+                    </div>
+                </div>
+
+                <div class="card" id="mock-panel">
+                    <h2>
+                        <span>Mock Data Injector</span>
+                        <span id="mock-badge" class="status-indicator status-inactive" style="display:none;">Mocking</span>
+                    </h2>
+                    <p class="brand p" style="margin-bottom:12px;">Simulate live sensors feeding data into the shared memory segment.</p>
+                    
+                    <div class="btn-group" style="margin-bottom:16px;">
+                        <button class="btn-success" id="btn-start-mock">Start Mocking</button>
+                        <button class="btn-danger" id="btn-stop-mock" style="display:none;">Stop Mocking</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mock-frequency">Signal Frequency (Hz)</label>
+                        <input type="number" id="mock-frequency" value="10" min="1" max="100">
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="mock-noise">Noise Level</label>
+                            <input type="number" id="mock-noise" step="0.01" value="0.05" min="0" max="5">
+                        </div>
+                        <div class="form-group">
+                            <label for="mock-mode">Wave Mode</label>
+                            <select id="mock-mode">
+                                <option value="sine">Sine Wave</option>
+                                <option value="random">Random Walk</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Panel: Detailed inspection -->
+            <div class="main-panel">
+                <div class="card active-card" id="inspector-card">
+                    <h2>
+                        <span id="selected-shm-title">No Segment Selected</span>
+                        <div class="panel-header-actions">
+                            <button class="btn-primary" id="btn-create-shm" style="display:none;">Create Segment</button>
+                            <button class="btn-danger" id="btn-unlink-shm" style="display:none;">Unlink Segment</button>
+                        </div>
+                    </h2>
+
+                    <div id="shm-placeholder" style="padding:40px 0; text-align:center; color:var(--text-muted);">
+                        Select a shared memory segment from the sidebar list to inspect live buffer contents.
+                    </div>
+
+                    <div id="shm-inspector-content" style="display:none;">
+                        <!-- Sparkline Chart -->
+                        <div class="chart-container">
+                            <canvas id="liveChart"></canvas>
+                        </div>
+
+                        <!-- Decoded Fields Table -->
+                        <div style="margin-top:24px;">
+                            <h3>Latest Decoded Samples</h3>
+                            <div class="data-table-container">
+                                <table class="data-table" id="table-decoded-data">
+                                    <thead>
+                                        <tr id="table-decoded-headers">
+                                            <!-- Headers filled dynamically -->
+                                        </tr>
+                                    </thead>
+                                    <tbody id="table-decoded-rows">
+                                        <!-- Rows filled dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Raw Hex Viewer -->
+                        <div style="margin-top:24px;">
+                            <h3>Raw Memory Hex Buffer</h3>
+                            <div style="background: rgba(10, 16, 28, 0.9); border:1px solid var(--border-color); border-radius:12px; padding:16px; margin-top:10px; overflow-x:auto; max-height:250px;">
+                                <table class="hex-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 80px;">Offset</th>
+                                            <th>Hex Bytes</th>
+                                            <th style="width: 150px;">ASCII</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="hex-rows">
+                                        <!-- Hex rows filled dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedShmName = null;
+        let updateIntervalId = null;
+        let chartInstance = null;
+        let lastTimestampSeen = null;
+
+        // Fetch registry listing
+        async function fetchRegistry() {
+            try {
+                const response = await fetch('/api/shm/list');
+                const data = await response.json();
+                renderRegistryList(data.segments);
+            } catch (err) {
+                console.error("Error fetching registry:", err);
+            }
+        }
+
+        function renderRegistryList(segments) {
+            const container = document.getElementById('shm-registry-list');
+            container.innerHTML = '';
+
+            segments.forEach(seg => {
+                const item = document.createElement('div');
+                item.className = `shm-item ${seg.name === selectedShmName ? 'selected' : ''}`;
+                item.onclick = () => selectSegment(seg);
+
+                const statusClass = seg.active ? 'status-active' : 'status-inactive';
+                const statusLabel = seg.active ? 'Active' : 'Uninitialized';
+
+                item.innerHTML = `
+                    <div class="shm-header">
+                        <div class="shm-name">${seg.name}</div>
+                        <span class="status-indicator ${statusClass}">${statusLabel}</span>
+                    </div>
+                    <div class="shm-details">
+                        <div>Size: <strong>${seg.size_bytes} B</strong></div>
+                        <div>Records: <strong>${seg.max_samples} max</strong></div>
+                        <div>Header fmt: <strong>${seg.header_format}</strong></div>
+                        <div>Record fmt: <strong>${seg.record_format}</strong></div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function selectSegment(seg) {
+            selectedShmName = seg.name;
+            
+            // Highlight list selection
+            const items = document.querySelectorAll('.shm-item');
+            items.forEach(el => el.classList.remove('selected'));
+            fetchRegistry(); // Re-render lists to update highlight
+
+            // Set up Inspector card
+            document.getElementById('selected-shm-title').textContent = seg.name;
+            document.getElementById('shm-placeholder').style.display = 'none';
+            document.getElementById('shm-inspector-content').style.display = 'block';
+
+            // Show appropriate actions
+            const btnUnlink = document.getElementById('btn-unlink-shm');
+            const btnCreate = document.getElementById('btn-create-shm');
+            if (seg.active) {
+                btnUnlink.style.display = 'block';
+                btnCreate.style.display = 'none';
+            } else {
+                btnUnlink.style.display = 'none';
+                btnCreate.style.display = 'block';
+            }
+
+            // Sync mock button visibility and status
+            const mockBadge = document.getElementById('mock-badge');
+            if (seg.mocking) {
+                mockBadge.style.display = 'inline-block';
+                mockBadge.className = 'status-indicator status-active';
+                document.getElementById('btn-start-mock').style.display = 'none';
+                document.getElementById('btn-stop-mock').style.display = 'block';
+            } else {
+                mockBadge.style.display = 'none';
+                document.getElementById('btn-start-mock').style.display = 'block';
+                document.getElementById('btn-stop-mock').style.display = 'none';
+            }
+
+            // Reset chart
+            initChart(seg.fields);
+            
+            // Clear table data
+            const headersTr = document.getElementById('table-decoded-headers');
+            headersTr.innerHTML = '<th>Timestamp</th>' + seg.fields.filter(f => f !== 'timestamp').map(f => `<th>${f}</th>`).join('');
+            document.getElementById('table-decoded-rows').innerHTML = '';
+            lastTimestampSeen = null;
+
+            // Start update polling
+            if (updateIntervalId) {
+                clearInterval(updateIntervalId);
+            }
+            updateIntervalId = setInterval(fetchTelemetryData, 200);
+            fetchTelemetryData();
+        }
+
+        async function fetchTelemetryData() {
+            if (!selectedShmName) return;
+
+            try {
+                const response = await fetch(`/api/shm/data/${selectedShmName}`);
+                if (!response.ok) {
+                    // Segment might have been unlinked
+                    return;
+                }
+                const data = await response.json();
+                
+                // Update header action buttons in case active state changed
+                const btnUnlink = document.getElementById('btn-unlink-shm');
+                const btnCreate = document.getElementById('btn-create-shm');
+                if (data.active) {
+                    btnUnlink.style.display = 'block';
+                    btnCreate.style.display = 'none';
+                } else {
+                    btnUnlink.style.display = 'none';
+                    btnCreate.style.display = 'block';
+                }
+
+                if (data.active) {
+                    updateHexViewer(data.raw_hex);
+                    updateDecodedTable(data.samples, data.fields);
+                    updateChart(data.samples, data.fields);
+                } else {
+                    document.getElementById('hex-rows').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Segment uninitialized</td></tr>';
+                    document.getElementById('table-decoded-rows').innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data available</td></tr>';
+                }
+            } catch (err) {
+                console.error("Telemetry fetch error:", err);
+            }
+        }
+
+        function updateHexViewer(hexBlocks) {
+            const tbody = document.getElementById('hex-rows');
+            tbody.innerHTML = '';
+
+            if (!hexBlocks || hexBlocks.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">No byte data</td></tr>';
+                return;
+            }
+
+            hexBlocks.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="hex-addr">${row.address}</td>
+                    <td class="hex-bytes">${row.hex}</td>
+                    <td class="hex-ascii">${row.ascii}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateDecodedTable(samples, fields) {
+            const tbody = document.getElementById('table-decoded-rows');
+            if (!samples || samples.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No records in buffer</td></tr>';
+                return;
+            }
+
+            // Render top 10 latest samples
+            const displayed = samples.slice(0, 15);
+            tbody.innerHTML = '';
+            
+            displayed.forEach((samp, idx) => {
+                const tr = document.createElement('tr');
+                if (idx === 0 && samp.timestamp !== lastTimestampSeen) {
+                    tr.className = 'newest-row';
+                    lastTimestampSeen = samp.timestamp;
+                }
+
+                // Format timestamp
+                let tsStr = "N/A";
+                if (samp.timestamp) {
+                    const date = new Date(samp.timestamp * 1000);
+                    tsStr = date.toLocaleTimeString() + '.' + String(date.getMilliseconds()).padStart(3, '0');
+                }
+
+                let rowHtml = `<td>${tsStr}</td>`;
+                fields.forEach(field => {
+                    if (field !== 'timestamp') {
+                        const val = samp[field];
+                        rowHtml += `<td>${typeof val === 'number' ? val.toFixed(4) : val}</td>`;
+                    }
+                });
+                
+                tr.innerHTML = rowHtml;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function initChart(fields) {
+            const ctx = document.getElementById('liveChart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // Create datasets for each numeric field except timestamp
+            const numericFields = fields.filter(f => f !== 'timestamp');
+            const colors = [
+                'rgb(14, 165, 233)', // sky
+                'rgb(168, 85, 247)', // purple
+                'rgb(16, 185, 129)', // green
+                'rgb(245, 158, 11)', // amber
+                'rgb(239, 68, 68)',  // red
+            ];
+
+            const datasets = numericFields.map((field, i) => ({
+                label: field,
+                borderColor: colors[i % colors.length],
+                borderWidth: 2,
+                pointRadius: 0,
+                data: [],
+                fill: false,
+                tension: 0.1
+            }));
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#94a3b8',
+                                font: { family: 'Outfit' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart(samples, fields) {
+            if (!chartInstance || !samples || samples.length === 0) return;
+
+            const numericFields = fields.filter(f => f !== 'timestamp');
+            
+            // Take the last 30 samples to display on graph (they come sorted newest-first, so reverse them)
+            const graphData = [...samples.slice(0, 30)].reverse();
+
+            chartInstance.data.labels = graphData.map(samp => {
+                const date = new Date(samp.timestamp * 1000);
+                return date.toLocaleTimeString(undefined, {hour12: false}) + '.' + String(date.getMilliseconds()).padStart(3, '0');
+            });
+
+            numericFields.forEach((field, dsIndex) => {
+                chartInstance.data.datasets[dsIndex].data = graphData.map(samp => samp[field]);
+            });
+
+            chartInstance.update();
+        }
+
+        // Action Buttons Setup
+        document.getElementById('btn-unlink-shm').addEventListener('click', async () => {
+            if (!selectedShmName || !confirm(`Are you sure you want to close and unlink ${selectedShmName}?`)) return;
+            try {
+                const response = await fetch(`/api/shm/unlink/${selectedShmName}`, { method: 'POST' });
+                if (response.ok) {
+                    await fetchRegistry();
+                    // Re-select current one to refresh UI state
+                    const cur = document.querySelector('.shm-item.selected');
+                    if (cur) cur.click();
+                }
+            } catch (err) {
+                alert("Error unlinking shared memory: " + err);
+            }
+        });
+
+        document.getElementById('btn-create-shm').addEventListener('click', async () => {
+            if (!selectedShmName) return;
+            try {
+                const response = await fetch(`/api/shm/create/${selectedShmName}`, { method: 'POST' });
+                if (response.ok) {
+                    await fetchRegistry();
+                    const cur = document.querySelector('.shm-item.selected');
+                    if (cur) cur.click();
+                }
+            } catch (err) {
+                alert("Error initializing shared memory: " + err);
+            }
+        });
+
+        // Mock Controls
+        document.getElementById('btn-start-mock').addEventListener('click', async () => {
+            if (!selectedShmName) return;
+            
+            const freq = document.getElementById('mock-frequency').value;
+            const noise = document.getElementById('mock-noise').value;
+            const mode = document.getElementById('mock-mode').value;
+
+            try {
+                const response = await fetch(`/api/shm/mock/${selectedShmName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'start', frequency: freq, noise: noise, mode: mode })
+                });
+
+                if (response.ok) {
+                    await fetchRegistry();
+                    // Refresh view
+                    const items = document.querySelectorAll('.shm-item');
+                    items.forEach(el => {
+                        if (el.querySelector('.shm-name').textContent === selectedShmName) {
+                            el.click();
+                        }
+                    });
+                }
+            } catch (err) {
+                alert("Error starting mock data generator: " + err);
+            }
+        });
+
+        document.getElementById('btn-stop-mock').addEventListener('click', async () => {
+            if (!selectedShmName) return;
+
+            try {
+                const response = await fetch(`/api/shm/mock/${selectedShmName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop' })
+                });
+
+                if (response.ok) {
+                    await fetchRegistry();
+                    // Refresh view
+                    const items = document.querySelectorAll('.shm-item');
+                    items.forEach(el => {
+                        if (el.querySelector('.shm-name').textContent === selectedShmName) {
+                            el.click();
+                        }
+                    });
+                }
+            } catch (err) {
+                alert("Error stopping mock data generator: " + err);
+            }
+        });
+
+        // Initialize Page
+        window.addEventListener('load', async () => {
+            await fetchRegistry();
+            // Automatically select first element if available
+            const first = document.querySelector('.shm-item');
+            if (first) first.click();
+        });
+    </script>
+</body>
+</html>
