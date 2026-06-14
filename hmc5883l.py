@@ -4,7 +4,9 @@ HMC5883L Compass Dashboard
 Real-time magnetic heading visualization via web interface.
 """
 
+import json
 import math
+from pathlib import Path
 import threading
 import time
 from collections import deque
@@ -25,6 +27,7 @@ DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
 
 heading_zero_offset = 0.0
+ZERO_OFFSET_FILE = Path(__file__).resolve().with_name("compass_zero_offset.json")
 
 compass_data = {
     "timestamps": deque(maxlen=MAX_SAMPLES),
@@ -50,6 +53,43 @@ app = Flask(__name__)
 data_lock = threading.Lock()
 
 
+def normalize_heading(heading):
+    return heading % 360
+
+
+def load_heading_zero_offset():
+    global heading_zero_offset
+
+    try:
+        with ZERO_OFFSET_FILE.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+        offset = float(payload.get("zero_offset", 0.0))
+    except FileNotFoundError:
+        offset = 0.0
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"Compass zero offset load failed: {exc}")
+        offset = 0.0
+
+    with data_lock:
+        heading_zero_offset = normalize_heading(offset)
+        latest_state["zero_offset"] = round(heading_zero_offset, 2)
+
+
+def save_heading_zero_offset():
+    with data_lock:
+        payload = {"zero_offset": round(heading_zero_offset, 2)}
+
+    tmp_file = ZERO_OFFSET_FILE.with_suffix(".tmp")
+    try:
+        with tmp_file.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+        tmp_file.replace(ZERO_OFFSET_FILE)
+    except OSError as exc:
+        print(f"Compass zero offset save failed: {exc}")
+
+
 def read_word(bus, reg):
     high = bus.read_byte_data(HMC5883L_ADDR, reg)
     low = bus.read_byte_data(HMC5883L_ADDR, reg + 1)
@@ -67,10 +107,6 @@ def compute_heading(x, y):
     if heading >= 360:
         heading -= 360
     return heading
-
-
-def normalize_heading(heading):
-    return heading % 360
 
 
 def apply_zero_offset(heading):
@@ -169,6 +205,8 @@ def set_compass_zero():
         heading_zero_offset = normalize_heading(latest_heading)
         latest_state["zero_offset"] = round(heading_zero_offset, 2)
 
+    save_heading_zero_offset()
+
     return jsonify({
         "success": True,
         "zero_offset": round(heading_zero_offset, 2),
@@ -183,6 +221,8 @@ def reset_compass_zero():
         heading_zero_offset = 0.0
         latest_state["zero_offset"] = 0.0
 
+    save_heading_zero_offset()
+
     return jsonify({
         "success": True,
         "zero_offset": 0.0,
@@ -190,6 +230,8 @@ def reset_compass_zero():
 
 
 def main():
+    load_heading_zero_offset()
+
     sensor_thread = threading.Thread(target=compass_thread_worker, daemon=True)
     sensor_thread.start()
 
