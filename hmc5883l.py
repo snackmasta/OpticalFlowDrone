@@ -27,6 +27,7 @@ DATA_Y_MSB = 0x07
 
 DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
+LOW_PASS_ALPHA = 0.25 # to toggle between more responsive (higher alpha) or smoother (lower alpha) heading readings
 SHM_NAME = "compass_heading_stream" # Shared memory name for compass data stream
 SHM_MAGIC = b"CHDG" # Magic bytes to identify valid shared memory segment
 SHM_HEADER_FORMAT = "<4sII" # Header: magic (4s), write_index (I), sample_count (I)
@@ -189,6 +190,12 @@ def apply_zero_offset(heading):
     return normalize_heading(heading - offset)
 
 
+def low_pass_filter(previous_value, current_value, alpha=LOW_PASS_ALPHA):
+    if previous_value is None:
+        return current_value
+    return previous_value + (alpha * (current_value - previous_value))
+
+
 def cardinal_from_heading(heading):
     directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     index = int((heading + 22.5) // 45) % 8
@@ -197,6 +204,9 @@ def cardinal_from_heading(heading):
 
 def compass_thread_worker():
     bus = None
+    filtered_x = None
+    filtered_y = None
+    filtered_z = None
     while True:
         try:
             if bus is None:
@@ -209,31 +219,36 @@ def compass_thread_worker():
             x = read_word(bus, DATA_X_MSB)
             z = read_word(bus, DATA_Z_MSB)
             y = read_word(bus, DATA_Y_MSB)
-            raw_heading = compute_heading(x, y)
+
+            filtered_x = low_pass_filter(filtered_x, x)
+            filtered_y = low_pass_filter(filtered_y, y)
+            filtered_z = low_pass_filter(filtered_z, z)
+
+            raw_heading = compute_heading(filtered_x, filtered_y)
             heading = apply_zero_offset(raw_heading)
             cardinal = cardinal_from_heading(heading)
 
             timestamp = round(time.time(), 2)
             with data_lock:
                 compass_data["timestamps"].append(timestamp)
-                compass_data["x"].append(x)
-                compass_data["y"].append(y)
-                compass_data["z"].append(z)
+                compass_data["x"].append(round(filtered_x, 2))
+                compass_data["y"].append(round(filtered_y, 2))
+                compass_data["z"].append(round(filtered_z, 2))
                 compass_data["heading"].append(round(heading, 2))
 
                 latest_state.update({
                     "connected": True,
                     "heading": round(heading, 2),
                     "raw_heading": round(raw_heading, 2),
-                    "x": x,
-                    "y": y,
-                    "z": z,
+                    "x": round(filtered_x, 2),
+                    "y": round(filtered_y, 2),
+                    "z": round(filtered_z, 2),
                     "cardinal": cardinal,
                     "zero_offset": round(heading_zero_offset, 2),
                     "error": None,
                 })
 
-            write_heading_stream_sample(timestamp, raw_heading, heading, x, y, z)
+            write_heading_stream_sample(timestamp, raw_heading, heading, filtered_x, filtered_y, filtered_z)
 
             time.sleep(0.1)
         except Exception as exc:
@@ -249,6 +264,9 @@ def compass_thread_worker():
                 except Exception:
                     pass
                 bus = None
+                filtered_x = None
+                filtered_y = None
+                filtered_z = None
 
 
 @app.route("/")
