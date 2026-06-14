@@ -174,7 +174,7 @@ def draw_compass_widget(frame, heading_deg, age_s):
     cv2.line(compass_overlay, (center[0] - radius_outer, center[1]), (center[0] - radius_outer - tick, center[1]), (255, 255, 255), 1, cv2.LINE_AA)
 
     if heading_deg is not None:
-        heading_rad = math.radians(heading_deg)
+        heading_rad = math.radians(-heading_deg)
         needle_length = radius_outer - 4
         needle_end = (
             int(center[0] + math.sin(heading_rad) * needle_length),
