@@ -119,7 +119,10 @@ def get_shm_samples(shm_name):
         header_size = struct.calcsize(h_format)
         record_size = struct.calcsize(r_format)
 
-        magic, write_index, sample_count = struct.unpack_from(h_format, shm.buf, 0)
+        # Copy buffer to bytes to avoid memoryview export leakage
+        buf = bytes(shm.buf)
+
+        magic, write_index, sample_count = struct.unpack_from(h_format, buf, 0)
         if magic != cfg["magic"] or sample_count == 0:
             return []
 
@@ -127,7 +130,7 @@ def get_shm_samples(shm_name):
         for i in range(sample_count):
             idx = (write_index - 1 - i) % cfg["max_samples"]
             offset = header_size + (idx * record_size)
-            values = struct.unpack_from(r_format, shm.buf, offset)
+            values = struct.unpack_from(r_format, buf, offset)
             sample = dict(zip(cfg["fields"], values))
             samples.append(sample)
         return samples
@@ -148,7 +151,8 @@ def get_shm_hex_dump(shm_name, max_bytes=256):
         return []
 
     try:
-        buf = shm.buf[:min(shm.size, max_bytes)]
+        # Copy to bytes to avoid memoryview export leakage
+        buf = bytes(shm.buf[:min(shm.size, max_bytes)])
         hex_rows = []
         for offset in range(0, len(buf), 16):
             chunk = buf[offset:offset + 16]
