@@ -24,6 +24,8 @@ DATA_Y_MSB = 0x07
 DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
 
+heading_zero_offset = 0.0
+
 compass_data = {
     "timestamps": deque(maxlen=MAX_SAMPLES),
     "x": deque(maxlen=MAX_SAMPLES),
@@ -35,10 +37,12 @@ compass_data = {
 latest_state = {
     "connected": False,
     "heading": None,
+    "raw_heading": None,
     "x": None,
     "y": None,
     "z": None,
     "cardinal": "N",
+    "zero_offset": 0.0,
     "error": None,
 }
 
@@ -65,6 +69,16 @@ def compute_heading(x, y):
     return heading
 
 
+def normalize_heading(heading):
+    return heading % 360
+
+
+def apply_zero_offset(heading):
+    with data_lock:
+        offset = heading_zero_offset
+    return normalize_heading(heading - offset)
+
+
 def cardinal_from_heading(heading):
     directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     index = int((heading + 22.5) // 45) % 8
@@ -85,7 +99,8 @@ def compass_thread_worker():
             x = read_word(bus, DATA_X_MSB)
             z = read_word(bus, DATA_Z_MSB)
             y = read_word(bus, DATA_Y_MSB)
-            heading = compute_heading(x, y)
+            raw_heading = compute_heading(x, y)
+            heading = apply_zero_offset(raw_heading)
             cardinal = cardinal_from_heading(heading)
 
             timestamp = round(time.time(), 2)
@@ -99,10 +114,12 @@ def compass_thread_worker():
                 latest_state.update({
                     "connected": True,
                     "heading": round(heading, 2),
+                    "raw_heading": round(raw_heading, 2),
                     "x": x,
                     "y": y,
                     "z": z,
                     "cardinal": cardinal,
+                    "zero_offset": round(heading_zero_offset, 2),
                     "error": None,
                 })
 
@@ -138,6 +155,38 @@ def get_compass_data():
             "heading": list(compass_data["heading"]),
             "latest": latest_state.copy(),
         })
+
+
+@app.route("/api/compass/zero", methods=["POST"])
+def set_compass_zero():
+    global heading_zero_offset
+
+    with data_lock:
+        latest_heading = latest_state.get("raw_heading")
+        if latest_heading is None:
+            return jsonify({"error": "No compass reading available yet"}), 409
+
+        heading_zero_offset = normalize_heading(latest_heading)
+        latest_state["zero_offset"] = round(heading_zero_offset, 2)
+
+    return jsonify({
+        "success": True,
+        "zero_offset": round(heading_zero_offset, 2),
+    })
+
+
+@app.route("/api/compass/zero/reset", methods=["POST"])
+def reset_compass_zero():
+    global heading_zero_offset
+
+    with data_lock:
+        heading_zero_offset = 0.0
+        latest_state["zero_offset"] = 0.0
+
+    return jsonify({
+        "success": True,
+        "zero_offset": 0.0,
+    })
 
 
 def main():

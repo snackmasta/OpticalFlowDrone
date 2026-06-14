@@ -89,6 +89,49 @@
             color: var(--danger);
         }
 
+        .pill.action-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .zero-controls {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 0 22px 10px;
+        }
+
+        .zero-controls button {
+            appearance: none;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 999px;
+            padding: 10px 16px;
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+        }
+
+        .zero-controls button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(56, 189, 248, 0.5);
+        }
+
+        .zero-controls button.primary {
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.95), rgba(56, 189, 248, 0.95));
+            color: #08111f;
+            border-color: transparent;
+        }
+
+        .zero-status {
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
         .grid {
             display: grid;
             grid-template-columns: 1.15fr 0.85fr;
@@ -411,6 +454,7 @@
             <div class="pill" id="connectionPill"><span class="status-dot" id="statusDot"></span><strong id="statusText">Connecting</strong></div>
             <div class="pill">Heading: <strong id="smallHeading">0.0°</strong></div>
             <div class="pill">Direction: <strong id="smallCardinal">N</strong></div>
+            <div class="pill action-pill">Zero: <strong id="zeroOffsetValue">0.0°</strong></div>
         </div>
 
         <div class="grid">
@@ -472,6 +516,11 @@
                         </div>
                     </div>
                 </div>
+                <div class="zero-controls">
+                    <button type="button" class="primary" id="setZeroButton">Set Current as Zero</button>
+                    <button type="button" id="resetZeroButton">Reset Zero</button>
+                    <span class="zero-status" id="zeroStatus">Zero offset inactive</span>
+                </div>
                 <div class="timeline">
                     <div class="sparkline"></div>
                 </div>
@@ -520,6 +569,10 @@
         const statusValue = document.getElementById('statusValue');
         const statusDot = document.getElementById('statusDot');
         const connectionPill = document.getElementById('connectionPill');
+        const zeroOffsetValue = document.getElementById('zeroOffsetValue');
+        const zeroStatus = document.getElementById('zeroStatus');
+        const setZeroButton = document.getElementById('setZeroButton');
+        const resetZeroButton = document.getElementById('resetZeroButton');
         const vectorX = document.getElementById('vectorX');
         const vectorY = document.getElementById('vectorY');
         const vectorZ = document.getElementById('vectorZ');
@@ -694,6 +747,50 @@
             return directions[Math.floor((heading + 22.5) / 45) % 8];
         }
 
+        async function postJson(url) {
+            const response = await fetch(url, { method: 'POST' });
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Request failed');
+            }
+
+            return payload;
+        }
+
+        async function zeroCurrentHeading() {
+            try {
+                setZeroButton.disabled = true;
+                resetZeroButton.disabled = true;
+                zeroStatus.textContent = 'Capturing current heading...';
+                const payload = await postJson('/api/compass/zero');
+                zeroStatus.textContent = `Zero offset set to ${Number(payload.zero_offset || 0).toFixed(1)}°`;
+            } catch (error) {
+                zeroStatus.textContent = `Zero update failed: ${error.message}`;
+            } finally {
+                setZeroButton.disabled = false;
+                resetZeroButton.disabled = false;
+            }
+        }
+
+        async function resetHeadingZero() {
+            try {
+                setZeroButton.disabled = true;
+                resetZeroButton.disabled = true;
+                zeroStatus.textContent = 'Resetting zero offset...';
+                const payload = await postJson('/api/compass/zero/reset');
+                zeroStatus.textContent = `Zero offset reset to ${Number(payload.zero_offset || 0).toFixed(1)}°`;
+            } catch (error) {
+                zeroStatus.textContent = `Zero reset failed: ${error.message}`;
+            } finally {
+                setZeroButton.disabled = false;
+                resetZeroButton.disabled = false;
+            }
+        }
+
+        setZeroButton.addEventListener('click', zeroCurrentHeading);
+        resetZeroButton.addEventListener('click', resetHeadingZero);
+
         async function updateCompass() {
             try {
                 const response = await fetch('/api/compass-data');
@@ -705,6 +802,7 @@
                 const x = latest.x ?? 0;
                 const y = latest.y ?? 0;
                 const z = latest.z ?? 0;
+                const zeroOffset = Number(latest.zero_offset ?? 0) || 0;
 
                 // Update 2D compass
                 // For the visual rotation use the continuous angle so CSS
@@ -716,6 +814,8 @@
                 smallHeading.textContent = `${Number(heading).toFixed(1)}°`;
                 smallCardinal.textContent = cardinal;
                 cardinalValue.textContent = cardinal;
+                zeroOffsetValue.textContent = `${zeroOffset.toFixed(1)}°`;
+                zeroStatus.textContent = zeroOffset === 0 ? 'Zero offset inactive' : `Zero offset active at ${zeroOffset.toFixed(1)}°`;
                 xValue.textContent = x;
                 yValue.textContent = y;
                 zValue.textContent = z;
