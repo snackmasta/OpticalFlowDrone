@@ -329,7 +329,7 @@ def draw_ground_reticle(frame):
     center = (cx + roll_px, cy + pitch_px)
 
     overlay = frame.copy()
-    rotation_matrix = cv2.getRotationMatrix2D(center, yaw_deg, 1.0)
+    rotation_matrix = cv2.getRotationMatrix2D(center, -yaw_deg, 1.0)
 
     reticle = np.zeros_like(frame)
     cv2.circle(reticle, center, radius_outer, RETICLE_COLOR, 1, cv2.LINE_AA)
