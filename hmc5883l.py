@@ -27,13 +27,13 @@ DATA_Y_MSB = 0x07
 
 DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
-SHM_NAME = "compass_heading_stream"
-SHM_MAGIC = b"CHDG"
-SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<6d"
-SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
-SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
-SHM_SIZE = SHM_HEADER_SIZE + (MAX_SAMPLES * SHM_RECORD_SIZE)
+SHM_NAME = "compass_heading_stream" # Shared memory name for compass data stream
+SHM_MAGIC = b"CHDG" # Magic bytes to identify valid shared memory segment
+SHM_HEADER_FORMAT = "<4sII" # Header: magic (4s), write_index (I), sample_count (I)
+SHM_RECORD_FORMAT = "<6d" # Record: timestamp (d), raw_heading (d), heading (d), x (d), y (d), z (d)
+SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT) # Size of the header in bytes
+SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT) # Size of each record in bytes
+SHM_SIZE = SHM_HEADER_SIZE + (MAX_SAMPLES * SHM_RECORD_SIZE) # Total shared memory size to hold header and max samples
 
 heading_zero_offset = 0.0
 ZERO_OFFSET_FILE = Path(__file__).resolve().with_name("compass_zero_offset.json")

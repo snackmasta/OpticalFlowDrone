@@ -18,7 +18,7 @@ MAX_SAMPLES = 120
 DEFAULT_FRESHNESS_THRESHOLD = 0.75
 
 
-def read_latest_sample(shm):
+def read_latest_sample(shm): # Returns the latest sample as a dict, or None if no valid sample is available
     magic, write_index, sample_count = struct.unpack_from(SHM_HEADER_FORMAT, shm.buf, 0)
     if magic != SHM_MAGIC or sample_count == 0:
         return None
@@ -38,7 +38,7 @@ def read_latest_sample(shm):
     }
 
 
-def open_shared_memory(wait_interval=0.5):
+def open_shared_memory(wait_interval=0.5): # Tries to open the shared memory segment, retrying until it becomes available
     while True:
         try:
             return shared_memory.SharedMemory(name=SHM_NAME)
@@ -46,7 +46,7 @@ def open_shared_memory(wait_interval=0.5):
             time.sleep(wait_interval)
 
 
-def release_shared_memory(shm):
+def release_shared_memory(shm): # Releases the shared memory segment, ensuring it is properly closed and unlinked to avoid resource leaks
     try:
         resource_tracker.unregister(shm._name, "shared_memory")
     except Exception:
@@ -58,19 +58,19 @@ def release_shared_memory(shm):
         pass
 
 
-def sample_age_seconds(sample_timestamp):
+def sample_age_seconds(sample_timestamp): # Returns the age of the sample in seconds based on the current time and the sample's timestamp
     return time.time() - sample_timestamp
 
 
-def sample_is_fresh(sample, freshness_threshold):
+def sample_is_fresh(sample, freshness_threshold): # Determines if the sample is fresh based on its age and the specified freshness threshold
     return sample is not None and sample_age_seconds(sample["timestamp"]) <= freshness_threshold
 
 
-def format_sample(sample):
+def format_sample(sample): # Formats the sample for display, currently returning the heading with two decimal places
     return f"{sample['heading']:.2f}"
 
 
-def main():
+def main(): # Main function to read and display compass samples from shared memory, with options for polling interval, freshness threshold, and single-sample mode
     parser = argparse.ArgumentParser(description="Read compass samples from shared memory.")
     parser.add_argument("--once", action="store_true", help="Print one sample and exit.")
     parser.add_argument("--interval", type=float, default=0.05, help="Polling interval in seconds.")
@@ -136,5 +136,5 @@ def main():
             release_shared_memory(shm)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": # Entry point of the script, calling the
     main()
