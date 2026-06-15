@@ -109,7 +109,7 @@ def draw_imu_analysis_widget(frame, imu_roll_deg, imu_pitch_deg, imu_yaw_deg, ac
     return frame
 
 
-def draw_osd(frame):
+def draw_osd(frame, total_tracked=0):
     with distance_lock:
         current_distance = distance_state["current_distance"]
     with attitude_lock:
@@ -144,11 +144,11 @@ def draw_osd(frame):
         # f"VX: {vx_mps:+.3f} m/s",
         # f"VY: {vy_mps:+.3f} m/s",
         # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",
-        f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
-        f"ACCEL: X:{xaccel_g:+.2f}g Y:{yaccel_g:+.2f}g Z:{zaccel_g:+.2f}g",
-        f"ROLL: {roll_deg:+.1f} deg",
-        f"PITCH: {pitch_deg:+.1f} deg",
-        f"YAW: {yaw_deg:+.1f} deg",
+        # f"GYRO: X:{xgyro_dps:+.1f} Y:{ygyro_dps:+.1f} Z:{zgyro_dps:+.1f} dps",
+        # f"ACCEL: X:{xaccel_g:+.2f}g Y:{yaccel_g:+.2f}g Z:{zaccel_g:+.2f}g",
+        # f"ROLL: {roll_deg:+.1f} deg",
+        # f"PITCH: {pitch_deg:+.1f} deg",
+        # f"YAW: {yaw_deg:+.1f} deg",
     ]
 
     overlay = frame.copy()
@@ -193,6 +193,10 @@ def draw_osd(frame):
         roll_deg,
         pitch_deg,
         yaw_deg,
+    )
+    frame = draw_feature_track_widget(
+        frame,
+        total_tracked,
     )
     frame = draw_imu_analysis_widget(
         frame,
@@ -281,6 +285,50 @@ def draw_gyro_drift_widget(frame, int_roll, int_pitch, int_yaw, flt_roll, flt_pi
     draw_signed_bar("DFT P", drift_pitch, 45.0, 3, (0, 180, 255))
     draw_signed_bar("INT Y", int_yaw, 180.0, 4, (255, 0, 255))
     draw_signed_bar("DFT Y", drift_yaw, 45.0, 5, (0, 180, 255))
+
+    return frame
+
+
+def draw_feature_track_widget(frame, total_tracked):
+    h, w = frame.shape[:2]
+    box_w = min(300, max(220, int(w * 0.34)))
+    box_h = 166
+    x0 = w - box_w - 14
+    y0 = 310
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(overlay, 0.48, frame, 0.52, 0)
+
+    cv2.putText(frame, "FEATURE TRACK ANALYSIS", (x0 + 10, y0 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 1, cv2.LINE_AA)
+
+    vx_mps = velocity_state["vx_mps"]
+    vy_mps = velocity_state["vy_mps"]
+    speed_mps = velocity_state["speed_mps"]
+    inliers = velocity_state["inliers"]
+    outliers = max(0, total_tracked - inliers)
+    inlier_ratio = (inliers / max(1, total_tracked)) * 100.0
+
+    def draw_label_value_bar(label, value, value_str, max_val, row, color):
+        y = y0 + 38 + (row * 22)
+        bar_x0 = x0 + 104
+        bar_x1 = x0 + box_w - 12
+        center_x = (bar_x0 + bar_x1) // 2
+        span = (bar_x1 - bar_x0) // 2
+        v = float(np.clip(value, -max_val, max_val))
+        end_x = int(center_x + (v / max_val) * span)
+
+        cv2.putText(frame, f"{label} {value_str}", (x0 + 10, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.46, color, 1, cv2.LINE_AA)
+        cv2.line(frame, (bar_x0, y), (bar_x1, y), (110, 110, 110), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y - 4), (center_x, y + 4), (150, 150, 150), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y), (end_x, y), color, 2, cv2.LINE_AA)
+
+    draw_label_value_bar("TRACK", total_tracked, f"{total_tracked:>6d}", 20.0, 0, (0, 255, 255))
+    draw_label_value_bar("INLRS", inliers, f"{inliers:>6d}", 20.0, 1, (0, 255, 0))
+    draw_label_value_bar("OUTLR", outliers, f"{outliers:>6d}", 20.0, 2, (100, 100, 255))
+    draw_label_value_bar("INL %", inlier_ratio, f"{inlier_ratio:5.1f}%", 100.0, 3, (0, 255, 0))
+    draw_label_value_bar("SPEED", speed_mps, f"{speed_mps:6.2f}", 5.0, 4, (255, 255, 0))
+    draw_label_value_bar("VEL X", vx_mps, f"{vx_mps:+6.2f}", 5.0, 5, (255, 150, 0))
 
     return frame
 

@@ -92,11 +92,13 @@ def record_optical_flow():
         img = frame.copy()
         draw_scale = 1.0 / FLOW_SCALE
 
+        tracked_count = 0
         if p0 is not None and len(p0) > 0:
             p1, st, _ = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
             if p1 is not None and st is not None:
                 good_new = p1[st.flatten() == 1]
                 good_old = p0[st.flatten() == 1]
+                tracked_count = len(good_new)
                 inlier_old, inlier_new = reject_outlier_tracks(good_old, good_new)
 
                 with distance_lock:
@@ -152,7 +154,7 @@ def record_optical_flow():
 
         old_gray = frame_gray.copy()
         img = draw_ground_reticle(img)
-        img = draw_osd(img)
+        img = draw_osd(img, tracked_count)
         try:
             output_sink.write(img)
         except RuntimeError as exc:
