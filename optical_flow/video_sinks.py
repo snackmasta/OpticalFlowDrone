@@ -6,7 +6,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 RECORDINGS_DIR = Path("recordings")
-MEDIAMTX_BIN = PROJECT_ROOT / ".tools" / "mediamtx" / "mediamtx"
+MEDIAMTX_BIN = PROJECT_ROOT/ "./.." / ".tools" / "mediamtx" / "mediamtx"
 
 
 def choose_output_mode():
