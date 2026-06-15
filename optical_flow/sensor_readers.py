@@ -53,6 +53,13 @@ attitude_state = {
 }
 attitude_lock = threading.Lock()
 
+gyro_integrated_state = {
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "yaw_deg": 0.0,
+}
+gyro_integrated_lock = threading.Lock()
+
 compass_state = {
     "heading_deg": None,
     "timestamp": 0.0,
@@ -307,6 +314,17 @@ def start_distance_sensor_reader():
                     if last_imu_ts is not None:
                         dt = now - last_imu_ts
                         if 0 < dt < 0.1:
+                            with gyro_integrated_lock:
+                                gyro_integrated_state["roll_deg"] = normalize_angle_deg(
+                                    gyro_integrated_state["roll_deg"] + (xgyro_dps * dt)
+                                )
+                                gyro_integrated_state["pitch_deg"] = normalize_angle_deg(
+                                    gyro_integrated_state["pitch_deg"] + (ygyro_dps * dt)
+                                )
+                                gyro_integrated_state["yaw_deg"] = normalize_angle_deg(
+                                    gyro_integrated_state["yaw_deg"] + (zgyro_dps * dt)
+                                )
+
                             roll_gyro_deg = attitude_state["roll_deg"] + (xgyro_dps * dt)
                             pitch_gyro_deg = attitude_state["pitch_deg"] + (ygyro_dps * dt)
                             yaw_gyro_deg = attitude_state["yaw_deg"] + (zgyro_dps * dt)

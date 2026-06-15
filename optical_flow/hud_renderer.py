@@ -7,7 +7,9 @@ from .sensor_readers import (
     distance_lock, distance_state,
     attitude_lock, attitude_state,
     accel_lock, accel_state,
-    compass_lock, compass_state
+    compass_lock, compass_state,
+    gyro_integrated_lock, gyro_integrated_state,
+    normalize_angle_deg
 )
 from .flow_processor import velocity_state
 
@@ -117,6 +119,10 @@ def draw_osd(frame):
         xgyro_dps = attitude_state["xgyro_dps"]
         ygyro_dps = attitude_state["ygyro_dps"]
         zgyro_dps = attitude_state["zgyro_dps"]
+    with gyro_integrated_lock:
+        int_roll = gyro_integrated_state["roll_deg"]
+        int_pitch = gyro_integrated_state["pitch_deg"]
+        int_yaw = gyro_integrated_state["yaw_deg"]
     with accel_lock:
         xaccel_g = accel_state["x_g"]
         yaccel_g = accel_state["y_g"]
@@ -179,6 +185,15 @@ def draw_osd(frame):
         yaccel_g,
         zaccel_g,
     )
+    frame = draw_gyro_drift_widget(
+        frame,
+        int_roll,
+        int_pitch,
+        int_yaw,
+        roll_deg,
+        pitch_deg,
+        yaw_deg,
+    )
     frame = draw_imu_analysis_widget(
         frame,
         roll_deg,
@@ -225,6 +240,47 @@ def draw_raw_sensor_widget(frame, gx, gy, gz, ax, ay, az):
     draw_signed_bar("ACC X", ax, 2.0, 3, (255, 100, 100))
     draw_signed_bar("ACC Y", ay, 2.0, 4, (255, 100, 100))
     draw_signed_bar("ACC Z", az, 2.0, 5, (255, 100, 100))
+
+    return frame
+
+
+def draw_gyro_drift_widget(frame, int_roll, int_pitch, int_yaw, flt_roll, flt_pitch, flt_yaw):
+    h, w = frame.shape[:2]
+    box_w = min(300, max(220, int(w * 0.34)))
+    box_h = 166
+    x0 = 14
+    y0 = 310
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(overlay, 0.48, frame, 0.52, 0)
+
+    cv2.putText(frame, "GYRO INTEGRATION DRIFT", (x0 + 10, y0 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 1, cv2.LINE_AA)
+
+    drift_roll = normalize_angle_deg(int_roll - flt_roll)
+    drift_pitch = normalize_angle_deg(int_pitch - flt_pitch)
+    drift_yaw = normalize_angle_deg(int_yaw - flt_yaw)
+
+    def draw_signed_bar(label, value, max_val, row, color):
+        y = y0 + 38 + (row * 22)
+        bar_x0 = x0 + 104
+        bar_x1 = x0 + box_w - 12
+        center_x = (bar_x0 + bar_x1) // 2
+        span = (bar_x1 - bar_x0) // 2
+        v = float(np.clip(value, -max_val, max_val))
+        end_x = int(center_x + (v / max_val) * span)
+
+        cv2.putText(frame, f"{label} {value:+6.1f}", (x0 + 10, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.46, color, 1, cv2.LINE_AA)
+        cv2.line(frame, (bar_x0, y), (bar_x1, y), (110, 110, 110), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y - 4), (center_x, y + 4), (150, 150, 150), 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, y), (end_x, y), color, 2, cv2.LINE_AA)
+
+    draw_signed_bar("INT R", int_roll, 180.0, 0, (255, 0, 255))
+    draw_signed_bar("DFT R", drift_roll, 45.0, 1, (0, 180, 255))
+    draw_signed_bar("INT P", int_pitch, 180.0, 2, (255, 0, 255))
+    draw_signed_bar("DFT P", drift_pitch, 45.0, 3, (0, 180, 255))
+    draw_signed_bar("INT Y", int_yaw, 180.0, 4, (255, 0, 255))
+    draw_signed_bar("DFT Y", drift_yaw, 45.0, 5, (0, 180, 255))
 
     return frame
 
