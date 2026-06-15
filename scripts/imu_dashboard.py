@@ -51,6 +51,18 @@ attitude_state = {
     'last_ts': None,
 }
 
+# Gyro bias calibration (will be set during startup)
+gyro_bias = {
+    'x': 0.0,
+    'y': 0.0,
+    'z': 0.0,
+}
+
+# Complementary filter coefficient (0-1)
+# Higher = more trust in gyro, faster response but more drift
+# Lower = more trust in accel, slower response but better stability
+COMPLEMENTARY_FILTER_ALPHA = 0.95
+
 data_lock = threading.Lock()
 app = Flask(__name__)
 
@@ -68,6 +80,71 @@ def read_i2c_word(bus, addr, reg):
 def normalize_angle(angle):
     """Normalize angle to [-180, 180] range."""
     return ((angle + 180.0) % 360.0) - 180.0
+
+
+def get_angle_from_accel(ax, ay, az):
+    """
+    Calculate roll and pitch from accelerometer vector (gravity).
+    Yaw cannot be determined from accel alone.
+    """
+    # Protect against division by zero
+    accel_mag = math.sqrt(ax**2 + ay**2 + az**2)
+    if accel_mag < 0.1:
+        return 0.0, 0.0
+    
+    # Normalize
+    ax /= accel_mag
+    ay /= accel_mag
+    az /= accel_mag
+    
+    # Roll: rotation around X axis
+    roll = math.atan2(ay, az)
+    roll_deg = math.degrees(roll)
+    
+    # Pitch: rotation around Y axis
+    pitch = math.atan2(-ax, math.sqrt(ay**2 + az**2))
+    pitch_deg = math.degrees(pitch)
+    
+    return normalize_angle(roll_deg), normalize_angle(pitch_deg)
+
+
+def calibrate_gyro_bias(samples=100):
+    """
+    Calibrate gyro by averaging readings at rest.
+    """
+    print("Calibrating gyro bias (keep IMU still)...")
+    try:
+        bus = SMBus(IMU_I2C_BUS)
+        bus.write_byte_data(IMU_I2C_ADDR, IMU_PWR_MGMT_1, 0)
+        time.sleep(0.2)
+        
+        gx_sum = 0.0
+        gy_sum = 0.0
+        gz_sum = 0.0
+        
+        for i in range(samples):
+            gx_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_XOUT_H)
+            gy_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_YOUT_H)
+            gz_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_ZOUT_H)
+            
+            gx_sum += gx_raw / GYRO_LSB_PER_DPS
+            gy_sum += gy_raw / GYRO_LSB_PER_DPS
+            gz_sum += gz_raw / GYRO_LSB_PER_DPS
+            
+            time.sleep(0.02)
+        
+        gyro_bias['x'] = gx_sum / samples
+        gyro_bias['y'] = gy_sum / samples
+        gyro_bias['z'] = gz_sum / samples
+        
+        print(f"✓ Gyro bias calibrated:")
+        print(f"  X: {gyro_bias['x']:.4f} °/s")
+        print(f"  Y: {gyro_bias['y']:.4f} °/s")
+        print(f"  Z: {gyro_bias['z']:.4f} °/s")
+        
+        bus.close()
+    except Exception as e:
+        print(f"✗ Gyro calibration failed: {e}")
 
 
 def imu_reader_thread():
@@ -97,23 +174,34 @@ def imu_reader_thread():
             ay_g = ay_raw / ACCEL_LSB_PER_G
             az_g = az_raw / ACCEL_LSB_PER_G
             
-            gx_dps = gx_raw / GYRO_LSB_PER_DPS
-            gy_dps = gy_raw / GYRO_LSB_PER_DPS
-            gz_dps = gz_raw / GYRO_LSB_PER_DPS
+            # Remove gyro bias (calibrated at startup)
+            gx_dps = gx_raw / GYRO_LSB_PER_DPS - gyro_bias['x']
+            gy_dps = gy_raw / GYRO_LSB_PER_DPS - gyro_bias['y']
+            gz_dps = gz_raw / GYRO_LSB_PER_DPS - gyro_bias['z']
             
-            # Integrate gyro to get attitude
             with data_lock:
                 if last_ts is not None:
                     dt = now - last_ts
-                    if dt > 0:
-                        attitude_state['roll_deg'] += gx_dps * dt
-                        attitude_state['pitch_deg'] += gy_dps * dt
-                        attitude_state['yaw_deg'] += gz_dps * dt
+                    if dt > 0 and dt < 0.1:  # Prevent large jumps on pause
+                        # Integrate gyro
+                        roll_gyro = attitude_state['roll_deg'] + gx_dps * dt
+                        pitch_gyro = attitude_state['pitch_deg'] + gy_dps * dt
+                        yaw_gyro = attitude_state['yaw_deg'] + gz_dps * dt
                         
-                        # Normalize angles
-                        attitude_state['roll_deg'] = normalize_angle(attitude_state['roll_deg'])
-                        attitude_state['pitch_deg'] = normalize_angle(attitude_state['pitch_deg'])
-                        attitude_state['yaw_deg'] = normalize_angle(attitude_state['yaw_deg'])
+                        # Get accel-based angles (only for roll/pitch)
+                        roll_accel, pitch_accel = get_angle_from_accel(ax_g, ay_g, az_g)
+                        
+                        # Complementary filter: blend gyro with accel correction
+                        # Gyro: fast, low noise, but drifts (alpha)
+                        # Accel: slow, noisy, but no drift (1-alpha)
+                        attitude_state['roll_deg'] = normalize_angle(
+                            COMPLEMENTARY_FILTER_ALPHA * roll_gyro + (1 - COMPLEMENTARY_FILTER_ALPHA) * roll_accel
+                        )
+                        attitude_state['pitch_deg'] = normalize_angle(
+                            COMPLEMENTARY_FILTER_ALPHA * pitch_gyro + (1 - COMPLEMENTARY_FILTER_ALPHA) * pitch_accel
+                        )
+                        # Yaw: only from gyro (accel can't measure it)
+                        attitude_state['yaw_deg'] = normalize_angle(yaw_gyro)
                 
                 # Store sensor data
                 timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
@@ -534,6 +622,11 @@ if __name__ == '__main__':
     print("=" * 60)
     print("Real-Time IMU Dashboard")
     print("=" * 60)
+    print()
+    
+    # Calibrate gyro first (keep IMU still!)
+    calibrate_gyro_bias(samples=200)
+    print()
     
     # Start IMU reader thread
     imu_thread = threading.Thread(target=imu_reader_thread, daemon=True)
