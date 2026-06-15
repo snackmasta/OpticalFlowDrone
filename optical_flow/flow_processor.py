@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import math
+import threading
 
 TRACK_FEATURE_COUNT = 10
 FLOW_SCALE = 0.5
@@ -28,6 +29,13 @@ velocity_state = {
     "inliers": 0,
     "last_update": 0.0,
 }
+
+position_state = {
+    "x_m": 0.0,
+    "y_m": 0.0,
+    "path": [(0.0, 0.0)],
+}
+position_lock = threading.Lock()
 
 
 def to_small_gray(frame):

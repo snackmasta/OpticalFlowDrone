@@ -22,7 +22,9 @@ from optical_flow.flow_processor import (
     feature_params,
     lk_params,
     TRACK_FEATURE_COUNT,
-    FLOW_SCALE
+    FLOW_SCALE,
+    position_state,
+    position_lock
 )
 from optical_flow.hud_renderer import (
     draw_ground_reticle,
@@ -120,12 +122,24 @@ def record_optical_flow():
                     velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
                     velocity_state["inliers"] = len(inlier_new)
                     velocity_state["last_update"] = frame_ts
+
+                    with position_lock:
+                        position_state["x_m"] += vx_mps * dt_s
+                        position_state["y_m"] += vy_mps * dt_s
+                        position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                        if len(position_state["path"]) > 200:
+                            position_state["path"].pop(0)
                 else:
                     velocity_state["vx_mps"] = 0.0
                     velocity_state["vy_mps"] = 0.0
                     velocity_state["speed_mps"] = 0.0
                     velocity_state["inliers"] = 0
                     velocity_state["last_update"] = frame_ts
+
+                    with position_lock:
+                        position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                        if len(position_state["path"]) > 200:
+                            position_state["path"].pop(0)
 
                 for new, old in zip(inlier_new, inlier_old):
                     a, b = new.ravel()

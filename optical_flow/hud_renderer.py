@@ -11,7 +11,7 @@ from .sensor_readers import (
     gyro_integrated_lock, gyro_integrated_state,
     normalize_angle_deg
 )
-from .flow_processor import velocity_state
+from .flow_processor import velocity_state, position_state, position_lock
 
 RETICLE_COLOR = (0, 220, 220)
 RETICLE_ROLL_SCALE_PX_PER_DEG = 4.5
@@ -207,6 +207,7 @@ def draw_osd(frame, total_tracked=0):
         accel_pitch_deg,
         accel_tilt_deg,
     )
+    frame = draw_minimap_widget(frame)
 
     return frame
 
@@ -329,6 +330,72 @@ def draw_feature_track_widget(frame, total_tracked):
     draw_label_value_bar("INL %", inlier_ratio, f"{inlier_ratio:5.1f}%", 100.0, 3, (0, 255, 0))
     draw_label_value_bar("SPEED", speed_mps, f"{speed_mps:6.2f}", 5.0, 4, (255, 255, 0))
     draw_label_value_bar("VEL X", vx_mps, f"{vx_mps:+6.2f}", 5.0, 5, (255, 150, 0))
+
+    return frame
+
+
+def draw_minimap_widget(frame):
+    h, w = frame.shape[:2]
+    box_w = 160
+    box_h = 160
+    x0 = w // 2 - box_w // 2
+    y0 = h - box_h - 14
+    center_x = x0 + box_w // 2
+    center_y = y0 + box_h // 2
+
+    # Draw background box
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(overlay, 0.48, frame, 0.52, 0)
+
+    # Draw border
+    cv2.rectangle(frame, (x0, y0), (x0 + box_w, y0 + box_h), (110, 110, 110), 1, cv2.LINE_AA)
+
+    # Draw grid/crosshairs
+    cv2.line(frame, (center_x, y0), (center_x, y0 + box_h), (60, 60, 60), 1, cv2.LINE_AA)
+    cv2.line(frame, (x0, center_y), (x0 + box_w, center_y), (60, 60, 60), 1, cv2.LINE_AA)
+
+    # Scale: 25 pixels per meter (box covers +/- 3.2m)
+    pixels_per_meter = 25.0
+
+    # Draw range rings at 1m, 2m, 3m
+    for r_m in [1, 2, 3]:
+        r_px = int(r_m * pixels_per_meter)
+        cv2.circle(frame, (center_x, center_y), r_px, (70, 70, 70), 1, cv2.LINE_AA)
+
+    # Retrieve position trail
+    with position_lock:
+        x_curr = position_state["x_m"]
+        y_curr = position_state["y_m"]
+        path = list(position_state["path"])
+
+    # Draw trail
+    points = []
+    for xp, yp in path:
+        dx = xp - x_curr
+        dy = yp - y_curr
+        px = int(center_x + dx * pixels_per_meter)
+        py = int(center_y - dy * pixels_per_meter)
+        # Clip points to stay inside the box
+        px = int(np.clip(px, x0 + 1, x0 + box_w - 1))
+        py = int(np.clip(py, y0 + 1, y0 + box_h - 1))
+        points.append((px, py))
+
+    # Connect trail with lines
+    for i in range(len(points) - 1):
+        # Fade color based on age
+        alpha = int(255 * (i / len(points)))
+        color = (0, alpha, 0)
+        cv2.line(frame, points[i], points[i+1], color, 1, cv2.LINE_AA)
+
+    # Current position cursor
+    cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1, cv2.LINE_AA)
+
+    # Text annotations
+    cv2.putText(frame, "MINIMAP", (x0 + 6, y0 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 220, 220), 1, cv2.LINE_AA)
+    cv2.putText(frame, f"X:{x_curr:+.2f}", (x0 + 6, y0 + box_h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
+    cv2.putText(frame, f"Y:{y_curr:+.2f}", (x0 + 6, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
+    cv2.putText(frame, "GRID: 1m", (x0 + box_w - 60, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1, cv2.LINE_AA)
 
     return frame
 
