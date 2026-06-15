@@ -355,11 +355,11 @@ def draw_minimap_widget(frame):
     cv2.line(frame, (center_x, y0), (center_x, y0 + box_h), (60, 60, 60), 1, cv2.LINE_AA)
     cv2.line(frame, (x0, center_y), (x0 + box_w, center_y), (60, 60, 60), 1, cv2.LINE_AA)
 
-    # Scale: 25 pixels per meter (box covers +/- 3.2m)
-    pixels_per_meter = 25.0
+    # Scale: 250 pixels per meter (box covers +/- 32cm)
+    pixels_per_meter = 250.0
 
-    # Draw range rings at 1m, 2m, 3m
-    for r_m in [1, 2, 3]:
+    # Draw range rings at 10cm, 20cm, 30cm (0.1m, 0.2m, 0.3m)
+    for r_m in [0.1, 0.2, 0.3]:
         r_px = int(r_m * pixels_per_meter)
         cv2.circle(frame, (center_x, center_y), r_px, (70, 70, 70), 1, cv2.LINE_AA)
 
@@ -395,7 +395,7 @@ def draw_minimap_widget(frame):
     cv2.putText(frame, "MINIMAP", (x0 + 6, y0 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 220, 220), 1, cv2.LINE_AA)
     cv2.putText(frame, f"X:{x_curr:+.2f}", (x0 + 6, y0 + box_h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(frame, f"Y:{y_curr:+.2f}", (x0 + 6, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
-    cv2.putText(frame, "GRID: 1m", (x0 + box_w - 60, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1, cv2.LINE_AA)
+    cv2.putText(frame, "GRID: 10cm", (x0 + box_w - 75, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1, cv2.LINE_AA)
 
     return frame
 
