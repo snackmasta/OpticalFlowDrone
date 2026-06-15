@@ -3,3 +3,5 @@ numpy
 picamera2
 mavproxy
 pymavlink
+flask
+smbus2
