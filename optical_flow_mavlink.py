@@ -2,7 +2,7 @@
 """
 Read the optical flow stream and altitude from shared memory and inject it into ArduPilot as fake GPS.
 Converts local metric coordinates (X/Y) to GPS coordinates relative to a home position.
-Acts as a pure MAVLink transmitter (no port bind conflicts).
+Reference: mavlink_set_mode.py / mavlink_reboot.py
 """
 
 import argparse
@@ -90,8 +90,8 @@ def main():
     parser.add_argument(
         "--connection",
         type=str,
-        default="udpout:127.0.0.1:14551",
-        help="MAVLink connection string (use 'udpout:IP:PORT' to act as client, default: udpout:127.0.0.1:14551)"
+        default="udpin:127.0.0.1:14550",
+        help="MAVLink connection string (default: udpin:127.0.0.1:14550)"
     )
     parser.add_argument(
         "--home-lat",
@@ -143,13 +143,20 @@ def main():
     )
     args = parser.parse_args()
 
-    # Note: Using udpout:127.0.0.1:14551 makes the script a pure sender, avoiding port bind conflicts.
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
+        # Connect to the MAVLink source (using udpin/udp matching the working reference scripts)
         master = mavutil.mavlink_connection(args.connection)
-        print("MAVLink transmitter initialized.")
+        
+        # Wait for heartbeat to discover autopilot and populate system IDs and mode mappings
+        print("Waiting for heartbeat from drone...")
+        master.wait_heartbeat(timeout=15)
+        print("Heartbeat received! Connected to drone.")
+        print(f"Drone System ID: {master.target_system}")
+        print(f"Drone Component ID: {master.target_component}")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
+        print("Make sure MAVProxy is running and outputting to the specified port.")
         sys.exit(1)
 
     print(f"Waiting for shared memory segment '{SHM_NAME}'...")
@@ -192,11 +199,10 @@ def main():
                     # Project 2D relative displacement to Lat/Lon
                     lat, lon = meters_to_lat_lon(sample["x"], sample["y"], args.home_lat, args.home_lon)
 
-                    # Altitude = Home Altitude + Height above ground (read directly from shared memory!)
+                    # Altitude = Home Altitude + Height above ground
                     current_alt = args.home_alt + sample["alt"]
 
                     # Send GPS_INPUT message
-                    # Lat and Lon are converted to degrees * 1E7 (integer)
                     try:
                         master.mav.gps_input_send(
                             0,                  # Timestamp (0 for system time)

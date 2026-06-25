@@ -2,6 +2,7 @@
 """
 Inject static fake GPS telemetry (GPS_INPUT) into ArduPilot for proof-of-concept testing.
 Allows verification of GPS1_TYPE and EKF3 configurations without running the optical flow tracking pipeline.
+Reference: mavlink_set_mode.py / mavlink_reboot.py
 """
 
 import argparse
@@ -15,8 +16,8 @@ def main():
     parser.add_argument(
         "--connection",
         type=str,
-        default="udpout:127.0.0.1:14551",
-        help="MAVLink connection string (default: udpout:127.0.0.1:14551)"
+        default="udpin:127.0.0.1:14550",
+        help="MAVLink connection string (default: udpin:127.0.0.1:14550)"
     )
     parser.add_argument(
         "--lat",
@@ -76,35 +77,32 @@ def main():
         "--set-mode",
         type=str,
         default=None,
-        help="Attempt to change flight mode to the specified mode name or ID (e.g. LOITER, GUIDED)"
+        help="Attempt to change flight mode to the specified mode (e.g., LOITER, STABILIZE)"
     )
     args = parser.parse_args()
 
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
+        # Establish connection (using udpin/udp matching the working reference scripts)
         master = mavutil.mavlink_connection(args.connection)
-        # Set default target system and component for outgoing commands (ArduPilot defaults)
-        master.target_system = 1
-        master.target_component = 1
-        print("MAVLink static GPS injector initialized.")
+        
+        # Wait for heartbeat to discover autopilot and populate system IDs and mode mappings
+        print("Waiting for heartbeat from drone...")
+        master.wait_heartbeat(timeout=15)
+        print("Heartbeat received! Connected to drone.")
+        print(f"Drone System ID: {master.target_system}")
+        print(f"Drone Component ID: {master.target_component}")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
+        print("Make sure MAVProxy is running and outputting to the specified port.")
         sys.exit(1)
 
     # Set flight mode if requested
     if args.set_mode:
-        # Wait a brief moment and send heartbeats so the autopilot knows our system ID
-        time.sleep(1.0)
         try:
-            # Send initial heartbeat
-            master.mav.heartbeat_send(
-                mavutil.mavlink.MAV_TYPE_GCS,
-                mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-                0, 0, 0
-            )
-            # Find mode mapping
             mode = args.set_mode.upper()
             mode_map = master.mode_mapping()
+            
             if mode_map and mode in mode_map:
                 mode_id = mode_map[mode]
                 print(f"Sending request to change flight mode to {mode} (ID: {mode_id})...")
@@ -116,6 +114,9 @@ def main():
                     master.set_mode(mode_id)
                 except ValueError:
                     print(f"Unknown flight mode: {args.set_mode}. Available modes: {list(mode_map.keys()) if mode_map else 'None'}")
+            
+            # Wait a brief moment to let the mode change process
+            time.sleep(1.0)
         except Exception as e:
             print(f"Failed to send mode change command: {e}")
 
@@ -148,7 +149,7 @@ def main():
             # Send GPS_INPUT message
             try:
                 master.mav.gps_input_send(
-                    0,                  # Timestamp (0 for system time)
+                    0,                  # Seconds since epoch or boot (0 for system time)
                     args.gps_id,        # GPS ID
                     0,                  # Ignore flags (use all parameters)
                     0,                  # Time since start of GPS week
