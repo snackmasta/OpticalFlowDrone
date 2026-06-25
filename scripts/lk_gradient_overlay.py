@@ -18,6 +18,13 @@ import numpy as np
 import time
 import math
 import sys
+import os
+
+# Add parent directory of the script to sys.path to allow importing optical_flow package
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 # Import core drone optical flow modules
 from optical_flow.sensor_readers import (
