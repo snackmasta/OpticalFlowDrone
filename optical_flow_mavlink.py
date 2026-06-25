@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Read the optical flow stream from shared memory and publish to ArduPilot via MAVLink.
-Supports both standard OPTICAL_FLOW and VISION_POSITION_ESTIMATE messages.
+Read the optical flow stream from shared memory and inject it into ArduPilot as fake GPS.
+Converts local metric coordinates (X/Y) to GPS coordinates relative to a home position.
 """
 
 import argparse
+import math
 import struct
 import sys
 import time
@@ -22,6 +23,9 @@ SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
 DEFAULT_FRESHNESS_THRESHOLD = 0.75
+
+# Earth radius in meters for flat-earth coordinate projection
+EARTH_RADIUS = 6378137.0
 
 # Global state to track latest altitude from the flight controller
 latest_ground_distance = 1.5
@@ -83,7 +87,6 @@ def mavlink_listener(master):
             # Non-blocking receive with a timeout
             msg = master.recv_match(type=['DISTANCE_SENSOR', 'RANGEFINDER'], blocking=True, timeout=0.1)
             if msg is not None:
-                now = time.time()
                 if msg.get_type() == 'DISTANCE_SENSOR':
                     # current_distance is in cm in MAVLink, convert to meters
                     dist_m = msg.current_distance / 100.0
@@ -93,13 +96,20 @@ def mavlink_listener(master):
                     dist_m = msg.distance
                     with ground_distance_lock:
                         latest_ground_distance = dist_m
-        except Exception as e:
-            # Handle potential MAVLink disconnection or read errors silently
+        except Exception:
             time.sleep(0.1)
 
 
+def meters_to_lat_lon(x_m, y_m, home_lat, home_lon):
+    """Converts local meters (x=North, y=East) to latitude and longitude degrees."""
+    lat_rad = math.radians(home_lat)
+    lat_offset = (x_m / EARTH_RADIUS) * (180.0 / math.pi)
+    lon_offset = (y_m / (EARTH_RADIUS * math.cos(lat_rad))) * (180.0 / math.pi)
+    return home_lat + lat_offset, home_lon + lon_offset
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Publish optical flow shared memory telemetry to MAVLink.")
+    parser = argparse.ArgumentParser(description="Inject optical flow telemetry into ArduPilot as fake GPS.")
     parser.add_argument(
         "--connection",
         type=str,
@@ -107,17 +117,28 @@ def main():
         help="MAVLink connection string (default: udp:127.0.0.1:14551)"
     )
     parser.add_argument(
-        "--msg-type",
-        type=str,
-        choices=["optical_flow", "vision_position", "both"],
-        default="both",
-        help="Type of MAVLink message to send (default: both)"
+        "--home-lat",
+        type=float,
+        default=47.3769,
+        help="Home Latitude for coordinates projection (default: 47.3769)"
+    )
+    parser.add_argument(
+        "--home-lon",
+        type=float,
+        default=8.5417,
+        help="Home Longitude for coordinates projection (default: 8.5417)"
+    )
+    parser.add_argument(
+        "--home-alt",
+        type=float,
+        default=500.0,
+        help="Home Altitude above mean sea level in meters (default: 500.0)"
     )
     parser.add_argument(
         "--rate",
         type=float,
-        default=15.0,
-        help="Publishing frequency in Hz (default: 15.0)"
+        default=10.0,
+        help="Publishing frequency in Hz (default: 10.0)"
     )
     parser.add_argument(
         "--freshness",
@@ -126,10 +147,22 @@ def main():
         help="Maximum age in seconds for a sample to be considered fresh (default: 0.75)"
     )
     parser.add_argument(
-        "--sensor-id",
+        "--gps-id",
         type=int,
         default=0,
-        help="Sensor ID to report in MAVLink messages (default: 0)"
+        help="GPS ID reported to ArduPilot (default: 0)"
+    )
+    parser.add_argument(
+        "--satellites",
+        type=int,
+        default=10,
+        help="Number of visible satellites to report (default: 10)"
+    )
+    parser.add_argument(
+        "--fix-type",
+        type=int,
+        default=3,
+        help="GPS Fix Type (3 = 3D Fix, default: 3)"
     )
     args = parser.parse_args()
 
@@ -155,60 +188,69 @@ def main():
 
     sleep_interval = 1.0 / args.rate
     last_seen_ts = None
+    last_heartbeat_time = 0.0
 
     try:
         while not stop_event.is_set():
             loop_start = time.perf_counter()
+            now = time.time()
+
+            # Send heartbeat every 1 second to maintain connection state
+            if now - last_heartbeat_time >= 1.0:
+                master.mav.heartbeat_send(
+                    mavutil.mavlink.MAV_TYPE_GCS,
+                    mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                    0, 0, 0
+                )
+                last_heartbeat_time = now
 
             sample = read_latest_sample(shm)
             if sample is not None:
                 sample_ts = sample["timestamp"]
-                age = time.time() - sample_ts
+                age = now - sample_ts
 
                 # Only publish if the sample is fresh and we haven't sent this exact sample before
                 if age <= args.freshness and sample_ts != last_seen_ts:
                     last_seen_ts = sample_ts
-                    time_usec = int(sample_ts * 1e6)
+
+                    # Project 2D relative displacement to Lat/Lon
+                    lat, lon = meters_to_lat_lon(sample["x"], sample["y"], args.home_lat, args.home_lon)
 
                     with ground_distance_lock:
                         g_dist = latest_ground_distance
 
-                    # Send OPTICAL_FLOW message
-                    if args.msg_type in ("optical_flow", "both"):
-                        # flow_comp_m_sec_x and flow_comp_m_sec_y are in m/s (compensated)
-                        # flow_x and flow_y are in pixels (set to 0 since we send physical velocity)
-                        master.mav.optical_flow_send(
-                            time_usec=time_usec,
-                            sensor_id=args.sensor_id,
-                            flow_x=0,
-                            flow_y=0,
-                            flow_comp_m_x=sample["vx"],
-                            flow_comp_m_y=sample["vy"],
-                            quality=255,  # Max quality/confidence
-                            ground_distance=g_dist
-                        )
+                    # Altitude = Home Altitude + Height above ground
+                    current_alt = args.home_alt + g_dist
 
-                    # Send VISION_POSITION_ESTIMATE message
-                    if args.msg_type in ("vision_position", "both"):
-                        # x, y are in meters (NED frame: x=North/forward, y=East/right)
-                        # z is set to negative ground distance (altitude) to fit NED frame
-                        master.mav.vision_position_estimate_send(
-                            usec=time_usec,
-                            x=sample["x"],
-                            y=sample["y"],
-                            z=-g_dist,
-                            roll=0.0,
-                            pitch=0.0,
-                            yaw=0.0,
-                            covariance=[0]*21
-                        )
+                    # Send GPS_INPUT message
+                    # Lat and Lon are converted to degrees * 1E7 (integer)
+                    master.mav.gps_input_send(
+                        0,                  # Timestamp (0 for system time)
+                        args.gps_id,        # GPS ID
+                        0,                  # Ignore flags (use all parameters)
+                        0,                  # Time since start of GPS week
+                        0,                  # GPS week
+                        args.fix_type,      # Fix type
+                        int(lat * 1e7),     # Latitude (degrees * 1e7)
+                        int(lon * 1e7),     # Longitude (degrees * 1e7)
+                        float(current_alt), # Altitude
+                        1.0,                # HDOP
+                        1.0,                # VDOP
+                        float(sample["vx"]),# Velocity North (vn, m/s)
+                        float(sample["vy"]),# Velocity East (ve, m/s)
+                        0.0,                # Velocity Down (vd, m/s)
+                        0.1,                # Speed accuracy
+                        0.1,                # Horizontal accuracy
+                        0.1,                # Vertical accuracy
+                        args.satellites     # Satellites visible
+                    )
 
             # Control loop rate precisely
             elapsed = time.perf_counter() - loop_start
             time.sleep(max(0.001, sleep_interval - elapsed))
 
     except KeyboardInterrupt:
-        print("\nStopping MAVLink publisher...")
+        print("\nStopping MAVLink GPS injector...")
     finally:
         stop_event.set()
         listener_thread.join(timeout=1.0)
