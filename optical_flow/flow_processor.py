@@ -37,6 +37,66 @@ position_state = {
 }
 position_lock = threading.Lock()
 
+# Initialize DIS optical flow estimator
+dis_flow = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_ULTRAFAST)
+
+
+def estimate_dense_flow_and_motion(old_gray, frame_gray, step=8):
+    """
+    Computes dense optical flow using DIS and fits an affine motion model (translation, rotation, scaling)
+    using RANSAC.
+    Returns:
+        tuple: (tx, ty, scale, theta, inlier_old, inlier_new) or None if estimation fails.
+    """
+    if old_gray is None or frame_gray is None:
+        return None
+
+    # Compute dense optical flow
+    flow = dis_flow.calc(old_gray, frame_gray, None)
+
+    h, w = old_gray.shape
+    # Create grid of points in the downscaled space
+    ys, xs = np.mgrid[step//2:h:step, step//2:w:step].astype(np.float32)
+    P_old = np.stack((xs, ys), axis=-1).reshape(-1, 2)
+
+    # Get flow vectors at the grid points
+    u = flow[ys.astype(int), xs.astype(int), 0]
+    v = flow[ys.astype(int), xs.astype(int), 1]
+    flow_vectors = np.stack((u, v), axis=-1).reshape(-1, 2)
+    P_new = P_old + flow_vectors
+
+    # Filter out very large displacements
+    magnitudes = np.linalg.norm(flow_vectors, axis=1)
+    basic_mask = magnitudes < MAX_FLOW_STEP_PX
+    if np.count_nonzero(basic_mask) < MIN_INLIERS_FOR_VELOCITY:
+        return None
+
+    old_filtered = P_old[basic_mask]
+    new_filtered = P_new[basic_mask]
+
+    # Robustly estimate partial affine transform (translation, rotation, scale) using RANSAC
+    affine_result = cv2.estimateAffinePartial2D(old_filtered, new_filtered, method=cv2.RANSAC, ransacReprojThreshold=2.0)
+    if affine_result is None or affine_result[0] is None:
+        return None
+
+    M, inlier_mask = affine_result
+    if inlier_mask is None:
+        return None
+
+    inlier_mask = inlier_mask.ravel().astype(bool)
+    inlier_count = np.count_nonzero(inlier_mask)
+    if inlier_count < MIN_INLIERS_FOR_VELOCITY:
+        return None
+
+    # Extract motion parameters from the affine matrix M
+    tx = float(M[0, 2])
+    ty = float(M[1, 2])
+    scale = float(math.sqrt(M[0, 0]**2 + M[1, 0]**2))
+    theta = float(math.atan2(M[1, 0], M[0, 0]))
+
+    return tx, ty, scale, theta, old_filtered[inlier_mask], new_filtered[inlier_mask]
+
+
 
 def to_small_gray(frame):
     small = cv2.resize(frame, None, fx=FLOW_SCALE, fy=FLOW_SCALE, interpolation=cv2.INTER_AREA)

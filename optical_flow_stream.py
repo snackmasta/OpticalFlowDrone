@@ -16,12 +16,8 @@ from optical_flow.flow_processor import (
     to_small_gray,
     ensure_bgr,
     focal_length_px,
-    reject_outlier_tracks,
-    estimate_body_velocity_mps,
+    estimate_dense_flow_and_motion,
     velocity_state,
-    feature_params,
-    lk_params,
-    TRACK_FEATURE_COUNT,
     FLOW_SCALE,
     position_state,
     position_lock
@@ -50,10 +46,9 @@ picam2.configure(camera_config)
 picam2.start()
 time.sleep(2)
 
-# Warm up camera and detect initial features
+# Warm up camera and capture initial frame
 old_frame = ensure_bgr(picam2.capture_array())
 old_gray = to_small_gray(old_frame)
-p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
 
 # Start sensor reader threads
 start_distance_sensor_reader()
@@ -77,7 +72,7 @@ def switch_to_file_sink(frame_size, fps, reason):
 
 
 def record_optical_flow():
-    global old_gray, p0, output_sink
+    global old_gray, output_sink
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
     while True:
@@ -94,77 +89,53 @@ def record_optical_flow():
         img = frame.copy()
         draw_scale = 1.0 / FLOW_SCALE
 
+        dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
+
         tracked_count = 0
-        if p0 is not None and len(p0) > 0:
-            p1, st, _ = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
-            if p1 is not None and st is not None:
-                good_new = p1[st.flatten() == 1]
-                good_old = p0[st.flatten() == 1]
-                tracked_count = len(good_new)
-                inlier_old, inlier_new = reject_outlier_tracks(good_old, good_new)
+        if dense_motion is not None:
+            tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
+            tracked_count = len(inlier_new)
 
-                with distance_lock:
-                    altitude_cm = distance_state["current_distance"]
+            with distance_lock:
+                altitude_cm = distance_state["current_distance"]
 
-                velocity_estimate = estimate_body_velocity_mps(
-                    inlier_old,
-                    inlier_new,
-                    altitude_cm,
-                    dt_s,
-                    focal_length_x_px,
-                    focal_length_y_px,
-                )
+            # Calculate physical velocity using RANSAC-fitted translations tx, ty
+            altitude_m = altitude_cm / 100.0
+            vx_mps = (tx * altitude_m) / (focal_length_x_px * dt_s)
+            vy_mps = (ty * altitude_m) / (focal_length_y_px * dt_s)
 
-                if velocity_estimate is not None:
-                    vx_mps, vy_mps = velocity_estimate
-                    velocity_state["vx_mps"] = vx_mps
-                    velocity_state["vy_mps"] = vy_mps
-                    velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
-                    velocity_state["inliers"] = len(inlier_new)
-                    velocity_state["last_update"] = frame_ts
+            velocity_state["vx_mps"] = vx_mps
+            velocity_state["vy_mps"] = vy_mps
+            velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
+            velocity_state["inliers"] = tracked_count
+            velocity_state["last_update"] = frame_ts
 
-                    with position_lock:
-                        position_state["x_m"] += vx_mps * dt_s
-                        position_state["y_m"] += vy_mps * dt_s
-                        position_state["path"].append((position_state["x_m"], position_state["y_m"]))
-                        if len(position_state["path"]) > 200:
-                            position_state["path"].pop(0)
-                else:
-                    velocity_state["vx_mps"] = 0.0
-                    velocity_state["vy_mps"] = 0.0
-                    velocity_state["speed_mps"] = 0.0
-                    velocity_state["inliers"] = 0
-                    velocity_state["last_update"] = frame_ts
+            with position_lock:
+                position_state["x_m"] += vx_mps * dt_s
+                position_state["y_m"] += vy_mps * dt_s
+                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                if len(position_state["path"]) > 200:
+                    position_state["path"].pop(0)
 
-                    with position_lock:
-                        position_state["path"].append((position_state["x_m"], position_state["y_m"]))
-                        if len(position_state["path"]) > 200:
-                            position_state["path"].pop(0)
-
-                for new, old in zip(inlier_new, inlier_old):
-                    a, b = new.ravel()
-                    c, d = old.ravel()
-                    ax, by = int(a * draw_scale), int(b * draw_scale)
-                    cx, dy = int(c * draw_scale), int(d * draw_scale)
-                    img = cv2.line(img, (cx, dy), (ax, by), (0, 255, 0), 1)
-                    img = cv2.circle(img, (ax, by), 3, (0, 0, 255), -1)
-
-                if len(good_new) < TRACK_FEATURE_COUNT:
-                    new_features = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
-                    if new_features is not None:
-                        good_new = np.concatenate((good_new.reshape(-1, 2), new_features.reshape(-1, 2)), axis=0)
-
-                if len(good_new) > TRACK_FEATURE_COUNT:
-                    good_new = good_new[:TRACK_FEATURE_COUNT]
-
-                if len(good_new) > 0:
-                    p0 = good_new.reshape(-1, 1, 2)
-                else:
-                    p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
-            else:
-                p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
+            # Draw inlier vectors
+            for new, old in zip(inlier_new, inlier_old):
+                a, b = new.ravel()
+                c, d = old.ravel()
+                ax, by = int(a * draw_scale), int(b * draw_scale)
+                cx, dy = int(c * draw_scale), int(d * draw_scale)
+                img = cv2.line(img, (cx, dy), (ax, by), (0, 255, 0), 1)
+                img = cv2.circle(img, (ax, by), 3, (0, 0, 255), -1)
         else:
-            p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
+            velocity_state["vx_mps"] = 0.0
+            velocity_state["vy_mps"] = 0.0
+            velocity_state["speed_mps"] = 0.0
+            velocity_state["inliers"] = 0
+            velocity_state["last_update"] = frame_ts
+
+            with position_lock:
+                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                if len(position_state["path"]) > 200:
+                    position_state["path"].pop(0)
 
         old_gray = frame_gray.copy()
         img = draw_ground_reticle(img)
