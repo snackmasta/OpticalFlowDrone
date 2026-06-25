@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Read the optical flow stream and altitude from shared memory and inject it into ArduPilot
-as fake GPS using the exact message structure and mapping from the user's reference script.
+as ExternalNav (VISION_POSITION_ESTIMATE & VISION_SPEED_ESTIMATE) for non-GPS Loiter and position hold.
+Reference: mavlink_set_mode.py / mavlink_reboot.py
 """
 
 import argparse
@@ -74,36 +75,18 @@ def read_latest_sample(shm):
 
 def main():
     global stop_event
-    parser = argparse.ArgumentParser(description="Inject optical flow telemetry into ArduPilot as fake GPS.")
+    parser = argparse.ArgumentParser(description="Inject optical flow telemetry into ArduPilot as ExternalNav.")
     parser.add_argument(
         "--connection",
         type=str,
-        default="udpout:127.0.0.1:14550",
-        help="MAVLink connection string (default: udpout:127.0.0.1:14550)"
-    )
-    parser.add_argument(
-        "--home-lat",
-        type=float,
-        default=-6.200000,
-        help="Home Latitude (default: -6.200000)"
-    )
-    parser.add_argument(
-        "--home-lon",
-        type=float,
-        default=106.816666,
-        help="Home Longitude (default: 106.816666)"
-    )
-    parser.add_argument(
-        "--home-alt",
-        type=float,
-        default=10.0,
-        help="Home Altitude in meters (default: 10.0)"
+        default="udpin:127.0.0.1:14551",
+        help="MAVLink connection string (default: udpin:127.0.0.1:14551)"
     )
     parser.add_argument(
         "--rate",
         type=float,
-        default=10.0,
-        help="Publishing frequency in Hz (default: 10.0)"
+        default=15.0,
+        help="Publishing frequency in Hz (default: 15.0)"
     )
     parser.add_argument(
         "--freshness",
@@ -115,7 +98,7 @@ def main():
 
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
-        # Establish connection matching reference
+        # Connect to the MAVLink source (using udpin/udp matching the working reference scripts)
         master = mavutil.mavlink_connection(args.connection)
         
         # Wait for heartbeat to establish link
@@ -124,6 +107,7 @@ def main():
         print("Connected")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
+        print("Make sure MAVProxy is running and outputting to the specified port.")
         sys.exit(1)
 
     print(f"Waiting for shared memory segment '{SHM_NAME}'...")
@@ -133,22 +117,26 @@ def main():
         sys.exit(0)
     print("Shared memory segment opened successfully.")
 
-    # Local coordinate projection matching reference exactly
-    def xy_to_latlon(x_m, y_m):
-        earth_radius = 6378137.0
-        dlat = y_m / earth_radius
-        dlon = x_m / (earth_radius * math.cos(math.radians(args.home_lat)))
-        lat = args.home_lat + math.degrees(dlat)
-        lon = args.home_lon + math.degrees(dlon)
-        return lat, lon
-
     sleep_interval = 1.0 / args.rate
     last_seen_ts = None
+    last_heartbeat_time = 0.0
 
     try:
         while not stop_event:
             loop_start = time.perf_counter()
             now = time.time()
+
+            # Send heartbeat every 1 second to maintain connection state
+            if now - last_heartbeat_time >= 1.0:
+                try:
+                    master.mav.heartbeat_send(
+                        mavutil.mavlink.MAV_TYPE_GCS,
+                        mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                        0, 0, 0
+                    )
+                except Exception:
+                    pass
+                last_heartbeat_time = now
 
             sample = read_latest_sample(shm)
             if sample is not None:
@@ -158,47 +146,39 @@ def main():
                 # Only publish if the sample is fresh and we haven't sent this exact sample before
                 if age <= args.freshness and sample_ts != last_seen_ts:
                     last_seen_ts = sample_ts
+                    time_usec = int(now * 1e6)
 
-                    # Project coordinates matching reference exactly
-                    lat, lon = xy_to_latlon(sample["x"], sample["y"])
-
-                    # Altitude = Home Altitude + Height above ground
-                    current_alt = args.home_alt + sample["alt"]
-
-                    # Send GPS_INPUT message matching reference exactly
+                    # Send VISION_POSITION_ESTIMATE message (position)
+                    # NED Frame: x=North (forward), y=East (right), z=Down (negative altitude)
                     try:
-                        master.mav.gps_input_send(
-                            int(time.time() * 1e6),               # time_usec
-                            0,                                    # gps_id
-                            (
-                                mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HDOP |
-                                mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VDOP
-                            ),                                    # ignore_flags
-                            0,                                    # time_week_ms
-                            0,                                    # time_week
-                            3,                                    # fix_type (3D Fix)
-                            int(lat * 1e7),                       # lat (degrees * 1e7)
-                            int(lon * 1e7),                       # lon (degrees * 1e7)
-                            float(current_alt),                   # alt
-                            1.0,                                  # hdop
-                            1.0,                                  # vdop
-                            sample["vy"],                         # vn (velocity north = vy)
-                            sample["vx"],                         # ve (velocity east = vx)
-                            0,                                    # vd
-                            0.3,                                  # speed_accuracy
-                            0.5,                                  # horiz_accuracy
-                            0.5,                                  # vert_accuracy
-                            15                                    # satellites_visible
+                        master.mav.vision_position_estimate_send(
+                            time_usec,                  # time_usec
+                            float(sample["x"]),         # x (meters, North)
+                            float(sample["y"]),         # y (meters, East)
+                            float(-sample["alt"]),      # z (meters, Down)
+                            0.0,                        # roll (rad)
+                            0.0,                        # pitch (rad)
+                            0.0,                        # yaw (rad)
+                            [0]*21                      # covariance matrix
+                        )
+                        
+                        # Send VISION_SPEED_ESTIMATE message (velocity)
+                        master.mav.vision_speed_estimate_send(
+                            time_usec,                  # time_usec
+                            float(sample["vx"]),        # x velocity (m/s)
+                            float(sample["vy"]),        # y velocity (m/s)
+                            0.0,                        # z velocity (m/s)
+                            [0]*9                       # covariance matrix
                         )
                     except Exception as e:
-                        print(f"Failed to send GPS_INPUT packet: {e}")
+                        print(f"Failed to send ExternalNav packets: {e}")
 
             # Control loop rate precisely
             elapsed = time.perf_counter() - loop_start
             time.sleep(max(0.001, sleep_interval - elapsed))
 
     except KeyboardInterrupt:
-        print("\nStopping MAVLink GPS injector...")
+        print("\nStopping MAVLink ExternalNav injector...")
     finally:
         stop_event = True
         release_shared_memory(shm)

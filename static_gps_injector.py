@@ -1,41 +1,41 @@
 #!/usr/bin/env python3
 """
-Inject static fake GPS telemetry (GPS_INPUT) into ArduPilot for proof-of-concept testing.
-Follows the user-provided reference script exactly.
+Inject static or simulated moving ExternalNav telemetry (VISION_POSITION_ESTIMATE & VISION_SPEED_ESTIMATE)
+into ArduPilot for proof-of-concept testing of non-GPS Loiter and position hold.
+Reference: mavlink_set_mode.py / mavlink_reboot.py
 """
 
 import argparse
-import math
 import sys
 import time
 from pymavlink import mavutil
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Inject static fake GPS telemetry into ArduPilot.")
+    parser = argparse.ArgumentParser(description="Inject static fake ExternalNav telemetry into ArduPilot.")
     parser.add_argument(
         "--connection",
         type=str,
-        default="udpout:127.0.0.1:14550",
-        help="MAVLink connection string (default: udpout:127.0.0.1:14550)"
+        default="udpin:127.0.0.1:14550",
+        help="MAVLink connection string (default: udpin:127.0.0.1:14550)"
     )
     parser.add_argument(
-        "--home-lat",
+        "--alt",
         type=float,
-        default=-6.200000,
-        help="Home Latitude (default: -6.200000)"
+        default=1.5,
+        help="Static Altitude / height above ground in meters (default: 1.5)"
     )
     parser.add_argument(
-        "--home-lon",
+        "--vx",
         type=float,
-        default=106.816666,
-        help="Home Longitude (default: 106.816666)"
+        default=0.2,
+        help="Simulated Velocity X in m/s (default: 0.2)"
     )
     parser.add_argument(
-        "--home-alt",
+        "--vy",
         type=float,
-        default=10.0,
-        help="Home Altitude in meters (default: 10.0)"
+        default=0.0,
+        help="Simulated Velocity Y in m/s (default: 0.0)"
     )
     parser.add_argument(
         "--rate",
@@ -53,7 +53,7 @@ def main():
 
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
-        # Establish connection matching the reference script
+        # Establish connection (using udpin/udp matching the working reference scripts)
         master = mavutil.mavlink_connection(args.connection)
         
         # Wait for heartbeat to establish link
@@ -62,6 +62,7 @@ def main():
         print("Connected")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
+        print("Make sure MAVProxy is running and outputting to the specified port.")
         sys.exit(1)
 
     # Set flight mode if requested
@@ -85,25 +86,18 @@ def main():
         except Exception as e:
             print(f"Failed to send mode change command: {e}")
 
-    # Local coordinate projection matching reference exactly
-    def xy_to_latlon(x_m, y_m):
-        earth_radius = 6378137.0
-        dlat = y_m / earth_radius
-        dlon = x_m / (earth_radius * math.cos(math.radians(args.home_lat)))
-        lat = args.home_lat + math.degrees(dlat)
-        lon = args.home_lon + math.degrees(dlon)
-        return lat, lon
-
-    # Simulation state matching reference
+    # Simulation state
     x = 0.0
     y = 0.0
-    vx = 0.2
-    vy = 0.0
     last = time.time()
     sleep_interval = 1.0 / args.rate
+    last_heartbeat_time = 0.0
+    last_print_time = 0.0
+    packets_sent = 0
 
-    print(f"Starting injection loop at {args.rate}Hz...")
-    print(f"Home: Lat={args.home_lat:.6f}, Lon={args.home_lon:.6f}, Alt={args.home_alt:.1f}m")
+    print(f"Starting ExternalNav injection loop at {args.rate}Hz...")
+    print(f"Injecting simulated motion: Vx={args.vx:.2f}m/s, Vy={args.vy:.2f}m/s, Alt={args.alt:.2f}m")
+    print("Ensure VISO_TYPE=1 and EKF3 sources are configured for ExternalNav.")
     print("Press Ctrl+C to stop.")
 
     try:
@@ -113,49 +107,60 @@ def main():
             dt = now - last
             last = now
 
-            # Simulate estimator movement
-            x += vx * dt
-            y += vy * dt
+            # Integrate simulated velocities to update position coordinates
+            x += args.vx * dt
+            y += args.vy * dt
 
-            # Project coordinates
-            lat, lon = xy_to_latlon(x, y)
+            # Send heartbeat every 1 second
+            if now - last_heartbeat_time >= 1.0:
+                try:
+                    master.mav.heartbeat_send(
+                        mavutil.mavlink.MAV_TYPE_GCS,
+                        mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                        0, 0, 0
+                    )
+                except Exception:
+                    pass
+                last_heartbeat_time = now
 
-            # Send GPS_INPUT message matching reference exactly
+            # Send VISION_POSITION_ESTIMATE message (position)
+            # NED Frame: x=North (forward), y=East (right), z=Down (negative altitude)
             try:
-                master.mav.gps_input_send(
-                    int(time.time() * 1e6),               # time_usec
-                    0,                                    # gps_id
-                    (
-                        mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HDOP |
-                        mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VDOP
-                    ),                                    # ignore_flags
-                    0,                                    # time_week_ms
-                    0,                                    # time_week
-                    3,                                    # fix_type (3D Fix)
-                    int(lat * 1e7),                       # lat (degrees * 1e7)
-                    int(lon * 1e7),                       # lon (degrees * 1e7)
-                    args.home_alt,                        # alt
-                    1.0,                                  # hdop
-                    1.0,                                  # vdop
-                    vy,                                   # vn (velocity north = vy)
-                    vx,                                   # ve (velocity east = vx)
-                    0,                                    # vd
-                    0.3,                                  # speed_accuracy
-                    0.5,                                  # horiz_accuracy
-                    0.5,                                  # vert_accuracy
-                    15                                    # satellites_visible
+                master.mav.vision_position_estimate_send(
+                    int(now * 1e6),             # time_usec
+                    float(x),                   # x (meters, North)
+                    float(y),                   # y (meters, East)
+                    float(-args.alt),           # z (meters, Down)
+                    0.0,                        # roll (rad)
+                    0.0,                        # pitch (rad)
+                    0.0,                        # yaw (rad)
+                    [0]*21                      # covariance matrix
                 )
+                
+                # Send VISION_SPEED_ESTIMATE message (velocity)
+                master.mav.vision_speed_estimate_send(
+                    int(now * 1e6),             # time_usec
+                    float(args.vx),             # x velocity (m/s)
+                    float(args.vy),             # y velocity (m/s)
+                    0.0,                        # z velocity (m/s)
+                    [0]*9                       # covariance matrix
+                )
+                
+                packets_sent += 1
             except Exception as e:
-                print(f"Failed to send GPS_INPUT packet: {e}")
+                print(f"Failed to send ExternalNav packets: {e}")
 
-            print(f"X={x:.2f} Y={y:.2f} LAT={lat:.7f} LON={lon:.7f}")
-            
+            # Print status update every 2 seconds
+            if now - last_print_time >= 2.0:
+                print(f"Status: Sent {packets_sent} ExternalNav packet pairs. X={x:.2f}, Y={y:.2f}.")
+                last_print_time = now
+
             # Control loop rate precisely
             elapsed = time.perf_counter() - loop_start
             time.sleep(max(0.001, sleep_interval - elapsed))
 
     except KeyboardInterrupt:
-        print("\nStopping MAVLink GPS injector...")
+        print("\nStopping ExternalNav injector...")
     finally:
         print("Cleanup completed.")
 
