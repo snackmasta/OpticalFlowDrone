@@ -72,6 +72,12 @@ def main():
         default=3,
         help="GPS Fix Type (3 = 3D Fix, default: 3)"
     )
+    parser.add_argument(
+        "--set-mode",
+        type=str,
+        default=None,
+        help="Attempt to change flight mode to the specified mode name or ID (e.g. LOITER, GUIDED)"
+    )
     args = parser.parse_args()
 
     print(f"Connecting to MAVLink on {args.connection}...")
@@ -81,6 +87,34 @@ def main():
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
         sys.exit(1)
+
+    # Set flight mode if requested
+    if args.set_mode:
+        # Wait a brief moment and send heartbeats so the autopilot knows our system ID
+        time.sleep(1.0)
+        try:
+            # Send initial heartbeat
+            master.mav.heartbeat_send(
+                mavutil.mavlink.MAV_TYPE_GCS,
+                mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                0, 0, 0
+            )
+            # Find mode mapping
+            mode = args.set_mode.upper()
+            mode_map = master.mode_mapping()
+            if mode_map and mode in mode_map:
+                mode_id = mode_map[mode]
+                print(f"Sending request to change flight mode to {mode} (ID: {mode_id})...")
+                master.set_mode(mode_id)
+            else:
+                try:
+                    mode_id = int(mode)
+                    print(f"Sending request to change flight mode to ID {mode_id}...")
+                    master.set_mode(mode_id)
+                except ValueError:
+                    print(f"Unknown flight mode: {args.set_mode}. Available modes: {list(mode_map.keys()) if mode_map else 'None'}")
+        except Exception as e:
+            print(f"Failed to send mode change command: {e}")
 
     sleep_interval = 1.0 / args.rate
     last_heartbeat_time = 0.0
