@@ -5,6 +5,9 @@ import cv2
 import numpy as np
 import time
 import math
+import struct
+import threading
+from multiprocessing import shared_memory
 from picamera2 import Picamera2
 
 from optical_flow.sensor_readers import (
@@ -33,6 +36,79 @@ from optical_flow.video_sinks import (
 
 TARGET_FPS = 60
 FRAME_INTERVAL_S = 1.0 / TARGET_FPS
+
+# Shared memory configuration for optical flow stream
+SHM_NAME = "optical_flow_stream"
+SHM_MAGIC = b"FLOW"
+SHM_HEADER_FORMAT = "<4sII"
+SHM_RECORD_FORMAT = "<5d"
+SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
+SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
+MAX_SAMPLES = 120
+SHM_SIZE = SHM_HEADER_SIZE + (MAX_SAMPLES * SHM_RECORD_SIZE)
+
+flow_shm = None
+flow_shm_lock = threading.Lock()
+
+
+def attach_flow_stream_shm():
+    global flow_shm
+    with flow_shm_lock:
+        if flow_shm is not None:
+            return flow_shm
+        try:
+            flow_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
+        except FileExistsError:
+            flow_shm = shared_memory.SharedMemory(name=SHM_NAME, create=False)
+            if flow_shm.size < SHM_SIZE:
+                flow_shm.close()
+                try:
+                    flow_shm.unlink()
+                except FileNotFoundError:
+                    pass
+                flow_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
+
+        struct.pack_into(SHM_HEADER_FORMAT, flow_shm.buf, 0, SHM_MAGIC, 0, 0)
+        return flow_shm
+
+
+def write_flow_stream_sample(timestamp, x, y, vx, vy):
+    try:
+        shm = attach_flow_stream_shm()
+        with flow_shm_lock:
+            _, write_index, sample_count = struct.unpack_from(SHM_HEADER_FORMAT, shm.buf, 0)
+            record_offset = SHM_HEADER_SIZE + (write_index * SHM_RECORD_SIZE)
+            struct.pack_into(
+                SHM_RECORD_FORMAT,
+                shm.buf,
+                record_offset,
+                float(timestamp),
+                float(x),
+                float(y),
+                float(vx),
+                float(vy),
+            )
+            write_index = (write_index + 1) % MAX_SAMPLES
+            sample_count = min(sample_count + 1, MAX_SAMPLES)
+            struct.pack_into(SHM_HEADER_FORMAT, shm.buf, 0, SHM_MAGIC, write_index, sample_count)
+    except Exception as exc:
+        print(f"Failed to write to shared memory: {exc}")
+
+
+def close_flow_stream_shm():
+    global flow_shm
+    with flow_shm_lock:
+        if flow_shm is None:
+            return
+        try:
+            flow_shm.close()
+        finally:
+            try:
+                flow_shm.unlink()
+            except FileNotFoundError:
+                pass
+            flow_shm = None
+
 
 # Initialize camera
 picam2 = Picamera2()
@@ -137,6 +213,14 @@ def record_optical_flow():
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
+        # Stream current X, Y position and velocity to shared memory
+        with position_lock:
+            current_x = position_state["x_m"]
+            current_y = position_state["y_m"]
+        current_vx = velocity_state["vx_mps"]
+        current_vy = velocity_state["vy_mps"]
+        write_flow_stream_sample(frame_ts, current_x, current_y, current_vx, current_vy)
+
         old_gray = frame_gray.copy()
         img = draw_ground_reticle(img)
         img = draw_osd(img, tracked_count)
@@ -159,3 +243,5 @@ if __name__ == '__main__':
         if rtsp_server is not None:
             rtsp_server.release()
         picam2.stop()
+        close_flow_stream_shm()
+
