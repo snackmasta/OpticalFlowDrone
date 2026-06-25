@@ -83,6 +83,9 @@ def main():
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
         master = mavutil.mavlink_connection(args.connection)
+        # Set default target system and component for outgoing commands (ArduPilot defaults)
+        master.target_system = 1
+        master.target_component = 1
         print("MAVLink static GPS injector initialized.")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
