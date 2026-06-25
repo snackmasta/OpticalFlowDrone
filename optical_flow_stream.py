@@ -41,7 +41,7 @@ FRAME_INTERVAL_S = 1.0 / TARGET_FPS
 SHM_NAME = "optical_flow_stream"
 SHM_MAGIC = b"FLOW"
 SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<5d"
+SHM_RECORD_FORMAT = "<6d"
 SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
@@ -72,7 +72,7 @@ def attach_flow_stream_shm():
         return flow_shm
 
 
-def write_flow_stream_sample(timestamp, x, y, vx, vy):
+def write_flow_stream_sample(timestamp, x, y, vx, vy, alt):
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -87,6 +87,7 @@ def write_flow_stream_sample(timestamp, x, y, vx, vy):
                 float(y),
                 float(vx),
                 float(vy),
+                float(alt),
             )
             write_index = (write_index + 1) % MAX_SAMPLES
             sample_count = min(sample_count + 1, MAX_SAMPLES)
@@ -213,13 +214,16 @@ def record_optical_flow():
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
-        # Stream current X, Y position and velocity to shared memory
+        # Stream current X, Y position, velocity, and altitude to shared memory
         with position_lock:
             current_x = position_state["x_m"]
             current_y = position_state["y_m"]
         current_vx = velocity_state["vx_mps"]
         current_vy = velocity_state["vy_mps"]
-        write_flow_stream_sample(frame_ts, current_x, current_y, current_vx, current_vy)
+        with distance_lock:
+            altitude_cm = distance_state["current_distance"]
+        current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+        write_flow_stream_sample(frame_ts, current_x, current_y, current_vx, current_vy, current_alt)
 
         old_gray = frame_gray.copy()
         img = draw_ground_reticle(img)

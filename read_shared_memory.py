@@ -32,8 +32,8 @@ SHM_REGISTRY = {
     "optical_flow_stream": {
         "magic": b"FLOW",
         "header_format": "<4sII",  # magic, write_index, sample_count
-        "record_format": "<5d",    # timestamp, x, y, vx, vy
-        "fields": ["timestamp", "x", "y", "vx", "vy"],
+        "record_format": "<6d",    # timestamp, x, y, vx, vy, alt
+        "fields": ["timestamp", "x", "y", "vx", "vy", "alt"],
         "max_samples": 120,
     },
     "future_sensor_stream": {
@@ -251,6 +251,12 @@ def mock_worker(shm_name, frequency, noise, mode):
                         else:
                             last_val = last_values.get(field, 0.0)
                             val = last_val + random.uniform(-0.1, 0.1)
+                    elif field == "alt":
+                        if mode == "sine":
+                            val = 1.5 + 0.5 * math.sin(step * 0.02)
+                        else:
+                            last_val = last_values.get(field, 1.5)
+                            val = max(0.5, min(5.0, last_val + random.uniform(-0.05, 0.05)))
                 else:  # future_sensor_stream
                     if field == "temperature":
                         val = 24.0 + 6.0 * math.sin(step * 0.02) if mode == "sine" else last_values.get(field, 24.0) + random.uniform(-0.1, 0.1)

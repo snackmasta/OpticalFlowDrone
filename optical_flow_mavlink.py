@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Read the optical flow stream from shared memory and inject it into ArduPilot as fake GPS.
+Read the optical flow stream and altitude from shared memory and inject it into ArduPilot as fake GPS.
 Converts local metric coordinates (X/Y) to GPS coordinates relative to a home position.
+Acts as a pure MAVLink transmitter (no port bind conflicts).
 """
 
 import argparse
@@ -9,7 +10,6 @@ import math
 import struct
 import sys
 import time
-import threading
 from multiprocessing import shared_memory
 from multiprocessing import resource_tracker
 from pymavlink import mavutil
@@ -18,7 +18,7 @@ from pymavlink import mavutil
 SHM_NAME = "optical_flow_stream"
 SHM_MAGIC = b"FLOW"
 SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<5d"  # timestamp, x, y, vx, vy
+SHM_RECORD_FORMAT = "<6d"  # timestamp, x, y, vx, vy, alt
 SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
@@ -27,15 +27,12 @@ DEFAULT_FRESHNESS_THRESHOLD = 0.75
 # Earth radius in meters for flat-earth coordinate projection
 EARTH_RADIUS = 6378137.0
 
-# Global state to track latest altitude from the flight controller
-latest_ground_distance = 1.5
-ground_distance_lock = threading.Lock()
-stop_event = threading.Event()
+stop_event = False
 
 
 def open_shared_memory(wait_interval=0.5):
     """Tries to open the shared memory segment, retrying until it becomes available."""
-    while not stop_event.is_set():
+    while not stop_event:
         try:
             return shared_memory.SharedMemory(name=SHM_NAME)
         except FileNotFoundError:
@@ -66,38 +63,17 @@ def read_latest_sample(shm):
 
         latest_index = (write_index - 1) % MAX_SAMPLES
         record_offset = SHM_HEADER_SIZE + (latest_index * SHM_RECORD_SIZE)
-        timestamp, x, y, vx, vy = struct.unpack_from(SHM_RECORD_FORMAT, shm.buf, record_offset)
+        timestamp, x, y, vx, vy, alt = struct.unpack_from(SHM_RECORD_FORMAT, shm.buf, record_offset)
         return {
             "timestamp": timestamp,
             "x": x,
             "y": y,
             "vx": vx,
             "vy": vy,
+            "alt": alt,
         }
     except Exception:
         return None
-
-
-def mavlink_listener(master):
-    """Listens to incoming MAVLink messages to update ground distance (altitude)."""
-    global latest_ground_distance
-    print("Started MAVLink listener thread for distance sensor telemetry...")
-    while not stop_event.is_set():
-        try:
-            # Non-blocking receive with a timeout
-            msg = master.recv_match(type=['DISTANCE_SENSOR', 'RANGEFINDER'], blocking=True, timeout=0.1)
-            if msg is not None:
-                if msg.get_type() == 'DISTANCE_SENSOR':
-                    # current_distance is in cm in MAVLink, convert to meters
-                    dist_m = msg.current_distance / 100.0
-                    with ground_distance_lock:
-                        latest_ground_distance = dist_m
-                elif msg.get_type() == 'RANGEFINDER':
-                    dist_m = msg.distance
-                    with ground_distance_lock:
-                        latest_ground_distance = dist_m
-        except Exception:
-            time.sleep(0.1)
 
 
 def meters_to_lat_lon(x_m, y_m, home_lat, home_lon):
@@ -109,12 +85,13 @@ def meters_to_lat_lon(x_m, y_m, home_lat, home_lon):
 
 
 def main():
+    global stop_event
     parser = argparse.ArgumentParser(description="Inject optical flow telemetry into ArduPilot as fake GPS.")
     parser.add_argument(
         "--connection",
         type=str,
-        default="udp:127.0.0.1:14551",
-        help="MAVLink connection string (default: udp:127.0.0.1:14551)"
+        default="udpout:127.0.0.1:14551",
+        help="MAVLink connection string (use 'udpout:IP:PORT' to act as client, default: udpout:127.0.0.1:14551)"
     )
     parser.add_argument(
         "--home-lat",
@@ -166,18 +143,14 @@ def main():
     )
     args = parser.parse_args()
 
+    # Note: Using udpout:127.0.0.1:14551 makes the script a pure sender, avoiding port bind conflicts.
     print(f"Connecting to MAVLink on {args.connection}...")
     try:
         master = mavutil.mavlink_connection(args.connection)
-        master.wait_heartbeat(timeout=10)
-        print("MAVLink connection established.")
+        print("MAVLink transmitter initialized.")
     except Exception as e:
         print(f"Error establishing MAVLink connection: {e}")
         sys.exit(1)
-
-    # Start the background MAVLink listener thread to track ground distance
-    listener_thread = threading.Thread(target=mavlink_listener, args=(master,), daemon=True)
-    listener_thread.start()
 
     print(f"Waiting for shared memory segment '{SHM_NAME}'...")
     shm = open_shared_memory()
@@ -191,17 +164,20 @@ def main():
     last_heartbeat_time = 0.0
 
     try:
-        while not stop_event.is_set():
+        while not stop_event:
             loop_start = time.perf_counter()
             now = time.time()
 
             # Send heartbeat every 1 second to maintain connection state
             if now - last_heartbeat_time >= 1.0:
-                master.mav.heartbeat_send(
-                    mavutil.mavlink.MAV_TYPE_GCS,
-                    mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-                    0, 0, 0
-                )
+                try:
+                    master.mav.heartbeat_send(
+                        mavutil.mavlink.MAV_TYPE_GCS,
+                        mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                        0, 0, 0
+                    )
+                except Exception:
+                    pass
                 last_heartbeat_time = now
 
             sample = read_latest_sample(shm)
@@ -216,34 +192,34 @@ def main():
                     # Project 2D relative displacement to Lat/Lon
                     lat, lon = meters_to_lat_lon(sample["x"], sample["y"], args.home_lat, args.home_lon)
 
-                    with ground_distance_lock:
-                        g_dist = latest_ground_distance
-
-                    # Altitude = Home Altitude + Height above ground
-                    current_alt = args.home_alt + g_dist
+                    # Altitude = Home Altitude + Height above ground (read directly from shared memory!)
+                    current_alt = args.home_alt + sample["alt"]
 
                     # Send GPS_INPUT message
                     # Lat and Lon are converted to degrees * 1E7 (integer)
-                    master.mav.gps_input_send(
-                        0,                  # Timestamp (0 for system time)
-                        args.gps_id,        # GPS ID
-                        0,                  # Ignore flags (use all parameters)
-                        0,                  # Time since start of GPS week
-                        0,                  # GPS week
-                        args.fix_type,      # Fix type
-                        int(lat * 1e7),     # Latitude (degrees * 1e7)
-                        int(lon * 1e7),     # Longitude (degrees * 1e7)
-                        float(current_alt), # Altitude
-                        1.0,                # HDOP
-                        1.0,                # VDOP
-                        float(sample["vx"]),# Velocity North (vn, m/s)
-                        float(sample["vy"]),# Velocity East (ve, m/s)
-                        0.0,                # Velocity Down (vd, m/s)
-                        0.1,                # Speed accuracy
-                        0.1,                # Horizontal accuracy
-                        0.1,                # Vertical accuracy
-                        args.satellites     # Satellites visible
-                    )
+                    try:
+                        master.mav.gps_input_send(
+                            0,                  # Timestamp (0 for system time)
+                            args.gps_id,        # GPS ID
+                            0,                  # Ignore flags (use all parameters)
+                            0,                  # Time since start of GPS week
+                            0,                  # GPS week
+                            args.fix_type,      # Fix type
+                            int(lat * 1e7),     # Latitude (degrees * 1e7)
+                            int(lon * 1e7),     # Longitude (degrees * 1e7)
+                            float(current_alt), # Altitude
+                            1.0,                # HDOP
+                            1.0,                # VDOP
+                            float(sample["vx"]),# Velocity North (vn, m/s)
+                            float(sample["vy"]),# Velocity East (ve, m/s)
+                            0.0,                # Velocity Down (vd, m/s)
+                            0.1,                # Speed accuracy
+                            0.1,                # Horizontal accuracy
+                            0.1,                # Vertical accuracy
+                            args.satellites     # Satellites visible
+                        )
+                    except Exception as e:
+                        print(f"Failed to send MAVLink packet: {e}")
 
             # Control loop rate precisely
             elapsed = time.perf_counter() - loop_start
@@ -252,8 +228,7 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping MAVLink GPS injector...")
     finally:
-        stop_event.set()
-        listener_thread.join(timeout=1.0)
+        stop_event = True
         release_shared_memory(shm)
         print("Cleanup completed.")
 
