@@ -13,7 +13,7 @@ START_LON = 107.6191   # Bandung Longitude
 LAT_SIZE = 0.0005  # Height of rectangle in degrees
 LON_SIZE = 0.0005  # Width of rectangle in degrees
 STEP = 0.00002     # Speed of movement per step
-MAX_LAPS = 5       # Stop moving after this many laps (set to None for infinite)
+MAX_LAPS = 0       # Stop moving after this many laps (set to None for infinite)
 
 lat = START_LAT
 lon = START_LON
@@ -44,9 +44,11 @@ def to_nmea_lon(lon):
 
 # GPS Packet default values
 FIX_QUALITY = "4"      # RTK Fixed
-NUM_SATELLITES = "10"
-HDOP = "0.9"           # Excellent HDOP for RTK
-ALTITUDE = "0.0"       # altitude neutral
+NUM_SATELLITES = "30"
+HDOP = "0.1"           # Excellent HDOP for RTK
+PDOP = "1.2"
+VDOP = "0.9"           # Excellent VDOP for RTK altitude
+ALTITUDE = "100.0"       # altitude neutral
 ALTITUDE_UNIT = "M"
 GEOIDAL_HEIGHT = "0.0"
 GEOIDAL_HEIGHT_UNIT = "M"
@@ -57,13 +59,15 @@ TRACK_ANGLE = "0.0"
 MAG_VAR = ""
 MAG_VAR_DIR = ""
 MODE_INDICATOR = "A"
+YAW = "40.0"          # GPS heading/yaw in degrees (0-360)
 
 
 while True:
 
     now = datetime.utcnow()
 
-    utc = now.strftime("%H%M%S")
+    # Format UTC time with fractional seconds (hhmmss.ss) for high-rate GPS updates
+    utc = now.strftime("%H%M%S.%f")[:-4]
     date = now.strftime("%d%m%y")
 
     # Update position along rectangle path if max laps not reached
@@ -119,7 +123,23 @@ while True:
         f"{MODE_INDICATOR}"
     )
 
-    for msg in (gga, rmc):
+    gsa = (
+        f"GPGSA,"
+        f"A,"
+        f"3,"
+        f"01,02,03,04,05,06,07,08,09,10,,,"
+        f"{PDOP},"
+        f"{HDOP},"
+        f"{VDOP}"
+    )
+
+    hdt = (
+        f"GPHDT,"
+        f"{YAW},"
+        f"T"
+    )
+
+    for msg in (gga, rmc, gsa, hdt):
         line = f"${msg}*{checksum(msg)}\r\n"
         ser.write(line.encode())
 
