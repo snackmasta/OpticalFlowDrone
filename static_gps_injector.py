@@ -1,6 +1,8 @@
 import serial
 import time
+import struct
 from datetime import datetime
+from multiprocessing import shared_memory
 
 ser = serial.Serial(
     "/dev/ttyAMA2",
@@ -19,6 +21,44 @@ lat = START_LAT
 lon = START_LON
 state = 0  # 0: Go East, 1: Go North, 2: Go West, 3: Go South
 laps_completed = 0
+
+
+# Compass shared memory configuration
+COMPASS_SHM_NAME = "compass_heading_stream"
+COMPASS_SHM_MAGIC = b"CHDG"
+COMPASS_SHM_HEADER_FORMAT = "<4sII"
+COMPASS_SHM_RECORD_FORMAT = "<6d"
+COMPASS_SHM_HEADER_SIZE = struct.calcsize(COMPASS_SHM_HEADER_FORMAT)
+COMPASS_SHM_RECORD_SIZE = struct.calcsize(COMPASS_SHM_RECORD_FORMAT)
+COMPASS_MAX_SAMPLES = 120
+
+compass_shm = None
+
+
+def get_latest_compass_heading():
+    global compass_shm
+    if compass_shm is None:
+        try:
+            compass_shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+        except FileNotFoundError:
+            return None
+    try:
+        magic, write_index, sample_count = struct.unpack_from(COMPASS_SHM_HEADER_FORMAT, compass_shm.buf, 0)
+        if magic != COMPASS_SHM_MAGIC or sample_count == 0:
+            return None
+        
+        latest_index = (write_index - 1) % COMPASS_MAX_SAMPLES
+        record_offset = COMPASS_SHM_HEADER_SIZE + (latest_index * COMPASS_SHM_RECORD_SIZE)
+        # Record: timestamp, raw_heading, heading, x, y, z
+        _, _, heading, _, _, _ = struct.unpack_from(COMPASS_SHM_RECORD_FORMAT, compass_shm.buf, record_offset)
+        return heading
+    except Exception:
+        try:
+            compass_shm.close()
+        except Exception:
+            pass
+        compass_shm = None
+        return None
 
 
 def checksum(s):
@@ -59,7 +99,6 @@ TRACK_ANGLE = "0.0"
 MAG_VAR = ""
 MAG_VAR_DIR = ""
 MODE_INDICATOR = "A"
-YAW = "40.0"          # GPS heading/yaw in degrees (0-360)
 
 
 while True:
@@ -133,9 +172,13 @@ while True:
         f"{VDOP}"
     )
 
+    # Read the latest heading from compass shared memory, falling back to "0.0" if unavailable
+    heading = get_latest_compass_heading()
+    current_yaw = f"{heading:.1f}" if heading is not None else "0.0"
+
     hdt = (
         f"GPHDT,"
-        f"{YAW},"
+        f"{current_yaw},"
         f"T"
     )
 
