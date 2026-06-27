@@ -664,6 +664,31 @@
         let mergeTargetField = null;
         let mergedFields = {}; // targetField -> array of sourceFields
 
+        let shmConfig = {};
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/shm/config');
+                if (response.ok) {
+                    shmConfig = await response.json();
+                }
+            } catch (err) {
+                console.error("Error loading config:", err);
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                await fetch('/api/shm/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(shmConfig)
+                });
+            } catch (err) {
+                console.error("Error saving config:", err);
+            }
+        }
+
         // Fetch registry listing
         async function fetchRegistry() {
             try {
@@ -706,6 +731,33 @@
         function selectSegment(seg) {
             selectedShmName = seg.name;
             
+            // Initialize config if not existing
+            if (!shmConfig[selectedShmName]) {
+                shmConfig[selectedShmName] = {
+                    layoutMode: "combined",
+                    hiddenFields: {},
+                    mergedFields: {},
+                    yMin: "",
+                    yMax: "",
+                    isAxisLocked: false
+                };
+            }
+            const config = shmConfig[selectedShmName];
+            layoutMode = config.layoutMode || "combined";
+            isAxisLocked = config.isAxisLocked || false;
+            mergedFields = config.mergedFields || {};
+
+            const toggleLayoutBtn = document.getElementById('btn-toggle-layout');
+            if (toggleLayoutBtn) {
+                if (layoutMode === "split") {
+                    toggleLayoutBtn.textContent = "Combined Layout";
+                    toggleLayoutBtn.classList.add('active');
+                } else {
+                    toggleLayoutBtn.textContent = "Split Layout";
+                    toggleLayoutBtn.classList.remove('active');
+                }
+            }
+
             // Highlight list selection
             const items = document.querySelectorAll('.shm-item');
             items.forEach(el => el.classList.remove('selected'));
@@ -918,12 +970,17 @@
         function performMerge(sourceField, targetField) {
             if (!sourceField || !targetField || sourceField === targetField) return;
 
-            if (!mergedFields[targetField]) {
-                mergedFields[targetField] = [];
+            const config = shmConfig[selectedShmName];
+            if (!config.mergedFields) {
+                config.mergedFields = {};
             }
-            if (mergedFields[targetField].includes(sourceField)) return;
+            if (!config.mergedFields[targetField]) {
+                config.mergedFields[targetField] = [];
+            }
+            if (config.mergedFields[targetField].includes(sourceField)) return;
 
-            mergedFields[targetField].push(sourceField);
+            config.mergedFields[targetField].push(sourceField);
+            saveConfig();
 
             // Hide the source card
             const sourceCard = document.getElementById(`split-card-${sourceField}`);
@@ -967,9 +1024,13 @@
             if (!container) return;
             container.innerHTML = '';
 
+            const config = shmConfig[selectedShmName] || {};
+
             numericFields.forEach((field, i) => {
                 const btn = document.createElement('button');
-                btn.className = 'toggle-btn active';
+                
+                const isHidden = config.hiddenFields && config.hiddenFields[field] === true;
+                btn.className = `toggle-btn ${isHidden ? '' : 'active'}`;
                 btn.textContent = field;
                 
                 const color = colors[i % colors.length];
@@ -978,10 +1039,18 @@
                 btn.style.setProperty('--btn-color-glow', glowColor);
 
                 btn.onclick = () => {
+                    const isVisible = btn.classList.contains('active');
+                    
+                    if (!config.hiddenFields) {
+                        config.hiddenFields = {};
+                    }
+
                     if (layoutMode === "combined" && chartInstance) {
-                        const isVisible = chartInstance.isDatasetVisible(i);
                         chartInstance.setDatasetVisibility(i, !isVisible);
                         chartInstance.update();
+
+                        config.hiddenFields[field] = isVisible;
+                        saveConfig();
 
                         if (!isVisible) {
                             btn.classList.add('active');
@@ -992,9 +1061,13 @@
                         // Split Layout mode: toggle wrapper visibility
                         const card = document.getElementById(`split-card-${field}`);
                         if (card) {
-                            const isHidden = card.style.display === 'none';
-                            card.style.display = isHidden ? 'flex' : 'none';
-                            if (isHidden) {
+                            const isCurrentlyHidden = card.style.display === 'none';
+                            card.style.display = isCurrentlyHidden ? 'flex' : 'none';
+                            
+                            config.hiddenFields[field] = !isCurrentlyHidden;
+                            saveConfig();
+
+                            if (isCurrentlyHidden) {
                                 btn.classList.add('active');
                             } else {
                                 btn.classList.remove('active');
@@ -1008,6 +1081,7 @@
 
         function toggleAxisLock() {
             const btn = document.getElementById('btn-lock-axis');
+            const config = shmConfig[selectedShmName];
             if (layoutMode === "combined" && chartInstance) {
                 if (!isAxisLocked) {
                     const yMin = chartInstance.scales.y.min;
@@ -1019,6 +1093,9 @@
                     btn.classList.add('active');
                     document.getElementById('input-ymin').value = yMin !== undefined ? Number(yMin).toFixed(2) : "";
                     document.getElementById('input-ymax').value = yMax !== undefined ? Number(yMax).toFixed(2) : "";
+                    
+                    config.yMin = yMin !== undefined ? Number(yMin).toFixed(2) : "";
+                    config.yMax = yMax !== undefined ? Number(yMax).toFixed(2) : "";
                 } else {
                     chartInstance.options.scales.y.min = undefined;
                     chartInstance.options.scales.y.max = undefined;
@@ -1027,7 +1104,12 @@
                     btn.classList.remove('active');
                     document.getElementById('input-ymin').value = "";
                     document.getElementById('input-ymax').value = "";
+                    
+                    config.yMin = "";
+                    config.yMax = "";
                 }
+                config.isAxisLocked = isAxisLocked;
+                saveConfig();
                 chartInstance.update();
             } else if (layoutMode === "split") {
                 const charts = Object.values(splitChartInstances);
@@ -1053,12 +1135,18 @@
                     document.getElementById('input-ymin').value = "";
                     document.getElementById('input-ymax').value = "";
                 }
+                config.isAxisLocked = isAxisLocked;
+                saveConfig();
             }
         }
 
         function applyManualRange() {
             const minVal = document.getElementById('input-ymin').value;
             const maxVal = document.getElementById('input-ymax').value;
+            const config = shmConfig[selectedShmName];
+
+            config.yMin = minVal;
+            config.yMax = maxVal;
 
             const yMin = minVal !== "" ? parseFloat(minVal) : undefined;
             const yMax = maxVal !== "" ? parseFloat(maxVal) : undefined;
@@ -1089,10 +1177,13 @@
                     lockBtn.classList.remove('active');
                 }
             }
+            config.isAxisLocked = isAxisLocked;
+            saveConfig();
         }
 
         function toggleLayoutMode() {
             const btn = document.getElementById('btn-toggle-layout');
+            const config = shmConfig[selectedShmName];
             if (layoutMode === "combined") {
                 layoutMode = "split";
                 btn.textContent = "Combined Layout";
@@ -1102,6 +1193,8 @@
                 btn.textContent = "Split Layout";
                 btn.classList.remove('active');
             }
+            config.layoutMode = layoutMode;
+            saveConfig();
             if (activeFieldsList && activeFieldsList.length > 0) {
                 initChart(activeFieldsList);
             }
@@ -1110,6 +1203,23 @@
         function initChart(fields) {
             activeFieldsList = fields;
             const numericFields = fields.filter(f => f !== 'timestamp');
+
+            if (!shmConfig[selectedShmName]) {
+                shmConfig[selectedShmName] = {
+                    layoutMode: "combined",
+                    hiddenFields: {},
+                    mergedFields: {},
+                    yMin: "",
+                    yMax: "",
+                    isAxisLocked: false
+                };
+            }
+            const config = shmConfig[selectedShmName];
+            layoutMode = config.layoutMode || "combined";
+            isAxisLocked = config.isAxisLocked || false;
+            mergedFields = config.mergedFields || {};
+            const yMinVal = config.yMin !== undefined ? config.yMin : "";
+            const yMaxVal = config.yMax !== undefined ? config.yMax : "";
 
             // Destroy combined chart if it exists
             if (chartInstance) {
@@ -1121,33 +1231,44 @@
             Object.values(splitChartInstances).forEach(c => c.destroy());
             splitChartInstances = {};
 
-            // Reset axis lock state on chart re-init
-            isAxisLocked = false;
+            // Reset selection variables
             mergeSourceField = null;
             mergeTargetField = null;
-            mergedFields = {};
+
             const lockBtn = document.getElementById('btn-lock-axis');
             if (lockBtn) {
-                lockBtn.textContent = "Lock Axis Range";
-                lockBtn.classList.remove('active');
+                if (isAxisLocked) {
+                    lockBtn.textContent = "Unlock Axis Range";
+                    lockBtn.classList.add('active');
+                } else {
+                    lockBtn.textContent = "Lock Axis Range";
+                    lockBtn.classList.remove('active');
+                }
             }
-            document.getElementById('input-ymin').value = "";
-            document.getElementById('input-ymax').value = "";
+            document.getElementById('input-ymin').value = yMinVal;
+            document.getElementById('input-ymax').value = yMaxVal;
+
+            const yMin = yMinVal !== "" ? parseFloat(yMinVal) : undefined;
+            const yMax = yMaxVal !== "" ? parseFloat(yMaxVal) : undefined;
 
             if (layoutMode === "combined") {
                 document.getElementById('combined-chart-container').style.display = 'block';
                 document.getElementById('split-charts-container').style.display = 'none';
 
                 const ctx = document.getElementById('liveChart').getContext('2d');
-                const datasets = numericFields.map((field, i) => ({
-                    label: field,
-                    borderColor: colors[i % colors.length],
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    data: [],
-                    fill: false,
-                    tension: 0.1
-                }));
+                const datasets = numericFields.map((field, i) => {
+                    const isHidden = config.hiddenFields && config.hiddenFields[field] === true;
+                    return {
+                        label: field,
+                        borderColor: colors[i % colors.length],
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        data: [],
+                        fill: false,
+                        tension: 0.1,
+                        hidden: isHidden
+                    };
+                });
 
                 chartInstance = new Chart(ctx, {
                     type: 'line',
@@ -1174,7 +1295,9 @@
                             },
                             y: {
                                 grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } },
+                                min: yMin,
+                                max: yMax
                             }
                         }
                     }
@@ -1193,6 +1316,17 @@
                     card.className = 'split-chart-card';
                     card.id = `split-card-${field}`;
 
+                    // Check hidden/merged source status
+                    const isHidden = config.hiddenFields && config.hiddenFields[field] === true;
+                    const isMergedSource = Object.values(mergedFields).some(arr => arr.includes(field));
+                    if (isHidden || isMergedSource) {
+                        card.style.display = 'none';
+                    }
+
+                    if (field === mergeTargetField) {
+                        card.classList.add('target-highlight');
+                    }
+
                     const title = document.createElement('div');
                     title.className = 'split-chart-title';
                     title.innerHTML = `<span>${field}</span><span style="color:${color}; font-weight:bold;">●</span>`;
@@ -1208,19 +1342,38 @@
                     splitContainer.appendChild(card);
 
                     const ctx = canvas.getContext('2d');
-                    const splitChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: field,
-                                borderColor: color,
+                    
+                    // Build datasets with merged sources
+                    const datasets = [{
+                        label: field,
+                        borderColor: color,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        data: [],
+                        fill: false,
+                        tension: 0.1
+                    }];
+                    if (mergedFields[field]) {
+                        mergedFields[field].forEach(srcField => {
+                            const srcIdx = numericFields.indexOf(srcField);
+                            const srcColor = colors[srcIdx % colors.length];
+                            datasets.push({
+                                label: srcField,
+                                borderColor: srcColor,
                                 borderWidth: 2,
                                 pointRadius: 0,
                                 data: [],
                                 fill: false,
                                 tension: 0.1
-                            }]
+                            });
+                        });
+                    }
+
+                    const splitChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: datasets
                         },
                         options: {
                             responsive: true,
@@ -1236,7 +1389,9 @@
                                 },
                                 y: {
                                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } },
+                                    min: yMin,
+                                    max: yMax
                                 }
                             }
                         }
@@ -1405,6 +1560,7 @@
 
         // Initialize Page
         window.addEventListener('load', async () => {
+            await loadConfig();
             await fetchRegistry();
             // Automatically select first element if available
             const first = document.querySelector('.shm-item');

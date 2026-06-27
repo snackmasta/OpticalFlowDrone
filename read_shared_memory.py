@@ -429,6 +429,29 @@ def run_dashboard(port):
                 mock_threads[name].join(timeout=1.0)
             return jsonify({"success": True, "mocking": False})
 
+    @app.route("/api/shm/config", methods=["GET", "POST"])
+    def shm_config():
+        import json
+        import os
+        config_path = "dashboard_config.json"
+        if request.method == "POST":
+            try:
+                data = request.get_json() or {}
+                with open(config_path, "w") as f:
+                    json.dump(data, f, indent=4)
+                return jsonify({"success": True})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        else:
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r") as f:
+                        data = json.load(f)
+                    return jsonify(data)
+                except Exception as e:
+                    return jsonify({})
+            return jsonify({})
+
     print(f"\n" + "=" * 60)
     print(f"Shared Memory Management Dashboard")
     print(f"=" * 60)
