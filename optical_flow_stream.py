@@ -211,6 +211,7 @@ def record_optical_flow():
     
     print("\n=======================================================")
     print("Type 'c' and press Enter to start tilt calibration.")
+    print("Type 'r' and press Enter to reset positions to zero.")
     print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
     
@@ -259,6 +260,15 @@ def record_optical_flow():
                 elif command == 'e':
                     is_calibrating = False
                     print("\n>>> TILT CALIBRATION DISCARDED.")
+            
+            if command == 'r':
+                x_raw_m = 0.0
+                y_raw_m = 0.0
+                with position_lock:
+                    position_state["x_m"] = 0.0
+                    position_state["y_m"] = 0.0
+                    position_state["path"] = [(0.0, 0.0)]
+                print("\n>>> POSITIONS RESET TO ZERO.")
 
         frame = ensure_bgr(picam2.capture_array())
         frame_gray = to_small_gray(frame)
