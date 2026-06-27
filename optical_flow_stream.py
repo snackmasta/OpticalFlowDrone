@@ -7,6 +7,9 @@ import time
 import math
 import struct
 import threading
+import json
+import os
+import msvcrt
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
 
@@ -37,6 +40,27 @@ from optical_flow.video_sinks import (
     FileSink,
     create_output_sink
 )
+
+CALIBRATION_FILE = "tilt_calibration.json"
+scale_x = FLOW_SCALE
+scale_y = FLOW_SCALE
+
+def load_calibration():
+    global scale_x, scale_y
+    if os.path.exists(CALIBRATION_FILE):
+        try:
+            with open(CALIBRATION_FILE, "r") as f:
+                data = json.load(f)
+                scale_x = data.get("scale_x", FLOW_SCALE)
+                scale_y = data.get("scale_y", FLOW_SCALE)
+                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+        except Exception as e:
+            print(f"Failed to load calibration: {e}")
+    else:
+        print(f"No calibration file found, using defaults: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+
+load_calibration()
+
 
 TARGET_FPS = 60
 FRAME_INTERVAL_S = 1.0 / TARGET_FPS
@@ -157,13 +181,23 @@ def switch_to_file_sink(frame_size, fps, reason):
 
 
 def record_optical_flow():
-    global old_gray, output_sink
+    global old_gray, output_sink, scale_x, scale_y
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
     prev_roll_px = None
     prev_pitch_px = None
     x_raw_m = 0.0
     y_raw_m = 0.0
+    
+    is_calibrating = False
+    calib_samples_x = []
+    calib_samples_y = []
+    
+    print("\n=======================================================")
+    print("Press 'c' to start/stop mid-process tilt calibration.")
+    print("Press Ctrl+C to exit.")
+    print("=======================================================\n")
+    
     while True:
         now = time.perf_counter()
         if now < next_frame_time:
@@ -172,6 +206,32 @@ def record_optical_flow():
         dt_s = frame_ts - previous_frame_ts
         previous_frame_ts = frame_ts
         next_frame_time = frame_ts + FRAME_INTERVAL_S
+
+        # Check for keyboard triggers non-blockingly
+        if msvcrt.kbhit():
+            try:
+                key = msvcrt.getch().decode('utf-8', errors='ignore').lower()
+                if key == 'c':
+                    if not is_calibrating:
+                        is_calibrating = True
+                        calib_samples_x = []
+                        calib_samples_y = []
+                        print("\n>>> TILT CALIBRATION STARTED. Please pitch and roll the camera/drone without moving it translationally...")
+                    else:
+                        is_calibrating = False
+                        if calib_samples_x:
+                            scale_x = float(np.median(calib_samples_x))
+                        if calib_samples_y:
+                            scale_y = float(np.median(calib_samples_y))
+                        
+                        try:
+                            with open(CALIBRATION_FILE, "w") as f:
+                                json.dump({"scale_x": scale_x, "scale_y": scale_y}, f, indent=4)
+                            print(f"\n>>> TILT CALIBRATION COMPLETE & SAVED: scale_x={scale_x:.4f}, scale_y={scale_y:.4f} (from {len(calib_samples_x)}/{len(calib_samples_y)} samples)")
+                        except Exception as e:
+                            print(f"\n>>> Failed to save calibration to file: {e}")
+            except Exception:
+                pass
 
         frame = ensure_bgr(picam2.capture_array())
         frame_gray = to_small_gray(frame)
@@ -205,9 +265,18 @@ def record_optical_flow():
             tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
             tracked_count = len(inlier_new)
 
-            # Apply reticle-based tilt compensation (subtracting expected displacement)
-            tx_comp = tx - (d_reticle_x * FLOW_SCALE)
-            ty_comp = ty - (d_reticle_y * FLOW_SCALE)
+            # Record calibration samples if mode is active and movement is sufficient
+            if is_calibrating:
+                if abs(d_reticle_x) > 1.5:
+                    calib_samples_x.append(tx / d_reticle_x)
+                if abs(d_reticle_y) > 1.5:
+                    calib_samples_y.append(ty / d_reticle_y)
+                if len(calib_samples_x) % 20 == 0 or len(calib_samples_y) % 20 == 0:
+                    print(f"\rCollected X: {len(calib_samples_x)}, Y: {len(calib_samples_y)} samples", end="", flush=True)
+
+            # Apply reticle-based tilt compensation (subtracting expected displacement using calibrated scale)
+            tx_comp = tx - (scale_x * d_reticle_x)
+            ty_comp = ty - (scale_y * d_reticle_y)
 
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
