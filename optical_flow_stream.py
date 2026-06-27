@@ -26,7 +26,7 @@ def console_input_thread():
             break
 
 # Start the console input reader thread
-threading.Thread(target=console_input_thread, daemon=True).start()
+# Moved to record_optical_flow() to prevent stdin conflict during startup prompts.
 
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
@@ -216,6 +216,9 @@ def record_optical_flow():
     print("Type 'r' and press Enter to reset positions to zero.")
     print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
+    
+    # Start the console input reader thread now that startup prompts are complete
+    threading.Thread(target=console_input_thread, daemon=True).start()
     
     while True:
         now = time.perf_counter()
