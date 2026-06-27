@@ -208,8 +208,8 @@ def record_optical_flow():
     global old_gray, output_sink, scale_x, scale_y
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
-    prev_roll_px = None
-    prev_pitch_px = None
+    prev_reticle_x = None
+    prev_reticle_y = None
     x_raw_m = 0.0
     y_raw_m = 0.0
     vx_raw_prev = 0.0
@@ -293,23 +293,31 @@ def record_optical_flow():
 
         dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
 
-        # Calculate reticle displacement for tilt compensation
+        # Calculate reticle displacement for tilt and yaw compensation
         with attitude_lock:
             roll_deg = attitude_state["roll_deg"]
             pitch_deg = attitude_state["pitch_deg"]
+            yaw_deg = attitude_state["yaw_deg"]
 
         roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
         pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
 
-        if prev_roll_px is None:
-            prev_roll_px = roll_px
-            prev_pitch_px = pitch_px
+        # Rotate reticle position around image center by -yaw_deg (reticle rotation)
+        yaw_rad = math.radians(-yaw_deg)
+        cos_yaw = math.cos(yaw_rad)
+        sin_yaw = math.sin(yaw_rad)
+        reticle_x = roll_px * cos_yaw - pitch_px * sin_yaw
+        reticle_y = roll_px * sin_yaw + pitch_px * cos_yaw
 
-        d_reticle_x = roll_px - prev_roll_px
-        d_reticle_y = pitch_px - prev_pitch_px
+        if prev_reticle_x is None:
+            prev_reticle_x = reticle_x
+            prev_reticle_y = reticle_y
 
-        prev_roll_px = roll_px
-        prev_pitch_px = pitch_px
+        d_reticle_x = reticle_x - prev_reticle_x
+        d_reticle_y = reticle_y - prev_reticle_y
+
+        prev_reticle_x = reticle_x
+        prev_reticle_y = reticle_y
 
         tracked_count = 0
         vx_raw_mps = 0.0
