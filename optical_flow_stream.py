@@ -9,9 +9,41 @@ import struct
 import threading
 import json
 import os
-import msvcrt
+import sys
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
+
+# Cross-platform non-blocking keyboard input wrappers
+try:
+    import msvcrt
+    def kbhit():
+        return msvcrt.kbhit()
+    def getch():
+        return msvcrt.getch().decode('utf-8', errors='ignore').lower()
+except ImportError:
+    import select
+    try:
+        import termios
+        import tty
+        
+        def kbhit():
+            return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
+
+        def getch():
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(sys.stdin.fileno())
+                ch = sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            return ch.lower()
+    except Exception:
+        # Fallback if tty/termios is not supported
+        def kbhit():
+            return False
+        def getch():
+            return ''
 
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
@@ -208,9 +240,9 @@ def record_optical_flow():
         next_frame_time = frame_ts + FRAME_INTERVAL_S
 
         # Check for keyboard triggers non-blockingly
-        if msvcrt.kbhit():
+        if kbhit():
             try:
-                key = msvcrt.getch().decode('utf-8', errors='ignore').lower()
+                key = getch()
                 if key == 'c':
                     if not is_calibrating:
                         is_calibrating = True
