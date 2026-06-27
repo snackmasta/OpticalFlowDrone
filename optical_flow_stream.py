@@ -333,7 +333,7 @@ def record_optical_flow():
                 if abs(d_reticle_y) > 1.5:
                     calib_samples_y.append(ty / d_reticle_y)
                 if len(calib_samples_x) % 20 == 0 or len(calib_samples_y) % 20 == 0:
-                    print(f"\rCollected X: {len(calib_samples_x)}, Y: {len(calib_samples_y)} samples", end="", flush=True)
+                    print(f"\rCollected X: {len(calib_samples_x)}, Y: {len(calib_samples_y)} samples | Yaw: {yaw_deg:+.1f}°", end="", flush=True)
 
             # Apply reticle-based tilt compensation (subtracting expected displacement using calibrated scale)
             tx_comp = tx - (scale_x * d_reticle_x)
