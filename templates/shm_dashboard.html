@@ -1051,35 +1051,104 @@
                 }));
 
                 chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: { duration: 0 },
-                    plugins: {
-                        legend: {
-                            labels: {
-                                color: '#94a3b8',
-                                font: { family: 'Outfit' }
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 0 },
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: { family: 'Outfit' }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
                             }
                         }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
-                        },
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
-                        }
                     }
-                }
-            });
+                });
+            } else {
+                // Split Layout
+                document.getElementById('combined-chart-container').style.display = 'none';
+                const splitContainer = document.getElementById('split-charts-container');
+                splitContainer.style.display = 'grid';
+                splitContainer.innerHTML = '';
+
+                numericFields.forEach((field, i) => {
+                    const color = colors[i % colors.length];
+
+                    const card = document.createElement('div');
+                    card.className = 'split-chart-card';
+                    card.id = `split-card-${field}`;
+
+                    const title = document.createElement('div');
+                    title.className = 'split-chart-title';
+                    title.innerHTML = `<span>${field}</span><span style="color:${color}; font-weight:bold;">●</span>`;
+                    card.appendChild(title);
+
+                    const canvasContainer = document.createElement('div');
+                    canvasContainer.className = 'split-chart-canvas-container';
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.id = `chart-split-${field}`;
+                    canvasContainer.appendChild(canvas);
+                    card.appendChild(canvasContainer);
+                    splitContainer.appendChild(card);
+
+                    const ctx = canvas.getContext('2d');
+                    const splitChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: field,
+                                borderColor: color,
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                data: [],
+                                fill: false,
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: { duration: 0 },
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                },
+                                y: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                }
+                            }
+                        }
+                    });
+
+                    splitChartInstances[field] = splitChart;
+                });
+            }
+
+            // Render dynamic legend/declutter buttons
+            renderDatasetToggles(numericFields, colors);
         }
 
         function updateChart(samples, fields) {
