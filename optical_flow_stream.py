@@ -124,7 +124,7 @@ def attach_flow_stream_shm():
         return flow_shm
 
 
-def write_flow_stream_sample(timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt):
+def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt):
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -135,10 +135,10 @@ def write_flow_stream_sample(timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_r
                 shm.buf,
                 record_offset,
                 float(timestamp),
-                float(x),
-                float(y),
-                float(x_raw),
-                float(y_raw),
+                float(x_cm),
+                float(y_cm),
+                float(x_raw_cm),
+                float(y_raw_cm),
                 float(vx),
                 float(vy),
                 float(vx_raw),
@@ -210,8 +210,8 @@ def record_optical_flow():
     previous_frame_ts = time.perf_counter()
     prev_roll_px = None
     prev_pitch_px = None
-    x_raw_m = 0.0
-    y_raw_m = 0.0
+    x_raw_cm = 0.0
+    y_raw_cm = 0.0
     vx_raw_prev = 0.0
     vy_raw_prev = 0.0
     
@@ -276,13 +276,13 @@ def record_optical_flow():
                     print("\n>>> TILT CALIBRATION DISCARDED.")
             
             if command == 'r':
-                x_raw_m = 0.0
-                y_raw_m = 0.0
+                x_raw_cm = 0.0
+                y_raw_cm = 0.0
                 vx_raw_prev = 0.0
                 vy_raw_prev = 0.0
                 with position_lock:
-                    position_state["x_m"] = 0.0
-                    position_state["y_m"] = 0.0
+                    position_state["x_cm"] = 0.0
+                    position_state["y_cm"] = 0.0
                     position_state["path"] = [(0.0, 0.0)]
                 print("\n>>> POSITIONS RESET TO ZERO.")
 
@@ -380,14 +380,14 @@ def record_optical_flow():
             velocity_state["last_update"] = frame_ts
 
             with position_lock:
-                position_state["x_m"] += vx_mps * dt_s
-                position_state["y_m"] += vy_mps * dt_s
-                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                position_state["x_cm"] += vx_mps * 100.0 * dt_s
+                position_state["y_cm"] += vy_mps * 100.0 * dt_s
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
-            x_raw_m += vx_raw_mps * dt_s
-            y_raw_m += vy_raw_mps * dt_s
+            x_raw_cm += vx_raw_mps * 100.0 * dt_s
+            y_raw_cm += vy_raw_mps * 100.0 * dt_s
 
             # Draw inlier vectors
             for new, old in zip(inlier_new, inlier_old):
@@ -405,14 +405,14 @@ def record_optical_flow():
             velocity_state["last_update"] = frame_ts
 
             with position_lock:
-                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
         # Stream current X, Y position, velocity, and altitude to shared memory
         with position_lock:
-            current_x = position_state["x_m"]
-            current_y = position_state["y_m"]
+            current_x_cm = position_state["x_cm"]
+            current_y_cm = position_state["y_cm"]
         current_vx = velocity_state["vx_mps"]
         current_vy = velocity_state["vy_mps"]
         with distance_lock:
@@ -420,10 +420,10 @@ def record_optical_flow():
         current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
         write_flow_stream_sample(
             frame_ts,
-            current_x,
-            current_y,
-            x_raw_m,
-            y_raw_m,
+            current_x_cm,
+            current_y_cm,
+            x_raw_cm,
+            y_raw_cm,
             current_vx,
             current_vy,
             vx_raw_mps,

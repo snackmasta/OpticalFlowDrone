@@ -60,9 +60,10 @@ def get_latest_flow_position():
         
         latest_index = (write_index - 1) % FLOW_MAX_SAMPLES
         offset = FLOW_SHM_HEADER_SIZE + (latest_index * FLOW_SHM_RECORD_SIZE)
-        # Fields: timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt
+        # Fields: timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt
         values = struct.unpack_from(FLOW_SHM_RECORD_FORMAT, flow_shm.buf, offset)
-        return values[1], values[2] # x, y
+        x_cm, y_cm = values[1], values[2]
+        return x_cm / 100.0, y_cm / 100.0 # Convert x_cm, y_cm to x_m, y_m
     except Exception:
         try:
             flow_shm.close()
