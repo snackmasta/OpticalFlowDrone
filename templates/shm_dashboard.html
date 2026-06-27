@@ -487,6 +487,16 @@
             height: 160px;
             width: 100%;
         }
+
+        .split-chart-card.target-highlight {
+            border: 2px solid var(--accent-danger) !important;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5) !important;
+        }
+
+        .split-chart-card.source-highlight {
+            border: 2px solid var(--accent-success) !important;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.5) !important;
+        }
     </style>
 </head>
 <body>
@@ -634,6 +644,14 @@
     </div>
 
     <script>
+        const colors = [
+            'rgb(14, 165, 233)', // sky
+            'rgb(168, 85, 247)', // purple
+            'rgb(16, 185, 129)', // green
+            'rgb(245, 158, 11)', // amber
+            'rgb(239, 68, 68)',  // red
+        ];
+
         let selectedShmName = null;
         let updateIntervalId = null;
         let chartInstance = null;
@@ -642,6 +660,9 @@
         let layoutMode = "combined";
         let splitChartInstances = {};
         let activeFieldsList = [];
+        let mergeSourceField = null;
+        let mergeTargetField = null;
+        let mergedFields = {}; // targetField -> array of sourceFields
 
         // Fetch registry listing
         async function fetchRegistry() {
@@ -859,6 +880,88 @@
             });
         }
 
+        function setSource(field) {
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => c.classList.remove('source-highlight'));
+
+            if (mergeSourceField === field) {
+                mergeSourceField = null;
+            } else {
+                mergeSourceField = field;
+                const card = document.getElementById(`split-card-${field}`);
+                if (card) {
+                    card.classList.add('source-highlight');
+                }
+            }
+        }
+
+        function setTarget(field) {
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => {
+                c.classList.remove('target-highlight');
+                c.classList.remove('source-highlight');
+            });
+
+            mergeSourceField = null;
+
+            if (mergeTargetField === field) {
+                mergeTargetField = null;
+            } else {
+                mergeTargetField = field;
+                const card = document.getElementById(`split-card-${field}`);
+                if (card) {
+                    card.classList.add('target-highlight');
+                }
+            }
+        }
+
+        function performMerge(sourceField, targetField) {
+            if (!sourceField || !targetField || sourceField === targetField) return;
+
+            if (!mergedFields[targetField]) {
+                mergedFields[targetField] = [];
+            }
+            if (mergedFields[targetField].includes(sourceField)) return;
+
+            mergedFields[targetField].push(sourceField);
+
+            // Hide the source card
+            const sourceCard = document.getElementById(`split-card-${sourceField}`);
+            if (sourceCard) {
+                sourceCard.style.display = 'none';
+            }
+
+            // Deactivate source toggle
+            const toggles = document.getElementById('chart-dataset-toggles').children;
+            for (let btn of toggles) {
+                if (btn.textContent === sourceField) {
+                    btn.classList.remove('active');
+                    break;
+                }
+            }
+
+            // Add dataset to target chart
+            const targetChart = splitChartInstances[targetField];
+            if (targetChart) {
+                const sourceColor = colors[activeFieldsList.filter(f => f !== 'timestamp').indexOf(sourceField) % colors.length];
+                targetChart.data.datasets.push({
+                    label: sourceField,
+                    borderColor: sourceColor,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    data: [],
+                    fill: false,
+                    tension: 0.1
+                });
+                targetChart.update();
+            }
+
+            // Reset highlighted source
+            mergeSourceField = null;
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => c.classList.remove('source-highlight'));
+        }
+
         function renderDatasetToggles(numericFields, colors) {
             const container = document.getElementById('chart-dataset-toggles');
             if (!container) return;
@@ -1007,13 +1110,6 @@
         function initChart(fields) {
             activeFieldsList = fields;
             const numericFields = fields.filter(f => f !== 'timestamp');
-            const colors = [
-                'rgb(14, 165, 233)', // sky
-                'rgb(168, 85, 247)', // purple
-                'rgb(16, 185, 129)', // green
-                'rgb(245, 158, 11)', // amber
-                'rgb(239, 68, 68)',  // red
-            ];
 
             // Destroy combined chart if it exists
             if (chartInstance) {
@@ -1027,6 +1123,9 @@
 
             // Reset axis lock state on chart re-init
             isAxisLocked = false;
+            mergeSourceField = null;
+            mergeTargetField = null;
+            mergedFields = {};
             const lockBtn = document.getElementById('btn-lock-axis');
             if (lockBtn) {
                 lockBtn.textContent = "Lock Axis Range";
@@ -1143,6 +1242,28 @@
                         }
                     });
 
+                    // Add click and right-click listeners to the card wrapper
+                    card.style.cursor = 'pointer';
+                    card.addEventListener('click', (e) => {
+                        if (layoutMode !== "split") return;
+                        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+
+                        if (mergeTargetField === null) {
+                            setSource(field);
+                        } else if (mergeTargetField === field) {
+                            return;
+                        } else {
+                            setSource(field);
+                            performMerge(field, mergeTargetField);
+                        }
+                    });
+
+                    card.addEventListener('contextmenu', (e) => {
+                        if (layoutMode !== "split") return;
+                        e.preventDefault();
+                        setTarget(field);
+                    });
+
                     splitChartInstances[field] = splitChart;
                 });
             }
@@ -1172,7 +1293,10 @@
                     const splitChart = splitChartInstances[field];
                     if (splitChart) {
                         splitChart.data.labels = labels;
-                        splitChart.data.datasets[0].data = graphData.map(samp => samp[field]);
+                        splitChart.data.datasets.forEach((ds) => {
+                            const dsField = ds.label;
+                            ds.data = graphData.map(samp => samp[dsField]);
+                        });
                         splitChart.update();
                     }
                 });
