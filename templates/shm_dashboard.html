@@ -444,6 +444,49 @@
             color: #000;
             box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
         }
+
+        #btn-toggle-layout.active {
+            background: var(--accent-purple);
+            border-color: var(--accent-purple);
+            color: #fff;
+            box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+        }
+
+        .split-charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+            width: 100%;
+        }
+
+        .split-chart-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .split-chart-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            letter-spacing: 0.02em;
+        }
+
+        .split-chart-canvas-container {
+            position: relative;
+            height: 160px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -535,12 +578,18 @@
                                 </div>
                                 <button class="toggle-btn" id="btn-apply-range" style="padding: 4px 10px; font-size: 0.85rem;">Apply</button>
                                 <button class="toggle-btn" id="btn-lock-axis">Lock Axis Range</button>
+                                <button class="toggle-btn" id="btn-toggle-layout">Split Layout</button>
                             </div>
                         </div>
 
                         <!-- Sparkline Chart -->
-                        <div class="chart-container">
+                        <div class="chart-container" id="combined-chart-container">
                             <canvas id="liveChart"></canvas>
+                        </div>
+
+                        <!-- Split Charts Container -->
+                        <div class="split-charts-container" id="split-charts-container" style="display: none;">
+                            <!-- Dynamic split charts go here -->
                         </div>
 
                         <!-- Decoded Fields Table -->
@@ -590,6 +639,9 @@
         let chartInstance = null;
         let lastTimestampSeen = null;
         let isAxisLocked = false;
+        let layoutMode = "combined";
+        let splitChartInstances = {};
+        let activeFieldsList = [];
 
         // Fetch registry listing
         async function fetchRegistry() {
@@ -807,79 +859,153 @@
             });
         }
 
+        function renderDatasetToggles(numericFields, colors) {
+            const container = document.getElementById('chart-dataset-toggles');
+            if (!container) return;
+            container.innerHTML = '';
+
+            numericFields.forEach((field, i) => {
+                const btn = document.createElement('button');
+                btn.className = 'toggle-btn active';
+                btn.textContent = field;
+                
+                const color = colors[i % colors.length];
+                btn.style.setProperty('--btn-color', color);
+                const glowColor = color.replace('rgb', 'rgba').replace(')', ', 0.35)');
+                btn.style.setProperty('--btn-color-glow', glowColor);
+
+                btn.onclick = () => {
+                    if (layoutMode === "combined" && chartInstance) {
+                        const isVisible = chartInstance.isDatasetVisible(i);
+                        chartInstance.setDatasetVisibility(i, !isVisible);
+                        chartInstance.update();
+
+                        if (!isVisible) {
+                            btn.classList.add('active');
+                        } else {
+                            btn.classList.remove('active');
+                        }
+                    } else {
+                        // Split Layout mode: toggle wrapper visibility
+                        const card = document.getElementById(`split-card-${field}`);
+                        if (card) {
+                            const isHidden = card.style.display === 'none';
+                            card.style.display = isHidden ? 'flex' : 'none';
+                            if (isHidden) {
+                                btn.classList.add('active');
+                            } else {
+                                btn.classList.remove('active');
+                            }
+                        }
+                    }
+                };
+                container.appendChild(btn);
+            });
+        }
+
         function toggleAxisLock() {
-            if (!chartInstance) return;
             const btn = document.getElementById('btn-lock-axis');
-            if (!isAxisLocked) {
-                // Lock axis
-                const yMin = chartInstance.scales.y.min;
-                const yMax = chartInstance.scales.y.max;
-                chartInstance.options.scales.y.min = yMin;
-                chartInstance.options.scales.y.max = yMax;
-                isAxisLocked = true;
-                btn.textContent = "Unlock Axis Range";
-                btn.classList.add('active');
-
-                // Reflect locked values in input boxes
-                document.getElementById('input-ymin').value = yMin !== undefined ? Number(yMin).toFixed(2) : "";
-                document.getElementById('input-ymax').value = yMax !== undefined ? Number(yMax).toFixed(2) : "";
-            } else {
-                // Unlock axis
-                chartInstance.options.scales.y.min = undefined;
-                chartInstance.options.scales.y.max = undefined;
-                isAxisLocked = false;
-                btn.textContent = "Lock Axis Range";
-                btn.classList.remove('active');
-
-                // Clear input boxes
-                document.getElementById('input-ymin').value = "";
-                document.getElementById('input-ymax').value = "";
+            if (layoutMode === "combined" && chartInstance) {
+                if (!isAxisLocked) {
+                    const yMin = chartInstance.scales.y.min;
+                    const yMax = chartInstance.scales.y.max;
+                    chartInstance.options.scales.y.min = yMin;
+                    chartInstance.options.scales.y.max = yMax;
+                    isAxisLocked = true;
+                    btn.textContent = "Unlock Axis Range";
+                    btn.classList.add('active');
+                    document.getElementById('input-ymin').value = yMin !== undefined ? Number(yMin).toFixed(2) : "";
+                    document.getElementById('input-ymax').value = yMax !== undefined ? Number(yMax).toFixed(2) : "";
+                } else {
+                    chartInstance.options.scales.y.min = undefined;
+                    chartInstance.options.scales.y.max = undefined;
+                    isAxisLocked = false;
+                    btn.textContent = "Lock Axis Range";
+                    btn.classList.remove('active');
+                    document.getElementById('input-ymin').value = "";
+                    document.getElementById('input-ymax').value = "";
+                }
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                const charts = Object.values(splitChartInstances);
+                if (charts.length === 0) return;
+                if (!isAxisLocked) {
+                    charts.forEach(c => {
+                        c.options.scales.y.min = c.scales.y.min;
+                        c.options.scales.y.max = c.scales.y.max;
+                        c.update();
+                    });
+                    isAxisLocked = true;
+                    btn.textContent = "Unlock Axis Range";
+                    btn.classList.add('active');
+                } else {
+                    charts.forEach(c => {
+                        c.options.scales.y.min = undefined;
+                        c.options.scales.y.max = undefined;
+                        c.update();
+                    });
+                    isAxisLocked = false;
+                    btn.textContent = "Lock Axis Range";
+                    btn.classList.remove('active');
+                    document.getElementById('input-ymin').value = "";
+                    document.getElementById('input-ymax').value = "";
+                }
             }
-            chartInstance.update();
         }
 
         function applyManualRange() {
-            if (!chartInstance) return;
             const minVal = document.getElementById('input-ymin').value;
             const maxVal = document.getElementById('input-ymax').value;
 
-            if (minVal !== "") {
-                chartInstance.options.scales.y.min = parseFloat(minVal);
-            } else {
-                chartInstance.options.scales.y.min = undefined;
+            const yMin = minVal !== "" ? parseFloat(minVal) : undefined;
+            const yMax = maxVal !== "" ? parseFloat(maxVal) : undefined;
+
+            if (layoutMode === "combined" && chartInstance) {
+                chartInstance.options.scales.y.min = yMin;
+                chartInstance.options.scales.y.max = yMax;
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                Object.values(splitChartInstances).forEach(c => {
+                    c.options.scales.y.min = yMin;
+                    c.options.scales.y.max = yMax;
+                    c.update();
+                });
             }
 
-            if (maxVal !== "") {
-                chartInstance.options.scales.y.max = parseFloat(maxVal);
-            } else {
-                chartInstance.options.scales.y.max = undefined;
-            }
-
+            const lockBtn = document.getElementById('btn-lock-axis');
             if (minVal !== "" || maxVal !== "") {
                 isAxisLocked = true;
-                const lockBtn = document.getElementById('btn-lock-axis');
                 if (lockBtn) {
                     lockBtn.textContent = "Unlock Axis Range";
                     lockBtn.classList.add('active');
                 }
             } else {
                 isAxisLocked = false;
-                const lockBtn = document.getElementById('btn-lock-axis');
                 if (lockBtn) {
                     lockBtn.textContent = "Lock Axis Range";
                     lockBtn.classList.remove('active');
                 }
             }
-            chartInstance.update();
+        }
+
+        function toggleLayoutMode() {
+            const btn = document.getElementById('btn-toggle-layout');
+            if (layoutMode === "combined") {
+                layoutMode = "split";
+                btn.textContent = "Combined Layout";
+                btn.classList.add('active');
+            } else {
+                layoutMode = "combined";
+                btn.textContent = "Split Layout";
+                btn.classList.remove('active');
+            }
+            if (activeFieldsList && activeFieldsList.length > 0) {
+                initChart(activeFieldsList);
+            }
         }
 
         function initChart(fields) {
-            const ctx = document.getElementById('liveChart').getContext('2d');
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
-
-            // Create datasets for each numeric field except timestamp
+            activeFieldsList = fields;
             const numericFields = fields.filter(f => f !== 'timestamp');
             const colors = [
                 'rgb(14, 165, 233)', // sky
@@ -889,15 +1015,15 @@
                 'rgb(239, 68, 68)',  // red
             ];
 
-            const datasets = numericFields.map((field, i) => ({
-                label: field,
-                borderColor: colors[i % colors.length],
-                borderWidth: 2,
-                pointRadius: 0,
-                data: [],
-                fill: false,
-                tension: 0.1
-            }));
+            // Destroy combined chart if it exists
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+
+            // Destroy split charts if they exist
+            Object.values(splitChartInstances).forEach(c => c.destroy());
+            splitChartInstances = {};
 
             // Reset axis lock state on chart re-init
             isAxisLocked = false;
@@ -909,10 +1035,22 @@
             document.getElementById('input-ymin').value = "";
             document.getElementById('input-ymax').value = "";
 
-            // Render dynamic legend/declutter buttons
-            renderDatasetToggles(numericFields, colors);
+            if (layoutMode === "combined") {
+                document.getElementById('combined-chart-container').style.display = 'block';
+                document.getElementById('split-charts-container').style.display = 'none';
 
-            chartInstance = new Chart(ctx, {
+                const ctx = document.getElementById('liveChart').getContext('2d');
+                const datasets = numericFields.map((field, i) => ({
+                    label: field,
+                    borderColor: colors[i % colors.length],
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    data: [],
+                    fill: false,
+                    tension: 0.1
+                }));
+
+                chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: [],
@@ -945,28 +1083,37 @@
         }
 
         function updateChart(samples, fields) {
-            if (!chartInstance || !samples || samples.length === 0) return;
+            if (!samples || samples.length === 0) return;
 
             const numericFields = fields.filter(f => f !== 'timestamp');
-            
-            // Take the last 30 samples to display on graph (they come sorted newest-first, so reverse them)
             const graphData = [...samples.slice(0, 30)].reverse();
-
-            chartInstance.data.labels = graphData.map(samp => {
+            const labels = graphData.map(samp => {
                 const date = new Date(samp.timestamp * 1000);
                 return date.toLocaleTimeString(undefined, {hour12: false}) + '.' + String(date.getMilliseconds()).padStart(3, '0');
             });
 
-            numericFields.forEach((field, dsIndex) => {
-                chartInstance.data.datasets[dsIndex].data = graphData.map(samp => samp[field]);
-            });
-
-            chartInstance.update();
+            if (layoutMode === "combined" && chartInstance) {
+                chartInstance.data.labels = labels;
+                numericFields.forEach((field, dsIndex) => {
+                    chartInstance.data.datasets[dsIndex].data = graphData.map(samp => samp[field]);
+                });
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                numericFields.forEach((field) => {
+                    const splitChart = splitChartInstances[field];
+                    if (splitChart) {
+                        splitChart.data.labels = labels;
+                        splitChart.data.datasets[0].data = graphData.map(samp => samp[field]);
+                        splitChart.update();
+                    }
+                });
+            }
         }
 
         // Action Buttons Setup
         document.getElementById('btn-lock-axis').addEventListener('click', toggleAxisLock);
         document.getElementById('btn-apply-range').addEventListener('click', applyManualRange);
+        document.getElementById('btn-toggle-layout').addEventListener('click', toggleLayoutMode);
 
         // Allow pressing Enter key inside manual range inputs
         document.getElementById('input-ymin').addEventListener('keypress', (e) => {
