@@ -32,8 +32,8 @@ SHM_REGISTRY = {
     "optical_flow_stream": {
         "magic": b"FLOW",
         "header_format": "<4sII",  # magic, write_index, sample_count
-        "record_format": "<6d",    # timestamp, x, y, vx, vy, alt
-        "fields": ["timestamp", "x", "y", "vx", "vy", "alt"],
+        "record_format": "<10d",   # timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt
+        "fields": ["timestamp", "x", "y", "x_raw", "y_raw", "vx", "vy", "vx_raw", "vy_raw", "alt"],
         "max_samples": 120,
     },
     "future_sensor_stream": {
@@ -237,16 +237,16 @@ def mock_worker(shm_name, frequency, noise, mode):
                             last_val = last_values.get(field, 0.0)
                             val = last_val + random.uniform(-5.0, 5.0)
                 elif shm_name == "optical_flow_stream":
-                    if field in ("x", "y"):
+                    if field in ("x", "y", "x_raw", "y_raw"):
                         if mode == "sine":
-                            multiplier = 10.0 if field == "x" else 5.0
+                            multiplier = 10.0 if field in ("x", "x_raw") else 5.0
                             val = multiplier * math.sin(step * 0.05)
                         else:
                             last_val = last_values.get(field, 0.0)
                             val = last_val + random.uniform(-0.2, 0.2)
-                    elif field in ("vx", "vy"):
+                    elif field in ("vx", "vy", "vx_raw", "vy_raw"):
                         if mode == "sine":
-                            multiplier = 2.0 if field == "vx" else 1.0
+                            multiplier = 2.0 if field in ("vx", "vx_raw") else 1.0
                             val = multiplier * math.cos(step * 0.05)
                         else:
                             last_val = last_values.get(field, 0.0)

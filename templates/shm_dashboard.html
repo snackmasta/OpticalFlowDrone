@@ -390,6 +390,113 @@
             align-items: center;
             gap: 12px;
         }
+
+        .chart-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+            margin-bottom: 12px;
+            background: rgba(15, 23, 42, 0.3);
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .toggle-btn {
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .toggle-btn.active {
+            color: #fff;
+            background: var(--btn-color, var(--accent-primary));
+            border-color: var(--btn-color, var(--accent-primary));
+            box-shadow: 0 0 8px var(--btn-color-glow, rgba(14, 165, 233, 0.3));
+        }
+
+        #btn-lock-axis {
+            font-weight: 600;
+        }
+
+        #btn-lock-axis.active {
+            background: var(--accent-warning);
+            border-color: var(--accent-warning);
+            color: #000;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+        }
+
+        #btn-toggle-layout.active {
+            background: var(--accent-purple);
+            border-color: var(--accent-purple);
+            color: #fff;
+            box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+        }
+
+        .split-charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+            width: 100%;
+        }
+
+        .split-chart-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .split-chart-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            letter-spacing: 0.02em;
+        }
+
+        .split-chart-canvas-container {
+            position: relative;
+            height: 160px;
+            width: 100%;
+        }
+
+        .split-chart-card.target-highlight {
+            border: 2px solid var(--accent-danger) !important;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5) !important;
+        }
+
+        .split-chart-card.source-highlight {
+            border: 2px solid var(--accent-success) !important;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.5) !important;
+        }
     </style>
 </head>
 <body>
@@ -465,9 +572,34 @@
                     </div>
 
                     <div id="shm-inspector-content" style="display:none;">
+                        <!-- Chart Controls (Toggles and Axis lock) -->
+                        <div class="chart-controls">
+                            <div class="toggle-group" id="chart-dataset-toggles">
+                                <!-- Dynamic toggle buttons go here -->
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="input-ymin" style="font-size: 0.8rem; color: var(--text-muted);">Y-Min:</label>
+                                    <input type="number" id="input-ymin" step="any" placeholder="Auto" style="width: 70px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 0.85rem;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="input-ymax" style="font-size: 0.8rem; color: var(--text-muted);">Y-Max:</label>
+                                    <input type="number" id="input-ymax" step="any" placeholder="Auto" style="width: 70px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 0.85rem;">
+                                </div>
+                                <button class="toggle-btn" id="btn-apply-range" style="padding: 4px 10px; font-size: 0.85rem;">Apply</button>
+                                <button class="toggle-btn" id="btn-lock-axis">Lock Axis Range</button>
+                                <button class="toggle-btn" id="btn-toggle-layout">Split Layout</button>
+                            </div>
+                        </div>
+
                         <!-- Sparkline Chart -->
-                        <div class="chart-container">
+                        <div class="chart-container" id="combined-chart-container">
                             <canvas id="liveChart"></canvas>
+                        </div>
+
+                        <!-- Split Charts Container -->
+                        <div class="split-charts-container" id="split-charts-container" style="display: none;">
+                            <!-- Dynamic split charts go here -->
                         </div>
 
                         <!-- Decoded Fields Table -->
@@ -512,10 +644,25 @@
     </div>
 
     <script>
+        const colors = [
+            'rgb(14, 165, 233)', // sky
+            'rgb(168, 85, 247)', // purple
+            'rgb(16, 185, 129)', // green
+            'rgb(245, 158, 11)', // amber
+            'rgb(239, 68, 68)',  // red
+        ];
+
         let selectedShmName = null;
         let updateIntervalId = null;
         let chartInstance = null;
         let lastTimestampSeen = null;
+        let isAxisLocked = false;
+        let layoutMode = "combined";
+        let splitChartInstances = {};
+        let activeFieldsList = [];
+        let mergeSourceField = null;
+        let mergeTargetField = null;
+        let mergedFields = {}; // targetField -> array of sourceFields
 
         // Fetch registry listing
         async function fetchRegistry() {
@@ -703,85 +850,475 @@
             });
         }
 
-        function initChart(fields) {
-            const ctx = document.getElementById('liveChart').getContext('2d');
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
+        function renderDatasetToggles(numericFields, colors) {
+            const container = document.getElementById('chart-dataset-toggles');
+            if (!container) return;
+            container.innerHTML = '';
 
-            // Create datasets for each numeric field except timestamp
-            const numericFields = fields.filter(f => f !== 'timestamp');
-            const colors = [
-                'rgb(14, 165, 233)', // sky
-                'rgb(168, 85, 247)', // purple
-                'rgb(16, 185, 129)', // green
-                'rgb(245, 158, 11)', // amber
-                'rgb(239, 68, 68)',  // red
-            ];
+            numericFields.forEach((field, i) => {
+                const btn = document.createElement('button');
+                btn.className = 'toggle-btn active';
+                btn.textContent = field;
+                
+                const color = colors[i % colors.length];
+                btn.style.setProperty('--btn-color', color);
+                const glowColor = color.replace('rgb', 'rgba').replace(')', ', 0.35)');
+                btn.style.setProperty('--btn-color-glow', glowColor);
 
-            const datasets = numericFields.map((field, i) => ({
-                label: field,
-                borderColor: colors[i % colors.length],
-                borderWidth: 2,
-                pointRadius: 0,
-                data: [],
-                fill: false,
-                tension: 0.1
-            }));
+                btn.onclick = () => {
+                    const isVisible = chartInstance.isDatasetVisible(i);
+                    chartInstance.setDatasetVisibility(i, !isVisible);
+                    chartInstance.update();
 
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: { duration: 0 },
-                    plugins: {
-                        legend: {
-                            labels: {
-                                color: '#94a3b8',
-                                font: { family: 'Outfit' }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
-                        },
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
-                        }
+                    if (!isVisible) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
                     }
-                }
+                };
+                container.appendChild(btn);
             });
         }
 
+        function setSource(field) {
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => c.classList.remove('source-highlight'));
+
+            if (mergeSourceField === field) {
+                mergeSourceField = null;
+            } else {
+                mergeSourceField = field;
+                const card = document.getElementById(`split-card-${field}`);
+                if (card) {
+                    card.classList.add('source-highlight');
+                }
+            }
+        }
+
+        function setTarget(field) {
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => {
+                c.classList.remove('target-highlight');
+                c.classList.remove('source-highlight');
+            });
+
+            mergeSourceField = null;
+
+            if (mergeTargetField === field) {
+                mergeTargetField = null;
+            } else {
+                mergeTargetField = field;
+                const card = document.getElementById(`split-card-${field}`);
+                if (card) {
+                    card.classList.add('target-highlight');
+                }
+            }
+        }
+
+        function performMerge(sourceField, targetField) {
+            if (!sourceField || !targetField || sourceField === targetField) return;
+
+            if (!mergedFields[targetField]) {
+                mergedFields[targetField] = [];
+            }
+            if (mergedFields[targetField].includes(sourceField)) return;
+
+            mergedFields[targetField].push(sourceField);
+
+            // Hide the source card
+            const sourceCard = document.getElementById(`split-card-${sourceField}`);
+            if (sourceCard) {
+                sourceCard.style.display = 'none';
+            }
+
+            // Deactivate source toggle
+            const toggles = document.getElementById('chart-dataset-toggles').children;
+            for (let btn of toggles) {
+                if (btn.textContent === sourceField) {
+                    btn.classList.remove('active');
+                    break;
+                }
+            }
+
+            // Add dataset to target chart
+            const targetChart = splitChartInstances[targetField];
+            if (targetChart) {
+                const sourceColor = colors[activeFieldsList.filter(f => f !== 'timestamp').indexOf(sourceField) % colors.length];
+                targetChart.data.datasets.push({
+                    label: sourceField,
+                    borderColor: sourceColor,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    data: [],
+                    fill: false,
+                    tension: 0.1
+                });
+                targetChart.update();
+            }
+
+            // Reset highlighted source
+            mergeSourceField = null;
+            const cards = document.querySelectorAll('.split-chart-card');
+            cards.forEach(c => c.classList.remove('source-highlight'));
+        }
+
+        function renderDatasetToggles(numericFields, colors) {
+            const container = document.getElementById('chart-dataset-toggles');
+            if (!container) return;
+            container.innerHTML = '';
+
+            numericFields.forEach((field, i) => {
+                const btn = document.createElement('button');
+                btn.className = 'toggle-btn active';
+                btn.textContent = field;
+                
+                const color = colors[i % colors.length];
+                btn.style.setProperty('--btn-color', color);
+                const glowColor = color.replace('rgb', 'rgba').replace(')', ', 0.35)');
+                btn.style.setProperty('--btn-color-glow', glowColor);
+
+                btn.onclick = () => {
+                    if (layoutMode === "combined" && chartInstance) {
+                        const isVisible = chartInstance.isDatasetVisible(i);
+                        chartInstance.setDatasetVisibility(i, !isVisible);
+                        chartInstance.update();
+
+                        if (!isVisible) {
+                            btn.classList.add('active');
+                        } else {
+                            btn.classList.remove('active');
+                        }
+                    } else {
+                        // Split Layout mode: toggle wrapper visibility
+                        const card = document.getElementById(`split-card-${field}`);
+                        if (card) {
+                            const isHidden = card.style.display === 'none';
+                            card.style.display = isHidden ? 'flex' : 'none';
+                            if (isHidden) {
+                                btn.classList.add('active');
+                            } else {
+                                btn.classList.remove('active');
+                            }
+                        }
+                    }
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function toggleAxisLock() {
+            const btn = document.getElementById('btn-lock-axis');
+            if (layoutMode === "combined" && chartInstance) {
+                if (!isAxisLocked) {
+                    const yMin = chartInstance.scales.y.min;
+                    const yMax = chartInstance.scales.y.max;
+                    chartInstance.options.scales.y.min = yMin;
+                    chartInstance.options.scales.y.max = yMax;
+                    isAxisLocked = true;
+                    btn.textContent = "Unlock Axis Range";
+                    btn.classList.add('active');
+                    document.getElementById('input-ymin').value = yMin !== undefined ? Number(yMin).toFixed(2) : "";
+                    document.getElementById('input-ymax').value = yMax !== undefined ? Number(yMax).toFixed(2) : "";
+                } else {
+                    chartInstance.options.scales.y.min = undefined;
+                    chartInstance.options.scales.y.max = undefined;
+                    isAxisLocked = false;
+                    btn.textContent = "Lock Axis Range";
+                    btn.classList.remove('active');
+                    document.getElementById('input-ymin').value = "";
+                    document.getElementById('input-ymax').value = "";
+                }
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                const charts = Object.values(splitChartInstances);
+                if (charts.length === 0) return;
+                if (!isAxisLocked) {
+                    charts.forEach(c => {
+                        c.options.scales.y.min = c.scales.y.min;
+                        c.options.scales.y.max = c.scales.y.max;
+                        c.update();
+                    });
+                    isAxisLocked = true;
+                    btn.textContent = "Unlock Axis Range";
+                    btn.classList.add('active');
+                } else {
+                    charts.forEach(c => {
+                        c.options.scales.y.min = undefined;
+                        c.options.scales.y.max = undefined;
+                        c.update();
+                    });
+                    isAxisLocked = false;
+                    btn.textContent = "Lock Axis Range";
+                    btn.classList.remove('active');
+                    document.getElementById('input-ymin').value = "";
+                    document.getElementById('input-ymax').value = "";
+                }
+            }
+        }
+
+        function applyManualRange() {
+            const minVal = document.getElementById('input-ymin').value;
+            const maxVal = document.getElementById('input-ymax').value;
+
+            const yMin = minVal !== "" ? parseFloat(minVal) : undefined;
+            const yMax = maxVal !== "" ? parseFloat(maxVal) : undefined;
+
+            if (layoutMode === "combined" && chartInstance) {
+                chartInstance.options.scales.y.min = yMin;
+                chartInstance.options.scales.y.max = yMax;
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                Object.values(splitChartInstances).forEach(c => {
+                    c.options.scales.y.min = yMin;
+                    c.options.scales.y.max = yMax;
+                    c.update();
+                });
+            }
+
+            const lockBtn = document.getElementById('btn-lock-axis');
+            if (minVal !== "" || maxVal !== "") {
+                isAxisLocked = true;
+                if (lockBtn) {
+                    lockBtn.textContent = "Unlock Axis Range";
+                    lockBtn.classList.add('active');
+                }
+            } else {
+                isAxisLocked = false;
+                if (lockBtn) {
+                    lockBtn.textContent = "Lock Axis Range";
+                    lockBtn.classList.remove('active');
+                }
+            }
+        }
+
+        function toggleLayoutMode() {
+            const btn = document.getElementById('btn-toggle-layout');
+            if (layoutMode === "combined") {
+                layoutMode = "split";
+                btn.textContent = "Combined Layout";
+                btn.classList.add('active');
+            } else {
+                layoutMode = "combined";
+                btn.textContent = "Split Layout";
+                btn.classList.remove('active');
+            }
+            if (activeFieldsList && activeFieldsList.length > 0) {
+                initChart(activeFieldsList);
+            }
+        }
+
+        function initChart(fields) {
+            activeFieldsList = fields;
+            const numericFields = fields.filter(f => f !== 'timestamp');
+
+            // Destroy combined chart if it exists
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+
+            // Destroy split charts if they exist
+            Object.values(splitChartInstances).forEach(c => c.destroy());
+            splitChartInstances = {};
+
+            // Reset axis lock state on chart re-init
+            isAxisLocked = false;
+            mergeSourceField = null;
+            mergeTargetField = null;
+            mergedFields = {};
+            const lockBtn = document.getElementById('btn-lock-axis');
+            if (lockBtn) {
+                lockBtn.textContent = "Lock Axis Range";
+                lockBtn.classList.remove('active');
+            }
+            document.getElementById('input-ymin').value = "";
+            document.getElementById('input-ymax').value = "";
+
+            if (layoutMode === "combined") {
+                document.getElementById('combined-chart-container').style.display = 'block';
+                document.getElementById('split-charts-container').style.display = 'none';
+
+                const ctx = document.getElementById('liveChart').getContext('2d');
+                const datasets = numericFields.map((field, i) => ({
+                    label: field,
+                    borderColor: colors[i % colors.length],
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    data: [],
+                    fill: false,
+                    tension: 0.1
+                }));
+
+                chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 0 },
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: { family: 'Outfit' }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Split Layout
+                document.getElementById('combined-chart-container').style.display = 'none';
+                const splitContainer = document.getElementById('split-charts-container');
+                splitContainer.style.display = 'grid';
+                splitContainer.innerHTML = '';
+
+                numericFields.forEach((field, i) => {
+                    const color = colors[i % colors.length];
+
+                    const card = document.createElement('div');
+                    card.className = 'split-chart-card';
+                    card.id = `split-card-${field}`;
+
+                    const title = document.createElement('div');
+                    title.className = 'split-chart-title';
+                    title.innerHTML = `<span>${field}</span><span style="color:${color}; font-weight:bold;">●</span>`;
+                    card.appendChild(title);
+
+                    const canvasContainer = document.createElement('div');
+                    canvasContainer.className = 'split-chart-canvas-container';
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.id = `chart-split-${field}`;
+                    canvasContainer.appendChild(canvas);
+                    card.appendChild(canvasContainer);
+                    splitContainer.appendChild(card);
+
+                    const ctx = canvas.getContext('2d');
+                    const splitChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: field,
+                                borderColor: color,
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                data: [],
+                                fill: false,
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: { duration: 0 },
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                },
+                                y: {
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                    ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                                }
+                            }
+                        }
+                    });
+
+                    // Add click and right-click listeners to the card wrapper
+                    card.style.cursor = 'pointer';
+                    card.addEventListener('click', (e) => {
+                        if (layoutMode !== "split") return;
+                        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+
+                        // Left click sets the TARGET (red)
+                        setTarget(field);
+                    });
+
+                    card.addEventListener('contextmenu', (e) => {
+                        if (layoutMode !== "split") return;
+                        e.preventDefault();
+
+                        // Right click sets the SOURCE (green)
+                        if (mergeTargetField === null) {
+                            setSource(field);
+                        } else if (mergeTargetField === field) {
+                            return;
+                        } else {
+                            setSource(field);
+                            performMerge(field, mergeTargetField);
+                        }
+                    });
+
+                    splitChartInstances[field] = splitChart;
+                });
+            }
+
+            // Render dynamic legend/declutter buttons
+            renderDatasetToggles(numericFields, colors);
+        }
+
         function updateChart(samples, fields) {
-            if (!chartInstance || !samples || samples.length === 0) return;
+            if (!samples || samples.length === 0) return;
 
             const numericFields = fields.filter(f => f !== 'timestamp');
-            
-            // Take the last 30 samples to display on graph (they come sorted newest-first, so reverse them)
             const graphData = [...samples.slice(0, 30)].reverse();
-
-            chartInstance.data.labels = graphData.map(samp => {
+            const labels = graphData.map(samp => {
                 const date = new Date(samp.timestamp * 1000);
                 return date.toLocaleTimeString(undefined, {hour12: false}) + '.' + String(date.getMilliseconds()).padStart(3, '0');
             });
 
-            numericFields.forEach((field, dsIndex) => {
-                chartInstance.data.datasets[dsIndex].data = graphData.map(samp => samp[field]);
-            });
-
-            chartInstance.update();
+            if (layoutMode === "combined" && chartInstance) {
+                chartInstance.data.labels = labels;
+                numericFields.forEach((field, dsIndex) => {
+                    chartInstance.data.datasets[dsIndex].data = graphData.map(samp => samp[field]);
+                });
+                chartInstance.update();
+            } else if (layoutMode === "split") {
+                numericFields.forEach((field) => {
+                    const splitChart = splitChartInstances[field];
+                    if (splitChart) {
+                        splitChart.data.labels = labels;
+                        splitChart.data.datasets.forEach((ds) => {
+                            const dsField = ds.label;
+                            ds.data = graphData.map(samp => samp[dsField]);
+                        });
+                        splitChart.update();
+                    }
+                });
+            }
         }
 
         // Action Buttons Setup
+        document.getElementById('btn-lock-axis').addEventListener('click', toggleAxisLock);
+        document.getElementById('btn-apply-range').addEventListener('click', applyManualRange);
+        document.getElementById('btn-toggle-layout').addEventListener('click', toggleLayoutMode);
+
+        // Allow pressing Enter key inside manual range inputs
+        document.getElementById('input-ymin').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyManualRange();
+        });
+        document.getElementById('input-ymax').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyManualRange();
+        });
+
         document.getElementById('btn-unlink-shm').addEventListener('click', async () => {
             if (!selectedShmName || !confirm(`Are you sure you want to close and unlink ${selectedShmName}?`)) return;
             try {
