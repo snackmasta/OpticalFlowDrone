@@ -1019,6 +1019,31 @@
             cards.forEach(c => c.classList.remove('source-highlight'));
         }
 
+        function performUngroup(targetField) {
+            const config = shmConfig[selectedShmName];
+            if (!config || !config.mergedFields || !config.mergedFields[targetField]) return;
+
+            const sources = config.mergedFields[targetField];
+            if (sources.length === 0) return;
+
+            // Remove target from config mergedFields
+            delete config.mergedFields[targetField];
+
+            // For each source field, restore its visibility
+            sources.forEach(sourceField => {
+                if (config.hiddenFields) {
+                    config.hiddenFields[sourceField] = false;
+                }
+            });
+
+            saveConfig();
+
+            // Re-init chart to redraw all charts normally
+            if (activeFieldsList && activeFieldsList.length > 0) {
+                initChart(activeFieldsList);
+            }
+        }
+
         function renderDatasetToggles(numericFields, colors) {
             const container = document.getElementById('chart-dataset-toggles');
             if (!container) return;
@@ -1399,9 +1424,44 @@
 
                     // Add click and right-click listeners to the card wrapper
                     card.style.cursor = 'pointer';
+                    
+                    let holdTimer = null;
+                    let holdTriggered = false;
+                    const holdDuration = 600;
+
+                    card.addEventListener('mousedown', (e) => {
+                        if (layoutMode !== "split") return;
+                        if (e.button !== 0) return; // Only left click
+                        holdTriggered = false;
+
+                        holdTimer = setTimeout(() => {
+                            holdTriggered = true;
+                            performUngroup(field);
+                        }, holdDuration);
+                    });
+
+                    card.addEventListener('mouseup', () => {
+                        if (holdTimer) {
+                            clearTimeout(holdTimer);
+                            holdTimer = null;
+                        }
+                    });
+
+                    card.addEventListener('mouseleave', () => {
+                        if (holdTimer) {
+                            clearTimeout(holdTimer);
+                            holdTimer = null;
+                        }
+                    });
+
                     card.addEventListener('click', (e) => {
                         if (layoutMode !== "split") return;
                         if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+
+                        if (holdTriggered) {
+                            holdTriggered = false;
+                            return; // Suppress normal left click when hold was triggered
+                        }
 
                         // Left click sets the TARGET (red)
                         setTarget(field);
