@@ -1248,6 +1248,15 @@
                         if (layoutMode !== "split") return;
                         if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 
+                        // Left click sets the TARGET (red)
+                        setTarget(field);
+                    });
+
+                    card.addEventListener('contextmenu', (e) => {
+                        if (layoutMode !== "split") return;
+                        e.preventDefault();
+
+                        // Right click sets the SOURCE (green)
                         if (mergeTargetField === null) {
                             setSource(field);
                         } else if (mergeTargetField === field) {
@@ -1256,12 +1265,6 @@
                             setSource(field);
                             performMerge(field, mergeTargetField);
                         }
-                    });
-
-                    card.addEventListener('contextmenu', (e) => {
-                        if (layoutMode !== "split") return;
-                        e.preventDefault();
-                        setTarget(field);
                     });
 
                     splitChartInstances[field] = splitChart;
