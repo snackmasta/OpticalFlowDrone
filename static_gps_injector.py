@@ -34,6 +34,43 @@ COMPASS_MAX_SAMPLES = 120
 
 compass_shm = None
 
+# Optical flow shared memory configuration
+FLOW_SHM_NAME = "optical_flow_stream"
+FLOW_SHM_MAGIC = b"FLOW"
+FLOW_SHM_HEADER_FORMAT = "<4sII"
+FLOW_SHM_RECORD_FORMAT = "<10d"
+FLOW_SHM_HEADER_SIZE = struct.calcsize(FLOW_SHM_HEADER_FORMAT)
+FLOW_SHM_RECORD_SIZE = struct.calcsize(FLOW_SHM_RECORD_FORMAT)
+FLOW_MAX_SAMPLES = 120
+
+flow_shm = None
+
+
+def get_latest_flow_position():
+    global flow_shm
+    if flow_shm is None:
+        try:
+            flow_shm = shared_memory.SharedMemory(name=FLOW_SHM_NAME)
+        except FileNotFoundError:
+            return None
+    try:
+        magic, write_index, sample_count = struct.unpack_from(FLOW_SHM_HEADER_FORMAT, flow_shm.buf, 0)
+        if magic != FLOW_SHM_MAGIC or sample_count == 0:
+            return None
+        
+        latest_index = (write_index - 1) % FLOW_MAX_SAMPLES
+        offset = FLOW_SHM_HEADER_SIZE + (latest_index * FLOW_SHM_RECORD_SIZE)
+        # Fields: timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt
+        values = struct.unpack_from(FLOW_SHM_RECORD_FORMAT, flow_shm.buf, offset)
+        return values[1], values[2] # x, y
+    except Exception:
+        try:
+            flow_shm.close()
+        except Exception:
+            pass
+        flow_shm = None
+        return None
+
 
 def get_latest_compass_heading():
     global compass_shm
@@ -109,29 +146,16 @@ while True:
     utc = now.strftime("%H%M%S.%f")[:-4]
     date = now.strftime("%d%m%y")
 
-    # Update position along rectangle path if max laps not reached
-    if MAX_LAPS is None or laps_completed < MAX_LAPS:
-        if state == 0:
-            lon += STEP
-            if lon >= START_LON + LON_SIZE:
-                lon = START_LON + LON_SIZE
-                state = 1
-        elif state == 1:
-            lat += STEP
-            if lat >= START_LAT + LAT_SIZE:
-                lat = START_LAT + LAT_SIZE
-                state = 2
-        elif state == 2:
-            lon -= STEP
-            if lon <= START_LON:
-                lon = START_LON
-                state = 3
-        elif state == 3:
-            lat -= STEP
-            if lat <= START_LAT:
-                lat = START_LAT
-                state = 0
-                laps_completed += 1
+    # Read the latest flow position (in absolute meters: East = x, North = y)
+    import math
+    flow_pos = get_latest_flow_position()
+    if flow_pos is not None:
+        x_m, y_m = flow_pos
+        # Earth radius in meters
+        EARTH_RADIUS = 6378137.0
+        # Convert meters displacement to degrees latitude and longitude
+        lat = START_LAT + (y_m / EARTH_RADIUS) * (180.0 / math.pi)
+        lon = START_LON + (x_m / EARTH_RADIUS) / math.cos(math.radians(lat)) * (180.0 / math.pi)
 
     nmea_lat, ns = to_nmea_lat(lat)
     nmea_lon, ew = to_nmea_lon(lon)

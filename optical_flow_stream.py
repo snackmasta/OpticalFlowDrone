@@ -297,6 +297,7 @@ def record_optical_flow():
         with attitude_lock:
             roll_deg = attitude_state["roll_deg"]
             pitch_deg = attitude_state["pitch_deg"]
+            yaw_deg = attitude_state["yaw_deg"]
 
         roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
         pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
@@ -334,10 +335,17 @@ def record_optical_flow():
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
 
-            # Calculate physical velocity using compensated translations
+            # Calculate physical velocity using compensated translations (body frame)
             altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
-            vx_mps_calc = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
-            vy_mps_calc = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
+            vx_mps_body = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
+            vy_mps_body = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
+
+            # Rotate compensated velocities to absolute frame (East/North) using yaw_deg
+            yaw_rad = math.radians(yaw_deg)
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            vx_mps_calc = vy_mps_body * sin_yaw - vx_mps_body * cos_yaw
+            vy_mps_calc = vy_mps_body * cos_yaw + vx_mps_body * sin_yaw
 
             # Apply acceleration rate-limiter and velocity clamps to compensated velocity
             max_dv = 15.0 * dt_s
@@ -348,10 +356,14 @@ def record_optical_flow():
             vx_mps = np.clip(vx_mps, -5.0, 5.0)
             vy_mps = np.clip(vy_mps, -5.0, 5.0)
 
-            # Calculate raw physical velocity (uncompensated)
-            vx_raw_mps_calc = (tx * altitude_m) / (focal_length_x_px * dt_s)
-            vy_raw_mps_calc = (ty * altitude_m) / (focal_length_y_px * dt_s)
+            # Calculate raw physical velocity (uncompensated, body frame)
+            vx_raw_mps_body = (tx * altitude_m) / (focal_length_x_px * dt_s)
+            vy_raw_mps_body = (ty * altitude_m) / (focal_length_y_px * dt_s)
             
+            # Rotate raw velocities to absolute frame
+            vx_raw_mps_calc = vy_raw_mps_body * sin_yaw - vx_raw_mps_body * cos_yaw
+            vy_raw_mps_calc = vy_raw_mps_body * cos_yaw + vx_raw_mps_body * sin_yaw
+
             # Apply same limits to raw velocity to prevent dashboard telemetry glitches
             vx_raw_mps = np.clip(vx_raw_mps_calc, vx_raw_prev - max_dv, vx_raw_prev + max_dv)
             vy_raw_mps = np.clip(vy_raw_mps_calc, vy_raw_prev - max_dv, vy_raw_prev + max_dv)
