@@ -205,9 +205,9 @@ def record_optical_flow():
             tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
             tracked_count = len(inlier_new)
 
-            # Apply reticle-based tilt compensation (opposite to apparent motion of features)
-            tx_comp = tx + (d_reticle_x * FLOW_SCALE)
-            ty_comp = ty + (d_reticle_y * FLOW_SCALE)
+            # Apply reticle-based tilt compensation (subtracting expected displacement)
+            tx_comp = tx - (d_reticle_x * FLOW_SCALE)
+            ty_comp = ty - (d_reticle_y * FLOW_SCALE)
 
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
