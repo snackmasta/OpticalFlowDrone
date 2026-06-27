@@ -2,6 +2,15 @@
 # Requirements: opencv-python, numpy, picamera2, pymavlink, smbus2
 
 import cv2
+# Configure OpenCV threading to spread load across multiple CPU cores
+try:
+    initial_threads = cv2.getNumThreads()
+    cpus = cv2.getNumberOfCPUs()
+    cv2.setNumThreads(cpus)
+    print(f"OpenCV Multi-threading: Configured threads from {initial_threads} to {cv2.getNumThreads()} (Available CPUs: {cpus})")
+except Exception as e:
+    print(f"Failed to configure OpenCV threads: {e}")
+
 import numpy as np
 import time
 import math
