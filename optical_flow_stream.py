@@ -13,7 +13,9 @@ from picamera2 import Picamera2
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
     distance_lock,
-    distance_state
+    distance_state,
+    attitude_lock,
+    attitude_state
 )
 from optical_flow.flow_processor import (
     to_small_gray,
@@ -27,7 +29,9 @@ from optical_flow.flow_processor import (
 )
 from optical_flow.hud_renderer import (
     draw_ground_reticle,
-    draw_osd
+    draw_osd,
+    RETICLE_ROLL_SCALE_PX_PER_DEG,
+    RETICLE_PITCH_SCALE_PX_PER_DEG
 )
 from optical_flow.video_sinks import (
     FileSink,
@@ -152,6 +156,8 @@ def record_optical_flow():
     global old_gray, output_sink
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
+    prev_roll_px = None
+    prev_pitch_px = None
     while True:
         now = time.perf_counter()
         if now < next_frame_time:
@@ -168,18 +174,40 @@ def record_optical_flow():
 
         dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
 
+        # Calculate reticle displacement for tilt compensation
+        with attitude_lock:
+            roll_deg = attitude_state["roll_deg"]
+            pitch_deg = attitude_state["pitch_deg"]
+
+        roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
+        pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
+
+        if prev_roll_px is None:
+            prev_roll_px = roll_px
+            prev_pitch_px = pitch_px
+
+        d_reticle_x = roll_px - prev_roll_px
+        d_reticle_y = pitch_px - prev_pitch_px
+
+        prev_roll_px = roll_px
+        prev_pitch_px = pitch_px
+
         tracked_count = 0
         if dense_motion is not None:
             tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
             tracked_count = len(inlier_new)
 
+            # Apply reticle-based tilt compensation (opposite to apparent motion of features)
+            tx_comp = tx + (d_reticle_x * FLOW_SCALE)
+            ty_comp = ty + (d_reticle_y * FLOW_SCALE)
+
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
 
-            # Calculate physical velocity using RANSAC-fitted translations tx, ty
-            altitude_m = altitude_cm / 100.0
-            vx_mps = (tx * altitude_m) / (focal_length_x_px * dt_s)
-            vy_mps = (ty * altitude_m) / (focal_length_y_px * dt_s)
+            # Calculate physical velocity using compensated translations
+            altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+            vx_mps = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
+            vy_mps = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
 
             velocity_state["vx_mps"] = vx_mps
             velocity_state["vy_mps"] = vy_mps
