@@ -10,40 +10,23 @@ import threading
 import json
 import os
 import sys
+import queue
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
 
-# Cross-platform non-blocking keyboard input wrappers
-try:
-    import msvcrt
-    def kbhit():
-        return msvcrt.kbhit()
-    def getch():
-        return msvcrt.getch().decode('utf-8', errors='ignore').lower()
-except ImportError:
-    import select
-    try:
-        import termios
-        import tty
-        
-        def kbhit():
-            return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
+input_queue = queue.Queue()
 
-        def getch():
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(sys.stdin.fileno())
-                ch = sys.stdin.read(1)
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            return ch.lower()
-    except Exception:
-        # Fallback if tty/termios is not supported
-        def kbhit():
-            return False
-        def getch():
-            return ''
+def console_input_thread():
+    while True:
+        try:
+            line = sys.stdin.readline().strip().lower()
+            if line:
+                input_queue.put(line)
+        except Exception:
+            break
+
+# Start the console input reader thread
+threading.Thread(target=console_input_thread, daemon=True).start()
 
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
@@ -222,12 +205,13 @@ def record_optical_flow():
     y_raw_m = 0.0
     
     is_calibrating = False
+    calib_paused = False
     calib_samples_x = []
     calib_samples_y = []
     
     print("\n=======================================================")
-    print("Press 'c' to start/stop mid-process tilt calibration.")
-    print("Press Ctrl+C to exit.")
+    print("Type 'c' and press Enter to start tilt calibration.")
+    print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
     
     while True:
@@ -239,31 +223,42 @@ def record_optical_flow():
         previous_frame_ts = frame_ts
         next_frame_time = frame_ts + FRAME_INTERVAL_S
 
-        # Check for keyboard triggers non-blockingly
-        if kbhit():
-            try:
-                key = getch()
-                if key == 'c':
-                    if not is_calibrating:
-                        is_calibrating = True
-                        calib_samples_x = []
-                        calib_samples_y = []
-                        print("\n>>> TILT CALIBRATION STARTED. Please pitch and roll the camera/drone without moving it translationally...")
-                    else:
-                        is_calibrating = False
-                        if calib_samples_x:
-                            scale_x = float(np.median(calib_samples_x))
-                        if calib_samples_y:
-                            scale_y = float(np.median(calib_samples_y))
-                        
-                        try:
-                            with open(CALIBRATION_FILE, "w") as f:
-                                json.dump({"scale_x": scale_x, "scale_y": scale_y}, f, indent=4)
-                            print(f"\n>>> TILT CALIBRATION COMPLETE & SAVED: scale_x={scale_x:.4f}, scale_y={scale_y:.4f} (from {len(calib_samples_x)}/{len(calib_samples_y)} samples)")
-                        except Exception as e:
-                            print(f"\n>>> Failed to save calibration to file: {e}")
-            except Exception:
-                pass
+        # Check for keyboard commands from the input queue non-blockingly
+        command = None
+        try:
+            command = input_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        if command is not None:
+            if command == 'c' and not is_calibrating:
+                is_calibrating = True
+                calib_paused = False
+                calib_samples_x = []
+                calib_samples_y = []
+                print("\n>>> TILT CALIBRATION STARTED. Please pitch and roll the camera/drone without translating it.")
+                print(">>> Type 's' + Enter to save & exit, 'p' + Enter to pause/resume, 'e' + Enter to discard & exit.\n")
+            elif is_calibrating:
+                if command == 's':
+                    is_calibrating = False
+                    if calib_samples_x:
+                        scale_x = float(np.median(calib_samples_x))
+                    if calib_samples_y:
+                        scale_y = float(np.median(calib_samples_y))
+                    
+                    try:
+                        with open(CALIBRATION_FILE, "w") as f:
+                            json.dump({"scale_x": scale_x, "scale_y": scale_y}, f, indent=4)
+                        print(f"\n>>> TILT CALIBRATION COMPLETE & SAVED: scale_x={scale_x:.4f}, scale_y={scale_y:.4f} (from {len(calib_samples_x)}/{len(calib_samples_y)} samples)")
+                    except Exception as e:
+                        print(f"\n>>> Failed to save calibration to file: {e}")
+                elif command == 'p':
+                    calib_paused = not calib_paused
+                    status = "PAUSED" if calib_paused else "RESUMED"
+                    print(f"\n>>> TILT CALIBRATION {status}.")
+                elif command == 'e':
+                    is_calibrating = False
+                    print("\n>>> TILT CALIBRATION DISCARDED.")
 
         frame = ensure_bgr(picam2.capture_array())
         frame_gray = to_small_gray(frame)
@@ -297,8 +292,8 @@ def record_optical_flow():
             tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
             tracked_count = len(inlier_new)
 
-            # Record calibration samples if mode is active and movement is sufficient
-            if is_calibrating:
+            # Record calibration samples if mode is active and not paused, and movement is sufficient
+            if is_calibrating and not calib_paused:
                 if abs(d_reticle_x) > 1.5:
                     calib_samples_x.append(tx / d_reticle_x)
                 if abs(d_reticle_y) > 1.5:
