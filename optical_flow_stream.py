@@ -45,7 +45,7 @@ FRAME_INTERVAL_S = 1.0 / TARGET_FPS
 SHM_NAME = "optical_flow_stream"
 SHM_MAGIC = b"FLOW"
 SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<6d"
+SHM_RECORD_FORMAT = "<10d"
 SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
@@ -76,7 +76,7 @@ def attach_flow_stream_shm():
         return flow_shm
 
 
-def write_flow_stream_sample(timestamp, x, y, vx, vy, alt):
+def write_flow_stream_sample(timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt):
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -89,8 +89,12 @@ def write_flow_stream_sample(timestamp, x, y, vx, vy, alt):
                 float(timestamp),
                 float(x),
                 float(y),
+                float(x_raw),
+                float(y_raw),
                 float(vx),
                 float(vy),
+                float(vx_raw),
+                float(vy_raw),
                 float(alt),
             )
             write_index = (write_index + 1) % MAX_SAMPLES
@@ -158,6 +162,8 @@ def record_optical_flow():
     previous_frame_ts = time.perf_counter()
     prev_roll_px = None
     prev_pitch_px = None
+    x_raw_m = 0.0
+    y_raw_m = 0.0
     while True:
         now = time.perf_counter()
         if now < next_frame_time:
@@ -193,6 +199,8 @@ def record_optical_flow():
         prev_pitch_px = pitch_px
 
         tracked_count = 0
+        vx_raw_mps = 0.0
+        vy_raw_mps = 0.0
         if dense_motion is not None:
             tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
             tracked_count = len(inlier_new)
@@ -209,6 +217,10 @@ def record_optical_flow():
             vx_mps = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
             vy_mps = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
 
+            # Calculate raw physical velocity (uncompensated)
+            vx_raw_mps = (tx * altitude_m) / (focal_length_x_px * dt_s)
+            vy_raw_mps = (ty * altitude_m) / (focal_length_y_px * dt_s)
+
             velocity_state["vx_mps"] = vx_mps
             velocity_state["vy_mps"] = vy_mps
             velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
@@ -221,6 +233,9 @@ def record_optical_flow():
                 position_state["path"].append((position_state["x_m"], position_state["y_m"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
+
+            x_raw_m += vx_raw_mps * dt_s
+            y_raw_m += vy_raw_mps * dt_s
 
             # Draw inlier vectors
             for new, old in zip(inlier_new, inlier_old):
@@ -251,7 +266,18 @@ def record_optical_flow():
         with distance_lock:
             altitude_cm = distance_state["current_distance"]
         current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
-        write_flow_stream_sample(frame_ts, current_x, current_y, current_vx, current_vy, current_alt)
+        write_flow_stream_sample(
+            frame_ts,
+            current_x,
+            current_y,
+            x_raw_m,
+            y_raw_m,
+            current_vx,
+            current_vy,
+            vx_raw_mps,
+            vy_raw_mps,
+            current_alt
+        )
 
         old_gray = frame_gray.copy()
         img = draw_ground_reticle(img)
