@@ -203,6 +203,8 @@ def record_optical_flow():
     prev_pitch_px = None
     x_raw_m = 0.0
     y_raw_m = 0.0
+    vx_raw_prev = 0.0
+    vy_raw_prev = 0.0
     
     is_calibrating = False
     calib_paused = False
@@ -264,6 +266,8 @@ def record_optical_flow():
             if command == 'r':
                 x_raw_m = 0.0
                 y_raw_m = 0.0
+                vx_raw_prev = 0.0
+                vy_raw_prev = 0.0
                 with position_lock:
                     position_state["x_m"] = 0.0
                     position_state["y_m"] = 0.0
@@ -320,12 +324,30 @@ def record_optical_flow():
 
             # Calculate physical velocity using compensated translations
             altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
-            vx_mps = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
-            vy_mps = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
+            vx_mps_calc = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
+            vy_mps_calc = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
+
+            # Apply acceleration rate-limiter and velocity clamps to compensated velocity
+            max_dv = 15.0 * dt_s
+            prev_vx = velocity_state["vx_mps"]
+            prev_vy = velocity_state["vy_mps"]
+            vx_mps = np.clip(vx_mps_calc, prev_vx - max_dv, prev_vx + max_dv)
+            vy_mps = np.clip(vy_mps_calc, prev_vy - max_dv, prev_vy + max_dv)
+            vx_mps = np.clip(vx_mps, -5.0, 5.0)
+            vy_mps = np.clip(vy_mps, -5.0, 5.0)
 
             # Calculate raw physical velocity (uncompensated)
-            vx_raw_mps = (tx * altitude_m) / (focal_length_x_px * dt_s)
-            vy_raw_mps = (ty * altitude_m) / (focal_length_y_px * dt_s)
+            vx_raw_mps_calc = (tx * altitude_m) / (focal_length_x_px * dt_s)
+            vy_raw_mps_calc = (ty * altitude_m) / (focal_length_y_px * dt_s)
+            
+            # Apply same limits to raw velocity to prevent dashboard telemetry glitches
+            vx_raw_mps = np.clip(vx_raw_mps_calc, vx_raw_prev - max_dv, vx_raw_prev + max_dv)
+            vy_raw_mps = np.clip(vy_raw_mps_calc, vy_raw_prev - max_dv, vy_raw_prev + max_dv)
+            vx_raw_mps = np.clip(vx_raw_mps, -5.0, 5.0)
+            vy_raw_mps = np.clip(vy_raw_mps, -5.0, 5.0)
+            
+            vx_raw_prev = vx_raw_mps
+            vy_raw_prev = vy_raw_mps
 
             velocity_state["vx_mps"] = vx_mps
             velocity_state["vy_mps"] = vy_mps
