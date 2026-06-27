@@ -1,6 +1,8 @@
 import serial
 import time
+import struct
 from datetime import datetime
+from multiprocessing import shared_memory
 
 ser = serial.Serial(
     "/dev/ttyAMA2",
@@ -13,12 +15,50 @@ START_LON = 107.6191   # Bandung Longitude
 LAT_SIZE = 0.0005  # Height of rectangle in degrees
 LON_SIZE = 0.0005  # Width of rectangle in degrees
 STEP = 0.00002     # Speed of movement per step
-MAX_LAPS = 1       # Stop moving after this many laps (set to None for infinite)
+MAX_LAPS = 0       # Stop moving after this many laps (set to None for infinite)
 
 lat = START_LAT
 lon = START_LON
 state = 0  # 0: Go East, 1: Go North, 2: Go West, 3: Go South
 laps_completed = 0
+
+
+# Compass shared memory configuration
+COMPASS_SHM_NAME = "compass_heading_stream"
+COMPASS_SHM_MAGIC = b"CHDG"
+COMPASS_SHM_HEADER_FORMAT = "<4sII"
+COMPASS_SHM_RECORD_FORMAT = "<6d"
+COMPASS_SHM_HEADER_SIZE = struct.calcsize(COMPASS_SHM_HEADER_FORMAT)
+COMPASS_SHM_RECORD_SIZE = struct.calcsize(COMPASS_SHM_RECORD_FORMAT)
+COMPASS_MAX_SAMPLES = 120
+
+compass_shm = None
+
+
+def get_latest_compass_heading():
+    global compass_shm
+    if compass_shm is None:
+        try:
+            compass_shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+        except FileNotFoundError:
+            return None
+    try:
+        magic, write_index, sample_count = struct.unpack_from(COMPASS_SHM_HEADER_FORMAT, compass_shm.buf, 0)
+        if magic != COMPASS_SHM_MAGIC or sample_count == 0:
+            return None
+        
+        latest_index = (write_index - 1) % COMPASS_MAX_SAMPLES
+        record_offset = COMPASS_SHM_HEADER_SIZE + (latest_index * COMPASS_SHM_RECORD_SIZE)
+        # Record: timestamp, raw_heading, heading, x, y, z
+        _, _, heading, _, _, _ = struct.unpack_from(COMPASS_SHM_RECORD_FORMAT, compass_shm.buf, record_offset)
+        return heading
+    except Exception:
+        try:
+            compass_shm.close()
+        except Exception:
+            pass
+        compass_shm = None
+        return None
 
 
 def checksum(s):
@@ -44,8 +84,8 @@ def to_nmea_lon(lon):
 
 # GPS Packet default values
 FIX_QUALITY = "4"      # RTK Fixed
-NUM_SATELLITES = "10"
-HDOP = "0.9"           # Excellent HDOP for RTK
+NUM_SATELLITES = "30"
+HDOP = "0.1"           # Excellent HDOP for RTK
 PDOP = "1.2"
 VDOP = "0.9"           # Excellent VDOP for RTK altitude
 ALTITUDE = "100.0"       # altitude neutral
@@ -132,7 +172,19 @@ while True:
         f"{VDOP}"
     )
 
-    for msg in (gga, rmc, gsa):
+    # Read the latest heading from compass shared memory, falling back to "0.0" if unavailable
+    heading = get_latest_compass_heading()
+    current_yaw = f"{heading:.1f}" if heading is not None else "0.0"
+
+    print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Yaw: {current_yaw}")
+
+    hdt = (
+        f"GPHDT,"
+        f"{current_yaw},"
+        f"T"
+    )
+
+    for msg in (gga, rmc, gsa, hdt):
         line = f"${msg}*{checksum(msg)}\r\n"
         ser.write(line.encode())
 
