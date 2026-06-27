@@ -524,7 +524,16 @@
                             <div class="toggle-group" id="chart-dataset-toggles">
                                 <!-- Dynamic toggle buttons go here -->
                             </div>
-                            <div>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="input-ymin" style="font-size: 0.8rem; color: var(--text-muted);">Y-Min:</label>
+                                    <input type="number" id="input-ymin" step="any" placeholder="Auto" style="width: 70px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 0.85rem;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="input-ymax" style="font-size: 0.8rem; color: var(--text-muted);">Y-Max:</label>
+                                    <input type="number" id="input-ymax" step="any" placeholder="Auto" style="width: 70px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 0.85rem;">
+                                </div>
+                                <button class="toggle-btn" id="btn-apply-range" style="padding: 4px 10px; font-size: 0.85rem;">Apply</button>
                                 <button class="toggle-btn" id="btn-lock-axis">Lock Axis Range</button>
                             </div>
                         </div>
@@ -810,6 +819,10 @@
                 isAxisLocked = true;
                 btn.textContent = "Unlock Axis Range";
                 btn.classList.add('active');
+
+                // Reflect locked values in input boxes
+                document.getElementById('input-ymin').value = yMin !== undefined ? Number(yMin).toFixed(2) : "";
+                document.getElementById('input-ymax').value = yMax !== undefined ? Number(yMax).toFixed(2) : "";
             } else {
                 // Unlock axis
                 chartInstance.options.scales.y.min = undefined;
@@ -817,6 +830,45 @@
                 isAxisLocked = false;
                 btn.textContent = "Lock Axis Range";
                 btn.classList.remove('active');
+
+                // Clear input boxes
+                document.getElementById('input-ymin').value = "";
+                document.getElementById('input-ymax').value = "";
+            }
+            chartInstance.update();
+        }
+
+        function applyManualRange() {
+            if (!chartInstance) return;
+            const minVal = document.getElementById('input-ymin').value;
+            const maxVal = document.getElementById('input-ymax').value;
+
+            if (minVal !== "") {
+                chartInstance.options.scales.y.min = parseFloat(minVal);
+            } else {
+                chartInstance.options.scales.y.min = undefined;
+            }
+
+            if (maxVal !== "") {
+                chartInstance.options.scales.y.max = parseFloat(maxVal);
+            } else {
+                chartInstance.options.scales.y.max = undefined;
+            }
+
+            if (minVal !== "" || maxVal !== "") {
+                isAxisLocked = true;
+                const lockBtn = document.getElementById('btn-lock-axis');
+                if (lockBtn) {
+                    lockBtn.textContent = "Unlock Axis Range";
+                    lockBtn.classList.add('active');
+                }
+            } else {
+                isAxisLocked = false;
+                const lockBtn = document.getElementById('btn-lock-axis');
+                if (lockBtn) {
+                    lockBtn.textContent = "Lock Axis Range";
+                    lockBtn.classList.remove('active');
+                }
             }
             chartInstance.update();
         }
@@ -854,6 +906,8 @@
                 lockBtn.textContent = "Lock Axis Range";
                 lockBtn.classList.remove('active');
             }
+            document.getElementById('input-ymin').value = "";
+            document.getElementById('input-ymax').value = "";
 
             // Render dynamic legend/declutter buttons
             renderDatasetToggles(numericFields, colors);
@@ -912,6 +966,15 @@
 
         // Action Buttons Setup
         document.getElementById('btn-lock-axis').addEventListener('click', toggleAxisLock);
+        document.getElementById('btn-apply-range').addEventListener('click', applyManualRange);
+
+        // Allow pressing Enter key inside manual range inputs
+        document.getElementById('input-ymin').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyManualRange();
+        });
+        document.getElementById('input-ymax').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyManualRange();
+        });
 
         document.getElementById('btn-unlink-shm').addEventListener('click', async () => {
             if (!selectedShmName || !confirm(`Are you sure you want to close and unlink ${selectedShmName}?`)) return;
