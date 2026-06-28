@@ -19,6 +19,27 @@ import threading
 import json
 import os
 import sys
+import argparse
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Lightweight optical flow recorder and streamer.")
+parser.add_argument("-stream", "--stream", action="store_true", help="Automatically run in RTSP stream mode.")
+parser.add_argument("-record", "--record", action="store_true", help="Automatically run in local record mode.")
+parser.add_argument("-duration", "--duration", "-d", type=float, default=None, help="Automatically run for this duration in seconds.")
+args = parser.parse_args()
+
+if args.stream and args.record:
+    parser.error("Cannot specify both -stream and -record")
+
+# Determine mode and RTSP name
+mode = None
+rtsp_name = None
+if args.stream:
+    mode = "rtsp"
+    rtsp_name = "drone"
+elif args.record:
+    mode = "record"
+
 import queue
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
@@ -190,7 +211,7 @@ frame_height, frame_width = old_frame.shape[:2]
 focal_length_x_px = focal_length_px(frame_width)
 focal_length_y_px = focal_length_x_px
 
-output_sink, rtsp_selected, rtsp_server = create_output_sink((frame_width, frame_height), TARGET_FPS)
+output_sink, rtsp_selected, rtsp_server = create_output_sink((frame_width, frame_height), TARGET_FPS, mode=mode, rtsp_name=rtsp_name)
 fallback_sink = None
 print("Press Ctrl+C to stop")
 
@@ -229,8 +250,14 @@ def record_optical_flow():
     # Start the console input reader thread now that startup prompts are complete
     threading.Thread(target=console_input_thread, daemon=True).start()
     
+    start_time = time.perf_counter()
+    
     while True:
         now = time.perf_counter()
+        if args.duration is not None and (now - start_time) >= args.duration:
+            print(f"\nDuration limit of {args.duration} seconds reached. Stopping...")
+            break
+            
         if now < next_frame_time:
             time.sleep(next_frame_time - now)
         frame_ts = time.perf_counter()
