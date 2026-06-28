@@ -53,6 +53,7 @@ stop_services() {
     pkill -f "hmc5883l.py"
     pkill -f "read_shared_memory.py --dashboard"
     pkill -f "optical_flow_stream.py -stream"
+    killall mediamtx 2>/dev/null || true
     echo "All services stopped."
 }
 
@@ -133,6 +134,110 @@ if [ -n "$1" ]; then
     exit 0
 fi
 
+toggle_individual_services() {
+    while true; do
+        echo ""
+        echo "============================================="
+        echo "          TOGGLE INDIVIDUAL SERVICES         "
+        echo "============================================="
+        
+        # 1. MAVProxy
+        if pgrep -f "mavproxy.py" > /dev/null; then
+            echo -e " 1) MAVProxy: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 1) MAVProxy: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 2. Static GPS Injector
+        if pgrep -f "static_gps_injector.py" > /dev/null; then
+            echo -e " 2) Static GPS Injector: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 2) Static GPS Injector: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 3. HMC5883L Compass
+        if pgrep -f "hmc5883l.py" > /dev/null; then
+            echo -e " 3) HMC5883L Compass: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 3) HMC5883L Compass: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 4. Shared Memory Dashboard
+        if pgrep -f "read_shared_memory.py --dashboard" > /dev/null; then
+            echo -e " 4) Shared Memory Dashboard: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 4) Shared Memory Dashboard: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 5. Optical Flow Stream
+        if pgrep -f "optical_flow_stream.py -stream" > /dev/null; then
+            echo -e " 5) Optical Flow Stream: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 5) Optical Flow Stream: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        echo " 6) Back to main menu"
+        echo "============================================="
+        read -rp "Select a service to toggle [1-6]: " choice
+
+        case $choice in
+            1)
+                if pgrep -f "mavproxy.py" > /dev/null; then
+                    echo "Stopping MAVProxy..."
+                    pkill -f "mavproxy.py"
+                else
+                    echo "Starting MAVProxy..."
+                    bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
+                fi
+                ;;
+            2)
+                if pgrep -f "static_gps_injector.py" > /dev/null; then
+                    echo "Stopping Static GPS Injector..."
+                    pkill -f "static_gps_injector.py"
+                else
+                    echo "Starting Static GPS Injector..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/static_gps_injector.py" > "$LOG_DIR/static_gps_injector.log" 2>&1 &
+                fi
+                ;;
+            3)
+                if pgrep -f "hmc5883l.py" > /dev/null; then
+                    echo "Stopping HMC5883L Compass..."
+                    pkill -f "hmc5883l.py"
+                else
+                    echo "Starting HMC5883L Compass..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
+                fi
+                ;;
+            4)
+                if pgrep -f "read_shared_memory.py --dashboard" > /dev/null; then
+                    echo "Stopping Shared Memory Dashboard..."
+                    pkill -f "read_shared_memory.py --dashboard"
+                else
+                    echo "Starting Shared Memory Dashboard..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/read_shared_memory.py" --dashboard --port 5003 > "$LOG_DIR/read_shared_memory.log" 2>&1 &
+                fi
+                ;;
+            5)
+                if pgrep -f "optical_flow_stream.py -stream" > /dev/null; then
+                    echo "Stopping Optical Flow Stream..."
+                    pkill -f "optical_flow_stream.py -stream"
+                    killall mediamtx 2>/dev/null || true
+                else
+                    echo "Starting Optical Flow Stream..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+                fi
+                ;;
+            6)
+                return 0
+                ;;
+            *)
+                echo "Invalid option."
+                ;;
+        esac
+        sleep 1
+    done
+}
+
 # Fallback to interactive CLI menu if no arguments are provided
 while true; do
     echo ""
@@ -143,11 +248,12 @@ while true; do
     echo " 2) Stop all services (delete all)"
     echo " 3) Restart all services"
     echo " 4) Check services status"
-    echo " 5) Enable autorun on boot (systemd)"
-    echo " 6) Disable autorun on boot"
-    echo " 7) Exit"
+    echo " 5) Toggle individual services (start/stop)"
+    echo " 6) Enable autorun on boot (systemd)"
+    echo " 7) Disable autorun on boot"
+    echo " 8) Exit"
     echo "============================================="
-    read -rp "Choose an option [1-7]: " opt
+    read -rp "Choose an option [1-8]: " opt
 
     case $opt in
         1)
@@ -165,12 +271,15 @@ while true; do
             check_status
             ;;
         5)
-            enable_boot
+            toggle_individual_services
             ;;
         6)
-            disable_boot
+            enable_boot
             ;;
         7)
+            disable_boot
+            ;;
+        8)
             echo "Exiting."
             exit 0
             ;;
