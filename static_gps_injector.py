@@ -38,7 +38,7 @@ compass_shm = None
 FLOW_SHM_NAME = "optical_flow_stream"
 FLOW_SHM_MAGIC = b"FLOW"
 FLOW_SHM_HEADER_FORMAT = "<4sII"
-FLOW_SHM_RECORD_FORMAT = "<10d"
+FLOW_SHM_RECORD_FORMAT = "<11d"
 FLOW_SHM_HEADER_SIZE = struct.calcsize(FLOW_SHM_HEADER_FORMAT)
 FLOW_SHM_RECORD_SIZE = struct.calcsize(FLOW_SHM_RECORD_FORMAT)
 FLOW_MAX_SAMPLES = 120
@@ -120,14 +120,14 @@ def to_nmea_lat(lat):
     deg = int(abs(lat))
     minutes = (abs(lat)-deg)*60
     ns = "S" if lat < 0 else "N"
-    return f"{deg:02d}{minutes:07.4f}", ns
+    return f"{deg:02d}{minutes:09.6f}", ns
 
 
 def to_nmea_lon(lon):
     deg = int(abs(lon))
     minutes = (abs(lon)-deg)*60
     ew = "W" if lon < 0 else "E"
-    return f"{deg:03d}{minutes:07.4f}", ew
+    return f"{deg:03d}{minutes:09.6f}", ew
 
 
 # GPS Packet default values
@@ -223,4 +223,4 @@ while True:
         line = f"${msg}*{checksum(msg)}\r\n"
         ser.write(line.encode())
 
-    time.sleep(0.2)
+    time.sleep(0.1)
