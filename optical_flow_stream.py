@@ -142,6 +142,12 @@ def attach_flow_stream_shm():
                     pass
                 flow_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
 
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(flow_shm._name, "shared_memory")
+        except Exception:
+            pass
+
         struct.pack_into(SHM_HEADER_FORMAT, flow_shm.buf, 0, SHM_MAGIC, 0, 0)
         return flow_shm
 

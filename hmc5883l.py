@@ -121,6 +121,12 @@ def attach_heading_stream_shm():
                     pass
                 heading_stream_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
 
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(heading_stream_shm._name, "shared_memory")
+        except Exception:
+            pass
+
         struct.pack_into(SHM_HEADER_FORMAT, heading_stream_shm.buf, 0, SHM_MAGIC, 0, 0)
         return heading_stream_shm
 

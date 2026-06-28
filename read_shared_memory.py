@@ -49,6 +49,14 @@ mock_threads = {}
 mock_active = {}
 
 
+def safe_unregister_shm(shm):
+    """Prevents Python's resource_tracker from unlinking shared memory when a process exits."""
+    try:
+        resource_tracker.unregister(shm._name, "shared_memory")
+    except Exception:
+        pass
+
+
 def read_latest_sample(shm):
     """Returns the latest sample as a dict, or None if no valid sample is available."""
     magic, write_index, sample_count = struct.unpack_from(SHM_HEADER_FORMAT, shm.buf, 0)
@@ -74,7 +82,9 @@ def open_shared_memory(wait_interval=0.5):
     """Tries to open the shared memory segment, retrying until it becomes available."""
     while True:
         try:
-            return shared_memory.SharedMemory(name=SHM_NAME)
+            shm = shared_memory.SharedMemory(name=SHM_NAME)
+            safe_unregister_shm(shm)
+            return shm
         except FileNotFoundError:
             time.sleep(wait_interval)
 
@@ -117,6 +127,7 @@ def get_shm_samples(shm_name):
 
     try:
         shm = shared_memory.SharedMemory(name=shm_name)
+        safe_unregister_shm(shm)
     except FileNotFoundError:
         return []
 
@@ -154,6 +165,7 @@ def get_shm_hex_dump(shm_name, max_bytes=256):
     """Get formatted hex dump lines of the shared memory buffer."""
     try:
         shm = shared_memory.SharedMemory(name=shm_name)
+        safe_unregister_shm(shm)
     except FileNotFoundError:
         return []
 
@@ -203,9 +215,11 @@ def mock_worker(shm_name, frequency, noise, mode):
     shm = None
     try:
         shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
+        safe_unregister_shm(shm)
         struct.pack_into(h_format, shm.buf, 0, cfg["magic"], 0, 0)
     except FileExistsError:
         shm = shared_memory.SharedMemory(name=shm_name, create=False)
+        safe_unregister_shm(shm)
 
     step = 0
     last_values = {}
@@ -311,6 +325,7 @@ def run_dashboard(port):
             size = 0
             try:
                 shm = shared_memory.SharedMemory(name=name)
+                safe_unregister_shm(shm)
                 active = True
                 size = shm.size
                 shm.close()
@@ -339,6 +354,7 @@ def run_dashboard(port):
         active = False
         try:
             shm = shared_memory.SharedMemory(name=name)
+            safe_unregister_shm(shm)
             active = True
             shm.close()
         except FileNotFoundError:
@@ -365,6 +381,7 @@ def run_dashboard(port):
 
         try:
             shm = shared_memory.SharedMemory(name=name)
+            safe_unregister_shm(shm)
             shm.close()
             shm.unlink()
             return jsonify({"success": True, "message": f"Successfully unlinked {name}"})
@@ -385,6 +402,7 @@ def run_dashboard(port):
 
         try:
             shm = shared_memory.SharedMemory(name=name, create=True, size=shm_size)
+            safe_unregister_shm(shm)
             struct.pack_into(cfg["header_format"], shm.buf, 0, cfg["magic"], 0, 0)
             shm.close()
             return jsonify({"success": True, "message": f"Successfully initialized {name}"})

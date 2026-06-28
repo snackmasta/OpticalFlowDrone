@@ -152,7 +152,13 @@ def calibrate_gyro_bias(bus, sample_count=200):
 def open_compass_shared_memory(wait_interval=0.5):
     while True:
         try:
-            return shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+            shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(shm._name, "shared_memory")
+            except Exception:
+                pass
+            return shm
         except FileNotFoundError:
             time.sleep(wait_interval)
 

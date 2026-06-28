@@ -51,6 +51,11 @@ def get_latest_flow_position():
     if flow_shm is None:
         try:
             flow_shm = shared_memory.SharedMemory(name=FLOW_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(flow_shm._name, "shared_memory")
+            except Exception:
+                pass
         except FileNotFoundError:
             return None
     try:
@@ -78,6 +83,11 @@ def get_latest_compass_heading():
     if compass_shm is None:
         try:
             compass_shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(compass_shm._name, "shared_memory")
+            except Exception:
+                pass
         except FileNotFoundError:
             return None
     try:
