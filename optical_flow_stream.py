@@ -434,12 +434,13 @@ def record_optical_flow():
             vx_mps_body_comp = vx_mps_body - v_offset_x
             vy_mps_body_comp = vy_mps_body - v_offset_y
 
-            # Rotate compensated velocities to absolute frame (East/North) using yaw_deg
-            yaw_rad = math.radians(yaw_deg)
+            # Rotate compensated velocities to absolute frame (East/North) using actual compass heading
+            yaw_actual_deg = -yaw_deg
+            yaw_rad = math.radians(yaw_actual_deg)
             cos_yaw = math.cos(yaw_rad)
             sin_yaw = math.sin(yaw_rad)
-            vx_mps_calc = vy_mps_body_comp * sin_yaw - vx_mps_body_comp * cos_yaw
-            vy_mps_calc = vy_mps_body_comp * cos_yaw + vx_mps_body_comp * sin_yaw
+            vx_mps_calc = vx_mps_body_comp * cos_yaw + vy_mps_body_comp * sin_yaw
+            vy_mps_calc = -vx_mps_body_comp * sin_yaw + vy_mps_body_comp * cos_yaw
 
             # Apply acceleration rate-limiter and velocity clamps to compensated velocity
             max_dv = 15.0 * dt_s
@@ -455,8 +456,9 @@ def record_optical_flow():
             vy_raw_mps_body = -((ty * altitude_m) / (focal_length_y_px * dt_s))
             
             # Rotate raw velocities to absolute frame
-            vx_raw_mps_calc = vy_raw_mps_body * sin_yaw - vx_raw_mps_body * cos_yaw
-            vy_raw_mps_calc = vy_raw_mps_body * cos_yaw + vx_raw_mps_body * sin_yaw
+            vx_raw_mps_calc = vx_raw_mps_body * cos_yaw + vy_raw_mps_body * sin_yaw
+            vy_raw_mps_calc = -vx_raw_mps_body * sin_yaw + vy_raw_mps_body * cos_yaw
+
 
             # Apply same limits to raw velocity to prevent dashboard telemetry glitches
             vx_raw_mps = np.clip(vx_raw_mps_calc, vx_raw_prev - max_dv, vx_raw_prev + max_dv)
