@@ -55,6 +55,19 @@ def console_input_thread():
         except Exception:
             break
 
+def udp_command_listener():
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", 5009))
+        while True:
+            data, addr = sock.recvfrom(1024)
+            cmd = data.decode("utf-8").strip().lower()
+            if cmd == "reset":
+                input_queue.put("r")
+    except Exception as e:
+        print(f"UDP command listener error: {e}")
+
 # Start the console input reader thread
 # Moved to record_optical_flow() to prevent stdin conflict during startup prompts.
 
@@ -261,6 +274,8 @@ def record_optical_flow():
     
     # Start the console input reader thread now that startup prompts are complete
     threading.Thread(target=console_input_thread, daemon=True).start()
+    # Start the UDP command listener thread
+    threading.Thread(target=udp_command_listener, daemon=True).start()
     
     start_time = time.perf_counter()
     

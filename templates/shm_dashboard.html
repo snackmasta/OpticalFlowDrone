@@ -284,6 +284,17 @@
             color: #fff;
         }
 
+        button.btn-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-warning);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        button.btn-warning:hover {
+            background: var(--accent-warning);
+            color: #000;
+        }
+
         .btn-group {
             display: flex;
             gap: 10px;
@@ -562,6 +573,7 @@
                     <h2>
                         <span id="selected-shm-title">No Segment Selected</span>
                         <div class="panel-header-actions">
+                            <button class="btn-warning" id="btn-reset-optflow" style="display:none;">Reset Positions</button>
                             <button class="btn-primary" id="btn-create-shm" style="display:none;">Create Segment</button>
                             <button class="btn-danger" id="btn-unlink-shm" style="display:none;">Unlink Segment</button>
                         </div>
@@ -771,6 +783,8 @@
             // Show appropriate actions
             const btnUnlink = document.getElementById('btn-unlink-shm');
             const btnCreate = document.getElementById('btn-create-shm');
+            const btnResetOptFlow = document.getElementById('btn-reset-optflow');
+            btnResetOptFlow.style.display = (seg.name === "optical_flow_stream" && seg.active) ? 'block' : 'none';
             if (seg.active) {
                 btnUnlink.style.display = 'block';
                 btnCreate.style.display = 'none';
@@ -823,6 +837,8 @@
                 // Update header action buttons in case active state changed
                 const btnUnlink = document.getElementById('btn-unlink-shm');
                 const btnCreate = document.getElementById('btn-create-shm');
+                const btnResetOptFlow = document.getElementById('btn-reset-optflow');
+                btnResetOptFlow.style.display = (selectedShmName === "optical_flow_stream" && data.active) ? 'block' : 'none';
                 if (data.active) {
                     btnUnlink.style.display = 'block';
                     btnCreate.style.display = 'none';
@@ -1546,6 +1562,21 @@
                 }
             } catch (err) {
                 alert("Error unlinking shared memory: " + err);
+            }
+        });
+
+        document.getElementById('btn-reset-optflow').addEventListener('click', async () => {
+            if (!selectedShmName || selectedShmName !== "optical_flow_stream") return;
+            try {
+                const response = await fetch(`/api/opticalflow/reset`, { method: 'POST' });
+                if (response.ok) {
+                    console.log("Optical flow reset requested successfully.");
+                } else {
+                    const errData = await response.json();
+                    alert("Failed to reset: " + (errData.error || response.statusText));
+                }
+            } catch (err) {
+                alert("Error sending reset command: " + err);
             }
         });
 

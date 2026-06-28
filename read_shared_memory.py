@@ -447,7 +447,18 @@ def run_dashboard(port):
                 mock_threads[name].join(timeout=1.0)
             return jsonify({"success": True, "mocking": False})
 
+    @app.route("/api/opticalflow/reset", methods=["POST"])
+    def reset_opticalflow():
+        import socket
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(b"reset", ("127.0.0.1", 5009))
+            return jsonify({"success": True, "message": "Reset command sent to optical flow service"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/api/shm/config", methods=["GET", "POST"])
+
     def shm_config():
         import json
         import os
