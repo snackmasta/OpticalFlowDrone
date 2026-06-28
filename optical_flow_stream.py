@@ -424,7 +424,7 @@ def record_optical_flow():
 
             # Calculate physical velocity using compensated translations (body frame)
             altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
-            vx_mps_body = -((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
+            vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
             vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
             # Compensate for camera offset from center of rotation
@@ -452,7 +452,7 @@ def record_optical_flow():
             vy_mps = np.clip(vy_mps, -5.0, 5.0)
 
             # Calculate raw physical velocity (uncompensated, body frame)
-            vx_raw_mps_body = -((tx * altitude_m) / (focal_length_x_px * dt_s))
+            vx_raw_mps_body = ((tx * altitude_m) / (focal_length_x_px * dt_s))
             vy_raw_mps_body = -((ty * altitude_m) / (focal_length_y_px * dt_s))
             
             # Rotate raw velocities to absolute frame
