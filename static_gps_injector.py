@@ -209,7 +209,10 @@ while True:
 
     # Read the latest heading from compass shared memory, falling back to "0.0" if unavailable
     heading = get_latest_compass_heading()
+    if heading is not None:
+        heading = (360.0 - heading) % 360.0
     current_yaw = f"{heading:.1f}" if heading is not None else "0.0"
+
 
     print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Yaw: {current_yaw}")
 
