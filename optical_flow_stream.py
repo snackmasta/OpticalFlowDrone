@@ -63,7 +63,8 @@ from optical_flow.sensor_readers import (
     distance_lock,
     distance_state,
     attitude_lock,
-    attitude_state
+    attitude_state,
+    is_gyro_calibrated
 )
 from optical_flow.flow_processor import (
     to_small_gray,
@@ -206,6 +207,11 @@ old_gray = to_small_gray(old_frame)
 
 # Start sensor reader threads
 start_distance_sensor_reader()
+
+# Wait for gyro calibration to finish
+print("Waiting for gyro calibration to complete...")
+while not is_gyro_calibrated():
+    time.sleep(0.1)
 
 frame_height, frame_width = old_frame.shape[:2]
 focal_length_x_px = focal_length_px(frame_width)

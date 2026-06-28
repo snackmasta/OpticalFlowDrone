@@ -30,6 +30,8 @@ COMPASS_SHM_RECORD_SIZE = struct.calcsize(COMPASS_SHM_RECORD_FORMAT)
 COMPASS_MAX_SAMPLES = 120
 COMPASS_FRESHNESS_THRESHOLD_S = 0.75
 
+gyro_calibrated = False
+
 gyro_bias = {
     "x": 0.0,
     "y": 0.0,
@@ -124,6 +126,7 @@ def accel_to_roll_pitch(ax_g, ay_g, az_g):
 
 
 def calibrate_gyro_bias(bus, sample_count=200):
+    global gyro_calibrated
     gx_total = 0.0
     gy_total = 0.0
     gz_total = 0.0
@@ -137,6 +140,7 @@ def calibrate_gyro_bias(bus, sample_count=200):
     gyro_bias["x"] = gx_total / sample_count
     gyro_bias["y"] = gy_total / sample_count
     gyro_bias["z"] = gz_total / sample_count
+    gyro_calibrated = True
     print(
         "Calibrated gyro bias: "
         f"x={gyro_bias['x']:.4f} dps, "
@@ -370,3 +374,7 @@ def start_distance_sensor_reader():
     compass_thread.start()
 
     return distance_thread, imu_thread, compass_thread
+
+
+def is_gyro_calibrated():
+    return gyro_calibrated
