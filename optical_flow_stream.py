@@ -65,6 +65,15 @@ def udp_command_listener():
             cmd = data.decode("utf-8").strip().lower()
             if cmd == "reset":
                 input_queue.put("r")
+            elif cmd.startswith("offset "):
+                parts = cmd.split()
+                if len(parts) == 3:
+                    try:
+                        ox = float(parts[1])
+                        oy = float(parts[2])
+                        input_queue.put(("offset", ox, oy))
+                    except ValueError:
+                        pass
     except Exception as e:
         print(f"UDP command listener error: {e}")
 
@@ -103,16 +112,20 @@ from optical_flow.video_sinks import (
 CALIBRATION_FILE = "tilt_calibration.json"
 scale_x = FLOW_SCALE
 scale_y = FLOW_SCALE
+camera_offset_x = 0.0
+camera_offset_y = 0.0
 
 def load_calibration():
-    global scale_x, scale_y
+    global scale_x, scale_y, camera_offset_x, camera_offset_y
     if os.path.exists(CALIBRATION_FILE):
         try:
             with open(CALIBRATION_FILE, "r") as f:
                 data = json.load(f)
                 scale_x = data.get("scale_x", FLOW_SCALE)
                 scale_y = data.get("scale_y", FLOW_SCALE)
-                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+                camera_offset_x = data.get("camera_offset_x", 0.0)
+                camera_offset_y = data.get("camera_offset_y", 0.0)
+                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}, camera_offset_x={camera_offset_x:.2f}, camera_offset_y={camera_offset_y:.2f}")
         except Exception as e:
             print(f"Failed to load calibration: {e}")
     else:
@@ -329,6 +342,24 @@ def record_optical_flow():
                     is_calibrating = False
                     print("\n>>> TILT CALIBRATION DISCARDED.")
             
+            if isinstance(command, tuple) and command[0] == "offset":
+                global camera_offset_x, camera_offset_y
+                _, ox, oy = command
+                camera_offset_x = ox
+                camera_offset_y = oy
+                try:
+                    calib_data = {}
+                    if os.path.exists(CALIBRATION_FILE):
+                        with open(CALIBRATION_FILE, "r") as f:
+                            calib_data = json.load(f)
+                    calib_data["camera_offset_x"] = camera_offset_x
+                    calib_data["camera_offset_y"] = camera_offset_y
+                    with open(CALIBRATION_FILE, "w") as f:
+                        json.dump(calib_data, f, indent=4)
+                    print(f"\n>>> CAMERA OFFSET UPDATED: x={camera_offset_x:.2f} cm, y={camera_offset_y:.2f} cm")
+                except Exception as e:
+                    print(f"Failed to save camera offset calibration: {e}")
+
             if command == 'r':
                 x_raw_cm = 0.0
                 y_raw_cm = 0.0
@@ -352,6 +383,7 @@ def record_optical_flow():
             roll_deg = attitude_state["roll_deg"]
             pitch_deg = attitude_state["pitch_deg"]
             yaw_deg = attitude_state["yaw_deg"]
+            zgyro_dps = attitude_state.get("zgyro_dps", 0.0)
 
         roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
         pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
@@ -394,12 +426,19 @@ def record_optical_flow():
             vx_mps_body = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
             vy_mps_body = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
 
+            # Compensate for camera offset from center of rotation
+            yaw_rate_rad = math.radians(zgyro_dps)
+            v_offset_x = -yaw_rate_rad * (camera_offset_y / 100.0)
+            v_offset_y = yaw_rate_rad * (camera_offset_x / 100.0)
+            vx_mps_body_comp = vx_mps_body - v_offset_x
+            vy_mps_body_comp = vy_mps_body - v_offset_y
+
             # Rotate compensated velocities to absolute frame (East/North) using yaw_deg
             yaw_rad = math.radians(yaw_deg)
             cos_yaw = math.cos(yaw_rad)
             sin_yaw = math.sin(yaw_rad)
-            vx_mps_calc = vy_mps_body * sin_yaw - vx_mps_body * cos_yaw
-            vy_mps_calc = vy_mps_body * cos_yaw + vx_mps_body * sin_yaw
+            vx_mps_calc = vy_mps_body_comp * sin_yaw - vx_mps_body_comp * cos_yaw
+            vy_mps_calc = vy_mps_body_comp * cos_yaw + vx_mps_body_comp * sin_yaw
 
             # Apply acceleration rate-limiter and velocity clamps to compensated velocity
             max_dv = 15.0 * dt_s
