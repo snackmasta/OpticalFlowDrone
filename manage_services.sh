@@ -8,7 +8,26 @@ LOG_DIR="$PROJECT_DIR/logs"
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
 
+wait_for_wlan0() {
+    echo "Waiting for wlan0 connection (IP address)..."
+    local count=1
+    while true; do
+        if ip addr show dev wlan0 2>/dev/null | grep -q "inet "; then
+            # Extract IP address safely using grep/awk
+            ip_addr=$(ip addr show dev wlan0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
+            echo "wlan0 is connected with IP: $ip_addr"
+            return 0
+        fi
+        echo "wlan0 not ready yet, retrying in 1s (Attempt: $count)..."
+        count=$((count + 1))
+        sleep 1
+    done
+}
+
 start_services() {
+    # Block until wlan0 is connected
+    wait_for_wlan0
+
     echo "Starting MAVProxy..."
     bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
 
@@ -55,7 +74,8 @@ enable_boot() {
     sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
 Description=Drone Autonomous Services
-After=network.target
+After=network.target network-online.target wpa_supplicant.service
+Wants=network-online.target
 
 [Service]
 Type=forking
