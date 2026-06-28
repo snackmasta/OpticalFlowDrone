@@ -29,7 +29,7 @@ start_services() {
     wait_for_wlan0
 
     echo "Starting MAVProxy..."
-    bash "$PROJECT_DIR/mavproxy.sh" < /dev/null > "$LOG_DIR/mavproxy.log" 2>&1 &
+    tail -f /dev/null | bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
 
     echo "Starting Static GPS Injector..."
     "$PYTHON_BIN" "$PROJECT_DIR/static_gps_injector.py" > "$LOG_DIR/static_gps_injector.log" 2>&1 &
@@ -187,7 +187,7 @@ toggle_individual_services() {
                     pkill -f "mavproxy.py"
                 else
                     echo "Starting MAVProxy..."
-                    bash "$PROJECT_DIR/mavproxy.sh" < /dev/null > "$LOG_DIR/mavproxy.log" 2>&1 &
+                    tail -f /dev/null | bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
                 fi
                 ;;
             2)
