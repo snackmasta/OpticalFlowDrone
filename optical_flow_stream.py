@@ -141,7 +141,7 @@ FRAME_INTERVAL_S = 1.0 / TARGET_FPS
 SHM_NAME = "optical_flow_stream"
 SHM_MAGIC = b"FLOW"
 SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<10d"
+SHM_RECORD_FORMAT = "<11d"
 SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
@@ -178,7 +178,7 @@ def attach_flow_stream_shm():
         return flow_shm
 
 
-def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt):
+def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading):
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -198,6 +198,7 @@ def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, 
                 float(vx_raw),
                 float(vy_raw),
                 float(alt),
+                float(heading),
             )
             write_index = (write_index + 1) % MAX_SAMPLES
             sample_count = min(sample_count + 1, MAX_SAMPLES)
@@ -521,7 +522,8 @@ def record_optical_flow():
             current_vy,
             vx_raw_mps,
             vy_raw_mps,
-            current_alt
+            current_alt,
+            yaw_deg
         )
 
         old_gray = frame_gray.copy()

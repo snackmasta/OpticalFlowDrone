@@ -1735,7 +1735,7 @@
             }
 
             // Extract points in chronological order (oldest to newest)
-            const pts = samples.map(s => ({ x: s.x_cm, y: s.y_cm })).reverse();
+            const pts = samples.map(s => ({ x: s.x_cm, y: s.y_cm, heading: s.heading })).reverse();
             const latest = pts[pts.length - 1];
 
             // Update text elements on the right
@@ -1872,20 +1872,41 @@
             ctx.arc(originScreen.x, originScreen.y, 4, 0, 2 * Math.PI);
             ctx.fill();
 
-            // Draw current point (glowing dot)
+            // Draw current point (aircraft heading directional arrow)
             const currentScreen = toScreen(latest.x, latest.y);
-            
+            const headingDeg = latest.heading || 0;
+            // Map compass heading (0=North/Up, 90=East/Right) to canvas angle
+            // Screen coordinates Y is inverted, so clockwise on compass is clockwise on screen.
+            // 0 deg North -> Up (-90 deg on unit circle)
+            // 90 deg East -> Right (0 deg on unit circle)
+            const headingRad = (headingDeg - 90) * Math.PI / 180.0;
+
             // Outer glow
-            ctx.fillStyle = 'rgba(16, 185, 129, 0.3)';
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
             ctx.beginPath();
-            ctx.arc(currentScreen.x, currentScreen.y, 10, 0, 2 * Math.PI);
+            ctx.arc(currentScreen.x, currentScreen.y, 16, 0, 2 * Math.PI);
             ctx.fill();
 
-            // Inner solid dot
+            // Draw directional arrow shape
+            ctx.save();
+            ctx.translate(currentScreen.x, currentScreen.y);
+            ctx.rotate(headingRad);
+
             ctx.fillStyle = '#10b981';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+
             ctx.beginPath();
-            ctx.arc(currentScreen.x, currentScreen.y, 5, 0, 2 * Math.PI);
+            // Point of the arrow facing Right (aligned to heading)
+            ctx.moveTo(12, 0); 
+            ctx.lineTo(-8, -8);
+            ctx.lineTo(-4, 0);
+            ctx.lineTo(-8, 8);
+            ctx.closePath();
             ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
         }
 
         // Mini reset button listener
