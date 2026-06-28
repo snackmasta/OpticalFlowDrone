@@ -523,7 +523,7 @@ def record_optical_flow():
             vx_raw_mps,
             vy_raw_mps,
             current_alt,
-            yaw_deg
+            (-yaw_deg) % 360.0
         )
 
         old_gray = frame_gray.copy()
