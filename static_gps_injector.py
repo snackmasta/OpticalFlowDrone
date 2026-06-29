@@ -46,7 +46,7 @@ FLOW_MAX_SAMPLES = 120
 flow_shm = None
 
 
-def get_latest_flow_position():
+def get_latest_flow_data():
     global flow_shm
     if flow_shm is None:
         try:
@@ -65,10 +65,11 @@ def get_latest_flow_position():
         
         latest_index = (write_index - 1) % FLOW_MAX_SAMPLES
         offset = FLOW_SHM_HEADER_SIZE + (latest_index * FLOW_SHM_RECORD_SIZE)
-        # Fields: timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt
+        # Fields: timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading
         values = struct.unpack_from(FLOW_SHM_RECORD_FORMAT, flow_shm.buf, offset)
         x_cm, y_cm = values[1], values[2]
-        return x_cm / 100.0, y_cm / 100.0 # Convert x_cm, y_cm to x_m, y_m
+        alt = values[9]
+        return x_cm / 100.0, y_cm / 100.0, alt # Convert x_cm, y_cm to x_m, y_m; alt is already in meters
     except Exception:
         try:
             flow_shm.close()
@@ -136,7 +137,7 @@ NUM_SATELLITES = "30"
 HDOP = "0.1"           # Excellent HDOP for RTK
 PDOP = "1.2"
 VDOP = "0.9"           # Excellent VDOP for RTK altitude
-ALTITUDE = "100.0"       # altitude neutral
+DEFAULT_ALTITUDE = "100.0"       # altitude neutral
 ALTITUDE_UNIT = "M"
 GEOIDAL_HEIGHT = "0.0"
 GEOIDAL_HEIGHT_UNIT = "M"
@@ -159,14 +160,16 @@ while True:
 
     # Read the latest flow position (in absolute meters: East = x, North = y)
     import math
-    flow_pos = get_latest_flow_position()
-    if flow_pos is not None:
-        x_m, y_m = flow_pos
+    flow_data = get_latest_flow_data()
+    current_alt = float(DEFAULT_ALTITUDE)
+    if flow_data is not None:
+        x_m, y_m, alt = flow_data
         # Earth radius in meters
         EARTH_RADIUS = 6378137.0
         # Convert meters displacement to degrees latitude and longitude
         lat = START_LAT + (y_m / EARTH_RADIUS) * (180.0 / math.pi)
         lon = START_LON + (x_m / EARTH_RADIUS) / math.cos(math.radians(lat)) * (180.0 / math.pi)
+        current_alt = alt
 
     nmea_lat, ns = to_nmea_lat(lat)
     nmea_lon, ew = to_nmea_lon(lon)
@@ -179,7 +182,7 @@ while True:
         f"{FIX_QUALITY},"
         f"{NUM_SATELLITES},"
         f"{HDOP},"
-        f"{ALTITUDE},{ALTITUDE_UNIT},"
+        f"{current_alt:.2f},{ALTITUDE_UNIT},"
         f"{GEOIDAL_HEIGHT},{GEOIDAL_HEIGHT_UNIT},,"
     )
 
@@ -211,7 +214,7 @@ while True:
     heading = get_latest_compass_heading()
     current_yaw = f"{heading:.1f}" if heading is not None else "0.0"
 
-    print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Yaw: {current_yaw}")
+    print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Alt: {current_alt:.2f}m, Yaw: {current_yaw}")
 
     hdt = (
         f"GPHDT,"
