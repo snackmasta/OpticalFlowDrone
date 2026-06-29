@@ -32,8 +32,8 @@ SHM_REGISTRY = {
     "optical_flow_stream": {
         "magic": b"FLOW",
         "header_format": "<4sII",  # magic, write_index, sample_count
-        "record_format": "<10d",   # timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt
-        "fields": ["timestamp", "x", "y", "x_raw", "y_raw", "vx", "vy", "vx_raw", "vy_raw", "alt"],
+        "record_format": "<11d",   # timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading
+        "fields": ["timestamp", "x_cm", "y_cm", "x_raw_cm", "y_raw_cm", "vx", "vy", "vx_raw", "vy_raw", "alt", "heading"],
         "max_samples": 120,
     },
     "future_sensor_stream": {
@@ -47,6 +47,14 @@ SHM_REGISTRY = {
 
 mock_threads = {}
 mock_active = {}
+
+
+def safe_unregister_shm(shm):
+    """Prevents Python's resource_tracker from unlinking shared memory when a process exits."""
+    try:
+        resource_tracker.unregister(shm._name, "shared_memory")
+    except Exception:
+        pass
 
 
 def read_latest_sample(shm):
@@ -74,7 +82,9 @@ def open_shared_memory(wait_interval=0.5):
     """Tries to open the shared memory segment, retrying until it becomes available."""
     while True:
         try:
-            return shared_memory.SharedMemory(name=SHM_NAME)
+            shm = shared_memory.SharedMemory(name=SHM_NAME)
+            safe_unregister_shm(shm)
+            return shm
         except FileNotFoundError:
             time.sleep(wait_interval)
 
@@ -117,6 +127,7 @@ def get_shm_samples(shm_name):
 
     try:
         shm = shared_memory.SharedMemory(name=shm_name)
+        safe_unregister_shm(shm)
     except FileNotFoundError:
         return []
 
@@ -154,6 +165,7 @@ def get_shm_hex_dump(shm_name, max_bytes=256):
     """Get formatted hex dump lines of the shared memory buffer."""
     try:
         shm = shared_memory.SharedMemory(name=shm_name)
+        safe_unregister_shm(shm)
     except FileNotFoundError:
         return []
 
@@ -203,9 +215,11 @@ def mock_worker(shm_name, frequency, noise, mode):
     shm = None
     try:
         shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
+        safe_unregister_shm(shm)
         struct.pack_into(h_format, shm.buf, 0, cfg["magic"], 0, 0)
     except FileExistsError:
         shm = shared_memory.SharedMemory(name=shm_name, create=False)
+        safe_unregister_shm(shm)
 
     step = 0
     last_values = {}
@@ -237,13 +251,13 @@ def mock_worker(shm_name, frequency, noise, mode):
                             last_val = last_values.get(field, 0.0)
                             val = last_val + random.uniform(-5.0, 5.0)
                 elif shm_name == "optical_flow_stream":
-                    if field in ("x", "y", "x_raw", "y_raw"):
+                    if field in ("x_cm", "y_cm", "x_raw_cm", "y_raw_cm"):
                         if mode == "sine":
-                            multiplier = 10.0 if field in ("x", "x_raw") else 5.0
+                            multiplier = 1000.0 if field in ("x_cm", "x_raw_cm") else 500.0
                             val = multiplier * math.sin(step * 0.05)
                         else:
                             last_val = last_values.get(field, 0.0)
-                            val = last_val + random.uniform(-0.2, 0.2)
+                            val = last_val + random.uniform(-20.0, 20.0)
                     elif field in ("vx", "vy", "vx_raw", "vy_raw"):
                         if mode == "sine":
                             multiplier = 2.0 if field in ("vx", "vx_raw") else 1.0
@@ -257,6 +271,12 @@ def mock_worker(shm_name, frequency, noise, mode):
                         else:
                             last_val = last_values.get(field, 1.5)
                             val = max(0.5, min(5.0, last_val + random.uniform(-0.05, 0.05)))
+                    elif field == "heading":
+                        if mode == "sine":
+                            val = (180.0 + 170.0 * math.sin(step * 0.05)) % 360.0
+                        else:
+                            last_val = last_values.get(field, 180.0)
+                            val = (last_val + random.uniform(-4.0, 4.0)) % 360.0
                 else:  # future_sensor_stream
                     if field == "temperature":
                         val = 24.0 + 6.0 * math.sin(step * 0.02) if mode == "sine" else last_values.get(field, 24.0) + random.uniform(-0.1, 0.1)
@@ -311,6 +331,7 @@ def run_dashboard(port):
             size = 0
             try:
                 shm = shared_memory.SharedMemory(name=name)
+                safe_unregister_shm(shm)
                 active = True
                 size = shm.size
                 shm.close()
@@ -339,6 +360,7 @@ def run_dashboard(port):
         active = False
         try:
             shm = shared_memory.SharedMemory(name=name)
+            safe_unregister_shm(shm)
             active = True
             shm.close()
         except FileNotFoundError:
@@ -365,6 +387,7 @@ def run_dashboard(port):
 
         try:
             shm = shared_memory.SharedMemory(name=name)
+            safe_unregister_shm(shm)
             shm.close()
             shm.unlink()
             return jsonify({"success": True, "message": f"Successfully unlinked {name}"})
@@ -385,6 +408,7 @@ def run_dashboard(port):
 
         try:
             shm = shared_memory.SharedMemory(name=name, create=True, size=shm_size)
+            safe_unregister_shm(shm)
             struct.pack_into(cfg["header_format"], shm.buf, 0, cfg["magic"], 0, 0)
             shm.close()
             return jsonify({"success": True, "message": f"Successfully initialized {name}"})
@@ -429,7 +453,50 @@ def run_dashboard(port):
                 mock_threads[name].join(timeout=1.0)
             return jsonify({"success": True, "mocking": False})
 
+    @app.route("/api/opticalflow/reset", methods=["POST"])
+    def reset_opticalflow():
+        import socket
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(b"reset", ("127.0.0.1", 5009))
+            return jsonify({"success": True, "message": "Reset command sent to optical flow service"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/opticalflow/offset", methods=["GET", "POST"])
+    def opticalflow_offset():
+        import json
+        import os
+        config_file = "tilt_calibration.json"
+        if request.method == "POST":
+            try:
+                data = request.get_json() or {}
+                ox = float(data.get("offset_x", 0.0))
+                oy = float(data.get("offset_y", 0.0))
+                
+                # Send command via loopback UDP to optical_flow_stream
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.sendto(f"offset {ox} {oy}".encode("utf-8"), ("127.0.0.1", 5009))
+                
+                return jsonify({"success": True, "offset_x": ox, "offset_y": oy})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        else:
+            ox, oy = 0.0, 0.0
+            if os.path.exists(config_file):
+                try:
+                    with open(config_file, "r") as f:
+                        cal = json.load(f)
+                        ox = cal.get("camera_offset_x", 0.0)
+                        oy = cal.get("camera_offset_y", 0.0)
+                except Exception:
+                    pass
+            return jsonify({"offset_x": ox, "offset_y": oy})
+
     @app.route("/api/shm/config", methods=["GET", "POST"])
+
+
     def shm_config():
         import json
         import os

@@ -284,6 +284,17 @@
             color: #fff;
         }
 
+        button.btn-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-warning);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        button.btn-warning:hover {
+            background: var(--accent-warning);
+            color: #000;
+        }
+
         .btn-group {
             display: flex;
             gap: 10px;
@@ -562,6 +573,7 @@
                     <h2>
                         <span id="selected-shm-title">No Segment Selected</span>
                         <div class="panel-header-actions">
+                            <button class="btn-warning" id="btn-reset-optflow" style="display:none;">Reset Positions</button>
                             <button class="btn-primary" id="btn-create-shm" style="display:none;">Create Segment</button>
                             <button class="btn-danger" id="btn-unlink-shm" style="display:none;">Unlink Segment</button>
                         </div>
@@ -600,6 +612,48 @@
                         <!-- Split Charts Container -->
                         <div class="split-charts-container" id="split-charts-container" style="display: none;">
                             <!-- Dynamic split charts go here -->
+                        </div>
+
+                        <!-- Minimap Container -->
+                        <div id="minimap-container" style="display: none; margin-top: 24px;">
+                            <h3>2D Position Tracking (Minimaps)</h3>
+                            <div class="minimap-layout" style="display: grid; grid-template-columns: 1fr 1fr 280px; gap: 20px; margin-top: 12px;">
+                                <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: 16px; padding: 16px; position: relative; height: 350px;">
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; text-align: center;">Local Coordinates (Cartesian XY)</div>
+                                    <canvas id="minimapCanvas" style="width: 100%; height: calc(100% - 24px); display: block;"></canvas>
+                                </div>
+                                <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: 16px; padding: 16px; position: relative; height: 350px;">
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; text-align: center;">GPS Position Estimation</div>
+                                    <canvas id="gpsCanvas" style="width: 100%; height: calc(100% - 24px); display: block;"></canvas>
+                                </div>
+                                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px; justify-content: center;">
+                                    <div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em;">Current Coordinate</div>
+                                        <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent-primary); margin-top: 4px; font-family: 'JetBrains Mono', monospace;" id="mini-current-xy">X: 0.00, Y: 0.00 cm</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em;">GPS Estimation</div>
+                                        <div style="font-size: 1.1rem; font-weight: 600; color: var(--accent-success); margin-top: 4px; font-family: 'JetBrains Mono', monospace;" id="mini-current-lat">Lat: -6.91750000°</div>
+                                        <div style="font-size: 1.1rem; font-weight: 600; color: var(--accent-success); margin-top: 2px; font-family: 'JetBrains Mono', monospace;" id="mini-current-lon">Lon: 107.61910000°</div>
+                                    </div>
+                                    <button class="btn-warning" id="btn-reset-optflow-mini" style="width: 100%; padding: 8px;">Reset Trail to Origin</button>
+                                    
+                                    <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 4px;">
+                                        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.05em; margin-bottom: 8px;">Camera Offset (cm)</div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                                            <div class="form-group" style="display:flex; flex-direction:column; gap:4px;">
+                                                <label for="offset-x" style="font-size: 0.75rem; color: var(--text-muted);">Offset X</label>
+                                                <input type="number" id="offset-x" step="0.5" value="0.0" style="padding: 6px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main);">
+                                            </div>
+                                            <div class="form-group" style="display:flex; flex-direction:column; gap:4px;">
+                                                <label for="offset-y" style="font-size: 0.75rem; color: var(--text-muted);">Offset Y</label>
+                                                <input type="number" id="offset-y" step="0.5" value="0.0" style="padding: 6px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main);">
+                                            </div>
+                                        </div>
+                                        <button class="btn-primary" id="btn-save-offset" style="width: 100%; padding: 8px; font-size: 0.85rem;">Apply Offset</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Decoded Fields Table -->
@@ -771,6 +825,8 @@
             // Show appropriate actions
             const btnUnlink = document.getElementById('btn-unlink-shm');
             const btnCreate = document.getElementById('btn-create-shm');
+            const btnResetOptFlow = document.getElementById('btn-reset-optflow');
+            btnResetOptFlow.style.display = (seg.name === "optical_flow_stream" && seg.active) ? 'block' : 'none';
             if (seg.active) {
                 btnUnlink.style.display = 'block';
                 btnCreate.style.display = 'none';
@@ -790,6 +846,16 @@
                 mockBadge.style.display = 'none';
                 document.getElementById('btn-start-mock').style.display = 'block';
                 document.getElementById('btn-stop-mock').style.display = 'none';
+            }
+
+            // Show/hide minimap container
+            const minimapContainer = document.getElementById('minimap-container');
+            if (seg.name === "optical_flow_stream" && seg.active) {
+                minimapContainer.style.display = 'block';
+                setTimeout(resizeMinimap, 50);
+                loadCameraOffsets();
+            } else {
+                minimapContainer.style.display = 'none';
             }
 
             // Reset chart
@@ -823,6 +889,12 @@
                 // Update header action buttons in case active state changed
                 const btnUnlink = document.getElementById('btn-unlink-shm');
                 const btnCreate = document.getElementById('btn-create-shm');
+                const btnResetOptFlow = document.getElementById('btn-reset-optflow');
+                const minimapContainer = document.getElementById('minimap-container');
+                
+                btnResetOptFlow.style.display = (selectedShmName === "optical_flow_stream" && data.active) ? 'block' : 'none';
+                minimapContainer.style.display = (selectedShmName === "optical_flow_stream" && data.active) ? 'block' : 'none';
+                
                 if (data.active) {
                     btnUnlink.style.display = 'block';
                     btnCreate.style.display = 'none';
@@ -835,6 +907,9 @@
                     updateHexViewer(data.raw_hex);
                     updateDecodedTable(data.samples, data.fields);
                     updateChart(data.samples, data.fields);
+                    if (selectedShmName === "optical_flow_stream") {
+                        updateMinimap(data.samples);
+                    }
                 } else {
                     document.getElementById('hex-rows').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Segment uninitialized</td></tr>';
                     document.getElementById('table-decoded-rows').innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data available</td></tr>';
@@ -1549,6 +1624,21 @@
             }
         });
 
+        document.getElementById('btn-reset-optflow').addEventListener('click', async () => {
+            if (!selectedShmName || selectedShmName !== "optical_flow_stream") return;
+            try {
+                const response = await fetch(`/api/opticalflow/reset`, { method: 'POST' });
+                if (response.ok) {
+                    console.log("Optical flow reset requested successfully.");
+                } else {
+                    const errData = await response.json();
+                    alert("Failed to reset: " + (errData.error || response.statusText));
+                }
+            } catch (err) {
+                alert("Error sending reset command: " + err);
+            }
+        });
+
         document.getElementById('btn-create-shm').addEventListener('click', async () => {
             if (!selectedShmName) return;
             try {
@@ -1615,6 +1705,460 @@
                 }
             } catch (err) {
                 alert("Error stopping mock data generator: " + err);
+            }
+        });
+
+        // Minimap logic
+        function resizeMinimap() {
+            const canvas = document.getElementById('minimapCanvas');
+            const gpsCanvas = document.getElementById('gpsCanvas');
+            if (canvas) {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height - 24;
+            }
+            if (gpsCanvas) {
+                const rect = gpsCanvas.parentElement.getBoundingClientRect();
+                gpsCanvas.width = rect.width;
+                gpsCanvas.height = rect.height - 24;
+            }
+        }
+
+        window.addEventListener('resize', resizeMinimap);
+
+        function updateMinimap(samples) {
+            const canvas = document.getElementById('minimapCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Clear background
+            ctx.fillStyle = '#0b1329';
+            ctx.fillRect(0, 0, width, height);
+
+            if (!samples || samples.length === 0) {
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '14px Outfit';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("Waiting for optical flow telemetry...", width / 2, height / 2);
+                return;
+            }
+
+            // Extract points in chronological order (oldest to newest)
+            const pts = samples.map(s => ({ x: s.x_cm, y: s.y_cm, heading: s.heading })).reverse();
+            const latest = pts[pts.length - 1];
+
+            // Update text elements on the right
+            document.getElementById('mini-current-xy').textContent = `X: ${latest.x.toFixed(2)}, Y: ${latest.y.toFixed(2)} cm`;
+            
+            const START_LAT = -6.9175;
+            const START_LON = 107.6191;
+            const EARTH_RADIUS = 6378137.0;
+            const y_m = latest.y / 100.0;
+            const x_m = latest.x / 100.0;
+            const lat = START_LAT + (y_m / EARTH_RADIUS) * (180.0 / Math.PI);
+            const lon = START_LON + (x_m / EARTH_RADIUS) / Math.cos(lat * Math.PI / 180.0) * (180.0 / Math.PI);
+            
+            document.getElementById('mini-current-lat').textContent = `Lat: ${lat.toFixed(8)}°`;
+            document.getElementById('mini-current-lon').textContent = `Lon: ${lon.toFixed(8)}°`;
+
+            // Auto-scale viewport to fit all points + origin (0,0) with some margin
+            let minX = 0, maxX = 0, minY = 0, maxY = 0;
+            pts.forEach(p => {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            });
+
+            // Center the view by making it symmetric around origin or simply framing it
+            const maxAbsX = Math.max(Math.abs(minX), Math.abs(maxX), 50); // min 50cm half-width
+            const maxAbsY = Math.max(Math.abs(minY), Math.abs(maxY), 50); // min 50cm half-height
+            
+            const scaleX = (width - 60) / (2 * maxAbsX);
+            const scaleY = (height - 60) / (2 * maxAbsY);
+            const scale = Math.min(scaleX, scaleY); // Keep aspect ratio square
+
+            const cx = width / 2;
+            const cy = height / 2;
+
+            // Map simulation cartesian coordinates to screen coordinates
+            function toScreen(x, y) {
+                return {
+                    x: cx + x * scale,
+                    y: cy - y * scale
+                };
+            }
+
+            // Draw gridlines
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+            ctx.lineWidth = 1;
+            const stepCm = maxAbsX > 200 ? 100 : (maxAbsX > 50 ? 50 : 10);
+            
+            // Vertical grid lines
+            for (let x = -Math.floor(maxAbsX/stepCm)*stepCm; x <= maxAbsX; x += stepCm) {
+                const screenPt = toScreen(x, 0);
+                ctx.beginPath();
+                ctx.moveTo(screenPt.x, 0);
+                ctx.lineTo(screenPt.x, height);
+                ctx.stroke();
+            }
+
+            // Horizontal grid lines
+            for (let y = -Math.floor(maxAbsY/stepCm)*stepCm; y <= maxAbsY; y += stepCm) {
+                const screenPt = toScreen(0, y);
+                ctx.beginPath();
+                ctx.moveTo(0, screenPt.y);
+                ctx.lineTo(width, screenPt.y);
+                ctx.stroke();
+            }
+
+            // Draw main axes (X and Y)
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+            ctx.lineWidth = 1.5;
+            
+            // Y-axis (vertical)
+            ctx.beginPath();
+            ctx.moveTo(cx, 0);
+            ctx.lineTo(cx, height);
+            ctx.stroke();
+
+            // X-axis (horizontal)
+            ctx.beginPath();
+            ctx.moveTo(0, cy);
+            ctx.lineTo(width, cy);
+            ctx.stroke();
+
+            // Axis labels
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+            ctx.font = '10px JetBrains Mono';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(` +Y (North / Lat)`, cx + 5, 15);
+            ctx.fillText(` +X (East / Lon)`, width - 110, cy - 5);
+
+            // Draw ticks on X axis
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            [-stepCm, stepCm].forEach(val => {
+                const screen = toScreen(val, 0);
+                ctx.beginPath();
+                ctx.moveTo(screen.x, cy - 4);
+                ctx.lineTo(screen.x, cy + 4);
+                ctx.stroke();
+                ctx.fillText(`${val > 0 ? '+' : ''}${val}cm`, screen.x, cy + 6);
+            });
+
+            // Draw ticks on Y axis
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            [-stepCm, stepCm].forEach(val => {
+                const screen = toScreen(0, val);
+                ctx.beginPath();
+                ctx.moveTo(cx - 4, screen.y);
+                ctx.lineTo(cx + 4, screen.y);
+                ctx.stroke();
+                ctx.fillText(`${val > 0 ? '+' : ''}${val}cm`, cx + 8, screen.y);
+            });
+
+            // Draw path / trail
+            ctx.strokeStyle = 'rgba(14, 165, 233, 0.6)';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            const startScreen = toScreen(pts[0].x, pts[0].y);
+            ctx.moveTo(startScreen.x, startScreen.y);
+            for (let i = 1; i < pts.length; i++) {
+                const screen = toScreen(pts[i].x, pts[i].y);
+                ctx.lineTo(screen.x, screen.y);
+            }
+            ctx.stroke();
+
+            // Draw origin (0, 0) indicator
+            const originScreen = toScreen(0, 0);
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.arc(originScreen.x, originScreen.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Draw current point (aircraft heading directional arrow)
+            const currentScreen = toScreen(latest.x, latest.y);
+            const headingDeg = latest.heading || 0;
+            // Map compass heading (0=North/Up, 90=East/Right) to canvas angle
+            // Screen coordinates Y is inverted, so clockwise on compass is clockwise on screen.
+            // 0 deg North -> Up (-90 deg on unit circle)
+            // 90 deg East -> Right (0 deg on unit circle)
+            const headingRad = (headingDeg - 90) * Math.PI / 180.0;
+
+            // Outer glow
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
+            ctx.beginPath();
+            ctx.arc(currentScreen.x, currentScreen.y, 16, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Draw directional arrow shape
+            ctx.save();
+            ctx.translate(currentScreen.x, currentScreen.y);
+            ctx.rotate(headingRad);
+
+            ctx.fillStyle = '#10b981';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+
+            ctx.beginPath();
+            // Point of the arrow facing Right (aligned to heading)
+            ctx.moveTo(12, 0); 
+            ctx.lineTo(-8, -8);
+            ctx.lineTo(-4, 0);
+            ctx.lineTo(-8, 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+
+            // Render absolute GPS coordinates minimap side-by-side
+            updateGpsMinimap(samples);
+        }
+
+        function updateGpsMinimap(samples) {
+            const canvas = document.getElementById('gpsCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Clear background
+            ctx.fillStyle = '#0b1329';
+            ctx.fillRect(0, 0, width, height);
+
+            if (!samples || samples.length === 0) {
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '14px Outfit';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("Waiting for GPS estimation...", width / 2, height / 2);
+                return;
+            }
+
+            const START_LAT = -6.9175;
+            const START_LON = 107.6191;
+            const EARTH_RADIUS = 6378137.0;
+
+            const ptsGps = samples.map(s => {
+                const y_m = s.y_cm / 100.0;
+                const x_m = s.x_cm / 100.0;
+                const lat = START_LAT + (y_m / EARTH_RADIUS) * (180.0 / Math.PI);
+                const lon = START_LON + (x_m / EARTH_RADIUS) / Math.cos(lat * Math.PI / 180.0) * (180.0 / Math.PI);
+                return { lat: lat, lon: lon, heading: s.heading };
+            }).reverse();
+
+            const latest = ptsGps[ptsGps.length - 1];
+
+            // Find bounds of latitude and longitude (minimally zoom to 0.00005 degrees spread)
+            let minLat = START_LAT, maxLat = START_LAT, minLon = START_LON, maxLon = START_LON;
+            ptsGps.forEach(p => {
+                if (p.lat < minLat) minLat = p.lat;
+                if (p.lat > maxLat) maxLat = p.lat;
+                if (p.lon < minLon) minLon = p.lon;
+                if (p.lon > maxLon) maxLon = p.lon;
+            });
+
+            const latSpread = Math.max(maxLat - minLat, 0.00005);
+            const lonSpread = Math.max(maxLon - minLon, 0.00005);
+            const maxSpread = Math.max(latSpread, lonSpread);
+
+            const centerLat = (minLat + maxLat) / 2;
+            const centerLon = (minLon + maxLon) / 2;
+
+            const scale = Math.min((width - 60) / maxSpread, (height - 60) / maxSpread);
+
+            const cx = width / 2;
+            const cy = height / 2;
+
+            function toScreen(lon, lat) {
+                return {
+                    x: cx + (lon - centerLon) * scale,
+                    y: cy - (lat - centerLat) * scale
+                };
+            }
+
+            // Draw gridlines
+            ctx.strokeStyle = 'rgba(168, 85, 247, 0.06)';
+            ctx.lineWidth = 1;
+            const stepDeg = maxSpread > 0.0002 ? 0.0001 : 0.00002;
+
+            // Vertical grid lines
+            for (let lon = START_LON - 0.002; lon <= START_LON + 0.002; lon += stepDeg) {
+                const screenPt = toScreen(lon, centerLat);
+                if (screenPt.x >= 0 && screenPt.x <= width) {
+                    ctx.beginPath();
+                    ctx.moveTo(screenPt.x, 0);
+                    ctx.lineTo(screenPt.x, height);
+                    ctx.stroke();
+                }
+            }
+
+            // Horizontal grid lines
+            for (let lat = START_LAT - 0.002; lat <= START_LAT + 0.002; lat += stepDeg) {
+                const screenPt = toScreen(centerLon, lat);
+                if (screenPt.y >= 0 && screenPt.y <= height) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, screenPt.y);
+                    ctx.lineTo(width, screenPt.y);
+                    ctx.stroke();
+                }
+            }
+
+            // Draw reference axes (through centerLat, centerLon)
+            ctx.strokeStyle = 'rgba(168, 85, 247, 0.25)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(cx, 0);
+            ctx.lineTo(cx, height);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, cy);
+            ctx.lineTo(width, cy);
+            ctx.stroke();
+
+            // Axis labels
+            ctx.fillStyle = 'rgba(168, 85, 247, 0.6)';
+            ctx.font = '10px JetBrains Mono';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(` Latitude (North)`, cx + 5, 15);
+            ctx.fillText(` Longitude (East)`, width - 120, cy - 5);
+
+            // Draw ticks on X axis (Longitude)
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            const screenLon1 = toScreen(centerLon - stepDeg, centerLat);
+            const screenLon2 = toScreen(centerLon + stepDeg, centerLat);
+            ctx.beginPath();
+            ctx.moveTo(screenLon1.x, cy - 4); ctx.lineTo(screenLon1.x, cy + 4);
+            ctx.moveTo(screenLon2.x, cy - 4); ctx.lineTo(screenLon2.x, cy + 4);
+            ctx.stroke();
+            ctx.fillText((centerLon - stepDeg).toFixed(6), screenLon1.x, cy + 6);
+            ctx.fillText((centerLon + stepDeg).toFixed(6), screenLon2.x, cy + 6);
+
+            // Draw ticks on Y axis (Latitude)
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            const screenLat1 = toScreen(centerLon, centerLat - stepDeg);
+            const screenLat2 = toScreen(centerLon, centerLat + stepDeg);
+            ctx.beginPath();
+            ctx.moveTo(cx - 4, screenLat1.y); ctx.lineTo(cx + 4, screenLat1.y);
+            ctx.moveTo(cx - 4, screenLat2.y); ctx.lineTo(cx + 4, screenLat2.y);
+            ctx.stroke();
+            ctx.fillText((centerLat - stepDeg).toFixed(6), cx + 8, screenLat1.y);
+            ctx.fillText((centerLat + stepDeg).toFixed(6), cx + 8, screenLat2.y);
+
+            // Draw GPS path trail
+            ctx.strokeStyle = 'rgba(168, 85, 247, 0.6)';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            const startScreen = toScreen(ptsGps[0].lon, ptsGps[0].lat);
+            ctx.moveTo(startScreen.x, startScreen.y);
+            for (let i = 1; i < ptsGps.length; i++) {
+                const screen = toScreen(ptsGps[i].lon, ptsGps[i].lat);
+                ctx.lineTo(screen.x, screen.y);
+            }
+            ctx.stroke();
+
+            // Draw takeoff home marker (START_LON, START_LAT)
+            const homeScreen = toScreen(START_LON, START_LAT);
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.arc(homeScreen.x, homeScreen.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Draw current point (swept-wing aircraft arrow)
+            const currentScreen = toScreen(latest.lon, latest.lat);
+            const headingDeg = latest.heading || 0;
+            const headingRad = (headingDeg - 90) * Math.PI / 180.0;
+
+            // Outer glow
+            ctx.fillStyle = 'rgba(168, 85, 247, 0.25)';
+            ctx.beginPath();
+            ctx.arc(currentScreen.x, currentScreen.y, 16, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Draw directional arrow shape
+            ctx.save();
+            ctx.translate(currentScreen.x, currentScreen.y);
+            ctx.rotate(headingRad);
+
+            ctx.fillStyle = '#a855f7';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+
+            ctx.beginPath();
+            ctx.moveTo(12, 0); 
+            ctx.lineTo(-8, -8);
+            ctx.lineTo(-4, 0);
+            ctx.lineTo(-8, 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Mini reset button listener
+
+        async function resetOptFlowFromMini() {
+            if (!selectedShmName || selectedShmName !== "optical_flow_stream") return;
+            try {
+                const response = await fetch(`/api/opticalflow/reset`, { method: 'POST' });
+                if (response.ok) {
+                    console.log("Optical flow reset from minimap requested successfully.");
+                } else {
+                    const errData = await response.json();
+                    alert("Failed to reset: " + (errData.error || response.statusText));
+                }
+            } catch (err) {
+                alert("Error sending reset command: " + err);
+            }
+        }
+        document.getElementById('btn-reset-optflow-mini').addEventListener('click', resetOptFlowFromMini);
+
+        // Camera Offset handlers
+        async function loadCameraOffsets() {
+            try {
+                const response = await fetch('/api/opticalflow/offset');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('offset-x').value = data.offset_x || 0.0;
+                    document.getElementById('offset-y').value = data.offset_y || 0.0;
+                }
+            } catch (err) {
+                console.error("Error loading camera offsets:", err);
+            }
+        }
+
+        document.getElementById('btn-save-offset').addEventListener('click', async () => {
+            const ox = parseFloat(document.getElementById('offset-x').value) || 0.0;
+            const oy = parseFloat(document.getElementById('offset-y').value) || 0.0;
+            try {
+                const response = await fetch('/api/opticalflow/offset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offset_x: ox, offset_y: oy })
+                });
+                if (response.ok) {
+                    console.log("Offsets applied successfully:", ox, oy);
+                } else {
+                    alert("Failed to apply offsets");
+                }
+            } catch (err) {
+                alert("Error saving offsets: " + err);
             }
         });
 

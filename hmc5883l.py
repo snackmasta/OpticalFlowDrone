@@ -27,7 +27,7 @@ DATA_Y_MSB = 0x07
 
 DECLINATION_DEGREES = 0.0
 MAX_SAMPLES = 120
-LOW_PASS_ALPHA = 0.25 # to toggle between more responsive (higher alpha) or smoother (lower alpha) heading readings
+LOW_PASS_ALPHA = 0.85 # to toggle between more responsive (higher alpha) or smoother (lower alpha) heading readings
 SHM_NAME = "compass_heading_stream" # Shared memory name for compass data stream
 SHM_MAGIC = b"CHDG" # Magic bytes to identify valid shared memory segment
 SHM_HEADER_FORMAT = "<4sII" # Header: magic (4s), write_index (I), sample_count (I)
@@ -120,6 +120,12 @@ def attach_heading_stream_shm():
                 except FileNotFoundError:
                     pass
                 heading_stream_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
+
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(heading_stream_shm._name, "shared_memory")
+        except Exception:
+            pass
 
         struct.pack_into(SHM_HEADER_FORMAT, heading_stream_shm.buf, 0, SHM_MAGIC, 0, 0)
         return heading_stream_shm
@@ -250,7 +256,7 @@ def compass_thread_worker():
 
             write_heading_stream_sample(timestamp, raw_heading, heading, filtered_x, filtered_y, filtered_z)
 
-            time.sleep(0.1)
+            time.sleep(0.02)
         except Exception as exc:
             with data_lock:
                 latest_state["connected"] = False

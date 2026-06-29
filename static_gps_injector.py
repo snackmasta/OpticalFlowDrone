@@ -34,12 +34,61 @@ COMPASS_MAX_SAMPLES = 120
 
 compass_shm = None
 
+# Optical flow shared memory configuration
+FLOW_SHM_NAME = "optical_flow_stream"
+FLOW_SHM_MAGIC = b"FLOW"
+FLOW_SHM_HEADER_FORMAT = "<4sII"
+FLOW_SHM_RECORD_FORMAT = "<11d"
+FLOW_SHM_HEADER_SIZE = struct.calcsize(FLOW_SHM_HEADER_FORMAT)
+FLOW_SHM_RECORD_SIZE = struct.calcsize(FLOW_SHM_RECORD_FORMAT)
+FLOW_MAX_SAMPLES = 120
+
+flow_shm = None
+
+
+def get_latest_flow_data():
+    global flow_shm
+    if flow_shm is None:
+        try:
+            flow_shm = shared_memory.SharedMemory(name=FLOW_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(flow_shm._name, "shared_memory")
+            except Exception:
+                pass
+        except FileNotFoundError:
+            return None
+    try:
+        magic, write_index, sample_count = struct.unpack_from(FLOW_SHM_HEADER_FORMAT, flow_shm.buf, 0)
+        if magic != FLOW_SHM_MAGIC or sample_count == 0:
+            return None
+        
+        latest_index = (write_index - 1) % FLOW_MAX_SAMPLES
+        offset = FLOW_SHM_HEADER_SIZE + (latest_index * FLOW_SHM_RECORD_SIZE)
+        # Fields: timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading
+        values = struct.unpack_from(FLOW_SHM_RECORD_FORMAT, flow_shm.buf, offset)
+        x_cm, y_cm = values[1], values[2]
+        alt = values[9]
+        return x_cm / 100.0, y_cm / 100.0, alt # Convert x_cm, y_cm to x_m, y_m; alt is already in meters
+    except Exception:
+        try:
+            flow_shm.close()
+        except Exception:
+            pass
+        flow_shm = None
+        return None
+
 
 def get_latest_compass_heading():
     global compass_shm
     if compass_shm is None:
         try:
             compass_shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(compass_shm._name, "shared_memory")
+            except Exception:
+                pass
         except FileNotFoundError:
             return None
     try:
@@ -72,14 +121,14 @@ def to_nmea_lat(lat):
     deg = int(abs(lat))
     minutes = (abs(lat)-deg)*60
     ns = "S" if lat < 0 else "N"
-    return f"{deg:02d}{minutes:07.4f}", ns
+    return f"{deg:02d}{minutes:09.6f}", ns
 
 
 def to_nmea_lon(lon):
     deg = int(abs(lon))
     minutes = (abs(lon)-deg)*60
     ew = "W" if lon < 0 else "E"
-    return f"{deg:03d}{minutes:07.4f}", ew
+    return f"{deg:03d}{minutes:09.6f}", ew
 
 
 # GPS Packet default values
@@ -88,7 +137,7 @@ NUM_SATELLITES = "30"
 HDOP = "0.1"           # Excellent HDOP for RTK
 PDOP = "1.2"
 VDOP = "0.9"           # Excellent VDOP for RTK altitude
-ALTITUDE = "100.0"       # altitude neutral
+DEFAULT_ALTITUDE = "100.0"       # altitude neutral
 ALTITUDE_UNIT = "M"
 GEOIDAL_HEIGHT = "0.0"
 GEOIDAL_HEIGHT_UNIT = "M"
@@ -109,29 +158,18 @@ while True:
     utc = now.strftime("%H%M%S.%f")[:-4]
     date = now.strftime("%d%m%y")
 
-    # Update position along rectangle path if max laps not reached
-    if MAX_LAPS is None or laps_completed < MAX_LAPS:
-        if state == 0:
-            lon += STEP
-            if lon >= START_LON + LON_SIZE:
-                lon = START_LON + LON_SIZE
-                state = 1
-        elif state == 1:
-            lat += STEP
-            if lat >= START_LAT + LAT_SIZE:
-                lat = START_LAT + LAT_SIZE
-                state = 2
-        elif state == 2:
-            lon -= STEP
-            if lon <= START_LON:
-                lon = START_LON
-                state = 3
-        elif state == 3:
-            lat -= STEP
-            if lat <= START_LAT:
-                lat = START_LAT
-                state = 0
-                laps_completed += 1
+    # Read the latest flow position (in absolute meters: East = x, North = y)
+    import math
+    flow_data = get_latest_flow_data()
+    current_alt = float(DEFAULT_ALTITUDE)
+    if flow_data is not None:
+        x_m, y_m, alt = flow_data
+        # Earth radius in meters
+        EARTH_RADIUS = 6378137.0
+        # Convert meters displacement to degrees latitude and longitude
+        lat = START_LAT + (y_m / EARTH_RADIUS) * (180.0 / math.pi)
+        lon = START_LON + (x_m / EARTH_RADIUS) / math.cos(math.radians(lat)) * (180.0 / math.pi)
+        current_alt = alt
 
     nmea_lat, ns = to_nmea_lat(lat)
     nmea_lon, ew = to_nmea_lon(lon)
@@ -144,7 +182,7 @@ while True:
         f"{FIX_QUALITY},"
         f"{NUM_SATELLITES},"
         f"{HDOP},"
-        f"{ALTITUDE},{ALTITUDE_UNIT},"
+        f"{current_alt:.2f},{ALTITUDE_UNIT},"
         f"{GEOIDAL_HEIGHT},{GEOIDAL_HEIGHT_UNIT},,"
     )
 
@@ -176,7 +214,7 @@ while True:
     heading = get_latest_compass_heading()
     current_yaw = f"{heading:.1f}" if heading is not None else "0.0"
 
-    print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Yaw: {current_yaw}")
+    print(f"Lat: {lat:.7f}, Lon: {lon:.7f}, Alt: {current_alt:.2f}m, Yaw: {current_yaw}")
 
     hdt = (
         f"GPHDT,"
@@ -188,4 +226,4 @@ while True:
         line = f"${msg}*{checksum(msg)}\r\n"
         ser.write(line.encode())
 
-    time.sleep(0.2)
+    time.sleep(0.1)

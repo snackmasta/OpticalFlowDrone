@@ -19,6 +19,27 @@ import threading
 import json
 import os
 import sys
+import argparse
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Lightweight optical flow recorder and streamer.")
+parser.add_argument("-stream", "--stream", action="store_true", help="Automatically run in RTSP stream mode.")
+parser.add_argument("-record", "--record", action="store_true", help="Automatically run in local record mode.")
+parser.add_argument("-duration", "--duration", "-d", type=float, default=None, help="Automatically run for this duration in seconds.")
+args = parser.parse_args()
+
+if args.stream and args.record:
+    parser.error("Cannot specify both -stream and -record")
+
+# Determine mode and RTSP name
+mode = None
+rtsp_name = None
+if args.stream:
+    mode = "rtsp"
+    rtsp_name = "drone"
+elif args.record:
+    mode = "record"
+
 import queue
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
@@ -34,6 +55,28 @@ def console_input_thread():
         except Exception:
             break
 
+def udp_command_listener():
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", 5009))
+        while True:
+            data, addr = sock.recvfrom(1024)
+            cmd = data.decode("utf-8").strip().lower()
+            if cmd == "reset":
+                input_queue.put("r")
+            elif cmd.startswith("offset "):
+                parts = cmd.split()
+                if len(parts) == 3:
+                    try:
+                        ox = float(parts[1])
+                        oy = float(parts[2])
+                        input_queue.put(("offset", ox, oy))
+                    except ValueError:
+                        pass
+    except Exception as e:
+        print(f"UDP command listener error: {e}")
+
 # Start the console input reader thread
 # Moved to record_optical_flow() to prevent stdin conflict during startup prompts.
 
@@ -42,7 +85,8 @@ from optical_flow.sensor_readers import (
     distance_lock,
     distance_state,
     attitude_lock,
-    attitude_state
+    attitude_state,
+    is_gyro_calibrated
 )
 from optical_flow.flow_processor import (
     to_small_gray,
@@ -68,16 +112,20 @@ from optical_flow.video_sinks import (
 CALIBRATION_FILE = "tilt_calibration.json"
 scale_x = FLOW_SCALE
 scale_y = FLOW_SCALE
+camera_offset_x = 0.0
+camera_offset_y = 0.0
 
 def load_calibration():
-    global scale_x, scale_y
+    global scale_x, scale_y, camera_offset_x, camera_offset_y
     if os.path.exists(CALIBRATION_FILE):
         try:
             with open(CALIBRATION_FILE, "r") as f:
                 data = json.load(f)
                 scale_x = data.get("scale_x", FLOW_SCALE)
                 scale_y = data.get("scale_y", FLOW_SCALE)
-                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+                camera_offset_x = data.get("camera_offset_x", 0.0)
+                camera_offset_y = data.get("camera_offset_y", 0.0)
+                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}, camera_offset_x={camera_offset_x:.2f}, camera_offset_y={camera_offset_y:.2f}")
         except Exception as e:
             print(f"Failed to load calibration: {e}")
     else:
@@ -93,7 +141,7 @@ FRAME_INTERVAL_S = 1.0 / TARGET_FPS
 SHM_NAME = "optical_flow_stream"
 SHM_MAGIC = b"FLOW"
 SHM_HEADER_FORMAT = "<4sII"
-SHM_RECORD_FORMAT = "<10d"
+SHM_RECORD_FORMAT = "<11d"
 SHM_HEADER_SIZE = struct.calcsize(SHM_HEADER_FORMAT)
 SHM_RECORD_SIZE = struct.calcsize(SHM_RECORD_FORMAT)
 MAX_SAMPLES = 120
@@ -120,11 +168,17 @@ def attach_flow_stream_shm():
                     pass
                 flow_shm = shared_memory.SharedMemory(name=SHM_NAME, create=True, size=SHM_SIZE)
 
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(flow_shm._name, "shared_memory")
+        except Exception:
+            pass
+
         struct.pack_into(SHM_HEADER_FORMAT, flow_shm.buf, 0, SHM_MAGIC, 0, 0)
         return flow_shm
 
 
-def write_flow_stream_sample(timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_raw, alt):
+def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading):
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -135,15 +189,16 @@ def write_flow_stream_sample(timestamp, x, y, x_raw, y_raw, vx, vy, vx_raw, vy_r
                 shm.buf,
                 record_offset,
                 float(timestamp),
-                float(x),
-                float(y),
-                float(x_raw),
-                float(y_raw),
+                float(x_cm),
+                float(y_cm),
+                float(x_raw_cm),
+                float(y_raw_cm),
                 float(vx),
                 float(vy),
                 float(vx_raw),
                 float(vy_raw),
                 float(alt),
+                float(heading),
             )
             write_index = (write_index + 1) % MAX_SAMPLES
             sample_count = min(sample_count + 1, MAX_SAMPLES)
@@ -186,11 +241,16 @@ old_gray = to_small_gray(old_frame)
 # Start sensor reader threads
 start_distance_sensor_reader()
 
+# Wait for gyro calibration to finish
+print("Waiting for gyro calibration to complete...")
+while not is_gyro_calibrated():
+    time.sleep(0.1)
+
 frame_height, frame_width = old_frame.shape[:2]
 focal_length_x_px = focal_length_px(frame_width)
 focal_length_y_px = focal_length_x_px
 
-output_sink, rtsp_selected, rtsp_server = create_output_sink((frame_width, frame_height), TARGET_FPS)
+output_sink, rtsp_selected, rtsp_server = create_output_sink((frame_width, frame_height), TARGET_FPS, mode=mode, rtsp_name=rtsp_name)
 fallback_sink = None
 print("Press Ctrl+C to stop")
 
@@ -210,8 +270,8 @@ def record_optical_flow():
     previous_frame_ts = time.perf_counter()
     prev_roll_px = None
     prev_pitch_px = None
-    x_raw_m = 0.0
-    y_raw_m = 0.0
+    x_raw_cm = 0.0
+    y_raw_cm = 0.0
     vx_raw_prev = 0.0
     vy_raw_prev = 0.0
     
@@ -228,9 +288,17 @@ def record_optical_flow():
     
     # Start the console input reader thread now that startup prompts are complete
     threading.Thread(target=console_input_thread, daemon=True).start()
+    # Start the UDP command listener thread
+    threading.Thread(target=udp_command_listener, daemon=True).start()
+    
+    start_time = time.perf_counter()
     
     while True:
         now = time.perf_counter()
+        if args.duration is not None and (now - start_time) >= args.duration:
+            print(f"\nDuration limit of {args.duration} seconds reached. Stopping...")
+            break
+            
         if now < next_frame_time:
             time.sleep(next_frame_time - now)
         frame_ts = time.perf_counter()
@@ -275,14 +343,32 @@ def record_optical_flow():
                     is_calibrating = False
                     print("\n>>> TILT CALIBRATION DISCARDED.")
             
+            if isinstance(command, tuple) and command[0] == "offset":
+                global camera_offset_x, camera_offset_y
+                _, ox, oy = command
+                camera_offset_x = ox
+                camera_offset_y = oy
+                try:
+                    calib_data = {}
+                    if os.path.exists(CALIBRATION_FILE):
+                        with open(CALIBRATION_FILE, "r") as f:
+                            calib_data = json.load(f)
+                    calib_data["camera_offset_x"] = camera_offset_x
+                    calib_data["camera_offset_y"] = camera_offset_y
+                    with open(CALIBRATION_FILE, "w") as f:
+                        json.dump(calib_data, f, indent=4)
+                    print(f"\n>>> CAMERA OFFSET UPDATED: x={camera_offset_x:.2f} cm, y={camera_offset_y:.2f} cm")
+                except Exception as e:
+                    print(f"Failed to save camera offset calibration: {e}")
+
             if command == 'r':
-                x_raw_m = 0.0
-                y_raw_m = 0.0
+                x_raw_cm = 0.0
+                y_raw_cm = 0.0
                 vx_raw_prev = 0.0
                 vy_raw_prev = 0.0
                 with position_lock:
-                    position_state["x_m"] = 0.0
-                    position_state["y_m"] = 0.0
+                    position_state["x_cm"] = 0.0
+                    position_state["y_cm"] = 0.0
                     position_state["path"] = [(0.0, 0.0)]
                 print("\n>>> POSITIONS RESET TO ZERO.")
 
@@ -297,6 +383,8 @@ def record_optical_flow():
         with attitude_lock:
             roll_deg = attitude_state["roll_deg"]
             pitch_deg = attitude_state["pitch_deg"]
+            yaw_deg = attitude_state["yaw_deg"]
+            zgyro_dps = attitude_state.get("zgyro_dps", 0.0)
 
         roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
         pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
@@ -334,10 +422,25 @@ def record_optical_flow():
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
 
-            # Calculate physical velocity using compensated translations
+            # Calculate physical velocity using compensated translations (body frame)
             altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
-            vx_mps_calc = (tx_comp * altitude_m) / (focal_length_x_px * dt_s)
-            vy_mps_calc = (ty_comp * altitude_m) / (focal_length_y_px * dt_s)
+            vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
+            vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
+
+            # Compensate for camera offset from center of rotation
+            yaw_rate_rad = math.radians(zgyro_dps)
+            v_offset_x = -yaw_rate_rad * (camera_offset_y / 100.0)
+            v_offset_y = yaw_rate_rad * (camera_offset_x / 100.0)
+            vx_mps_body_comp = vx_mps_body - v_offset_x
+            vy_mps_body_comp = vy_mps_body - v_offset_y
+
+            # Rotate compensated velocities to absolute frame (East/North) using actual compass heading
+            yaw_actual_deg = -yaw_deg
+            yaw_rad = math.radians(yaw_actual_deg)
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            vx_mps_calc = vx_mps_body_comp * cos_yaw + vy_mps_body_comp * sin_yaw
+            vy_mps_calc = -vx_mps_body_comp * sin_yaw + vy_mps_body_comp * cos_yaw
 
             # Apply acceleration rate-limiter and velocity clamps to compensated velocity
             max_dv = 15.0 * dt_s
@@ -348,10 +451,15 @@ def record_optical_flow():
             vx_mps = np.clip(vx_mps, -5.0, 5.0)
             vy_mps = np.clip(vy_mps, -5.0, 5.0)
 
-            # Calculate raw physical velocity (uncompensated)
-            vx_raw_mps_calc = (tx * altitude_m) / (focal_length_x_px * dt_s)
-            vy_raw_mps_calc = (ty * altitude_m) / (focal_length_y_px * dt_s)
+            # Calculate raw physical velocity (uncompensated, body frame)
+            vx_raw_mps_body = ((tx * altitude_m) / (focal_length_x_px * dt_s))
+            vy_raw_mps_body = -((ty * altitude_m) / (focal_length_y_px * dt_s))
             
+            # Rotate raw velocities to absolute frame
+            vx_raw_mps_calc = vx_raw_mps_body * cos_yaw + vy_raw_mps_body * sin_yaw
+            vy_raw_mps_calc = -vx_raw_mps_body * sin_yaw + vy_raw_mps_body * cos_yaw
+
+
             # Apply same limits to raw velocity to prevent dashboard telemetry glitches
             vx_raw_mps = np.clip(vx_raw_mps_calc, vx_raw_prev - max_dv, vx_raw_prev + max_dv)
             vy_raw_mps = np.clip(vy_raw_mps_calc, vy_raw_prev - max_dv, vy_raw_prev + max_dv)
@@ -368,14 +476,14 @@ def record_optical_flow():
             velocity_state["last_update"] = frame_ts
 
             with position_lock:
-                position_state["x_m"] += vx_mps * dt_s
-                position_state["y_m"] += vy_mps * dt_s
-                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                position_state["x_cm"] += vx_mps * 100.0 * dt_s
+                position_state["y_cm"] += vy_mps * 100.0 * dt_s
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
-            x_raw_m += vx_raw_mps * dt_s
-            y_raw_m += vy_raw_mps * dt_s
+            x_raw_cm += vx_raw_mps * 100.0 * dt_s
+            y_raw_cm += vy_raw_mps * 100.0 * dt_s
 
             # Draw inlier vectors
             for new, old in zip(inlier_new, inlier_old):
@@ -393,14 +501,14 @@ def record_optical_flow():
             velocity_state["last_update"] = frame_ts
 
             with position_lock:
-                position_state["path"].append((position_state["x_m"], position_state["y_m"]))
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
         # Stream current X, Y position, velocity, and altitude to shared memory
         with position_lock:
-            current_x = position_state["x_m"]
-            current_y = position_state["y_m"]
+            current_x_cm = position_state["x_cm"]
+            current_y_cm = position_state["y_cm"]
         current_vx = velocity_state["vx_mps"]
         current_vy = velocity_state["vy_mps"]
         with distance_lock:
@@ -408,15 +516,16 @@ def record_optical_flow():
         current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
         write_flow_stream_sample(
             frame_ts,
-            current_x,
-            current_y,
-            x_raw_m,
-            y_raw_m,
+            current_x_cm,
+            current_y_cm,
+            x_raw_cm,
+            y_raw_cm,
             current_vx,
             current_vy,
             vx_raw_mps,
             vy_raw_mps,
-            current_alt
+            current_alt,
+            (-yaw_deg) % 360.0
         )
 
         old_gray = frame_gray.copy()

@@ -152,10 +152,14 @@ class RtspSink:
             self.process.kill()
 
 
-def create_output_sink(frame_size, fps):
-    mode = choose_output_mode()
+def create_output_sink(frame_size, fps, mode=None, rtsp_name=None):
+    if mode is None:
+        mode = choose_output_mode()
     if mode == "rtsp":
-        stream_name = choose_rtsp_url()
+        if rtsp_name is None:
+            stream_name = choose_rtsp_url()
+        else:
+            stream_name = rtsp_name
         server = RtspServer()
         publish_url = f"rtsp://127.0.0.1:8554/{stream_name}"
         print(f"Open this on Windows: rtsp://<drone-ip>:8554/{stream_name}")
