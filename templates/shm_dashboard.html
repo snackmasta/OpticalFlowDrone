@@ -584,6 +584,23 @@
                     </div>
 
                     <div id="shm-inspector-content" style="display:none;">
+                        <!-- Client-Side Recording / Logging Controls -->
+                        <div class="chart-controls" style="margin-top: 10px; background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.15); display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span class="badge" style="background: rgba(15, 23, 42, 0.4); border-color: rgba(148, 163, 184, 0.12); padding: 6px 12px; display: inline-flex; align-items: center;">
+                                    <span class="dot offline" id="record-dot" style="margin-right: 6px; box-shadow: none; background: #94a3b8; width: 8px; height: 8px; border-radius: 50%;"></span>
+                                    <span id="record-status-text" style="font-size:0.8rem; color:var(--text-muted); font-weight:600; text-transform: uppercase;">Not Recording</span>
+                                </span>
+                                <span id="record-count" style="font-size: 0.85rem; color: var(--text-muted); display: none; font-family: 'JetBrains Mono', monospace;">0 samples recorded</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button class="toggle-btn" id="btn-toggle-record" style="font-weight: 600;">Start Session Recording</button>
+                                <button class="toggle-btn" id="btn-export-csv" style="display: none;">Export CSV</button>
+                                <button class="toggle-btn" id="btn-export-json" style="display: none;">Export JSON</button>
+                                <button class="toggle-btn" id="btn-clear-record" style="display: none; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #ef4444;">Clear</button>
+                            </div>
+                        </div>
+
                         <!-- Chart Controls (Toggles and Axis lock) -->
                         <div class="chart-controls">
                             <div class="toggle-group" id="chart-dataset-toggles">
@@ -720,6 +737,11 @@
 
         let shmConfig = {};
 
+        // Client-side session recording state
+        let isRecording = false;
+        let recordedSamples = [];
+        let recordedFields = [];
+
         async function loadConfig() {
             try {
                 const response = await fetch('/api/shm/config');
@@ -783,6 +805,10 @@
         }
 
         function selectSegment(seg) {
+            if (seg.name !== selectedShmName) {
+                stopRecording();
+                clearRecording();
+            }
             selectedShmName = seg.name;
             
             // Initialize config if not existing
@@ -909,6 +935,22 @@
                     updateChart(data.samples, data.fields);
                     if (selectedShmName === "optical_flow_stream") {
                         updateMinimap(data.samples);
+                    }
+
+                    if (isRecording && data.samples && data.samples.length > 0) {
+                        recordedFields = data.fields;
+                        for (let i = data.samples.length - 1; i >= 0; i--) {
+                            const sample = data.samples[i];
+                            const exists = recordedSamples.some(s => s.timestamp === sample.timestamp);
+                            if (!exists) {
+                                recordedSamples.push(sample);
+                            }
+                        }
+                        const countEl = document.getElementById('record-count');
+                        if (countEl) {
+                            countEl.textContent = `${recordedSamples.length} samples recorded`;
+                        }
+                        updateRecordingUI();
                     }
                 } else {
                     document.getElementById('hex-rows').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Segment uninitialized</td></tr>';
@@ -1597,6 +1639,119 @@
         }
 
         // Action Buttons Setup
+        // Client-Side Session Recording Helpers
+        function stopRecording() {
+            isRecording = false;
+            const dot = document.getElementById('record-dot');
+            const text = document.getElementById('record-status-text');
+            const btn = document.getElementById('btn-toggle-record');
+            
+            if (dot) {
+                dot.className = "dot offline";
+                dot.style.background = "#94a3b8";
+                dot.style.boxShadow = "none";
+            }
+            if (text) text.textContent = "Not Recording";
+            if (btn) {
+                btn.textContent = "Start Session Recording";
+                btn.classList.remove('active');
+            }
+            updateRecordingUI();
+        }
+
+        function startRecording() {
+            isRecording = true;
+            const dot = document.getElementById('record-dot');
+            const text = document.getElementById('record-status-text');
+            const btn = document.getElementById('btn-toggle-record');
+            const countEl = document.getElementById('record-count');
+            
+            if (dot) {
+                dot.className = "dot";
+                dot.style.background = "var(--accent-success)";
+                dot.style.boxShadow = "0 0 10px var(--accent-success)";
+            }
+            if (text) text.textContent = "Recording";
+            if (btn) {
+                btn.textContent = "Stop Session Recording";
+                btn.classList.add('active');
+            }
+            if (countEl) countEl.style.display = "inline-block";
+            updateRecordingUI();
+        }
+
+        function clearRecording() {
+            recordedSamples = [];
+            recordedFields = [];
+            const countEl = document.getElementById('record-count');
+            if (countEl) {
+                countEl.textContent = `0 samples recorded`;
+                countEl.style.display = "none";
+            }
+            updateRecordingUI();
+        }
+
+        function updateRecordingUI() {
+            const hasData = recordedSamples.length > 0;
+            const btnCsv = document.getElementById('btn-export-csv');
+            const btnJson = document.getElementById('btn-export-json');
+            const btnClear = document.getElementById('btn-clear-record');
+            
+            if (btnCsv) btnCsv.style.display = hasData ? 'inline-block' : 'none';
+            if (btnJson) btnJson.style.display = hasData ? 'inline-block' : 'none';
+            if (btnClear) btnClear.style.display = hasData ? 'inline-block' : 'none';
+        }
+
+        function exportToCSV() {
+            if (recordedSamples.length === 0 || recordedFields.length === 0) return;
+            
+            let csvContent = recordedFields.join(",") + "\n";
+            recordedSamples.forEach(sample => {
+                const row = recordedFields.map(field => {
+                    const val = sample[field];
+                    return val !== undefined ? val : "";
+                });
+                csvContent += row.join(",") + "\n";
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const downloadAnchor = document.createElement('a');
+            const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadAnchor.setAttribute("href", url);
+            downloadAnchor.setAttribute("download", `${selectedShmName}_session_${timeStr}.csv`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        function exportToJSON() {
+            if (recordedSamples.length === 0) return;
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(recordedSamples, null, 2));
+            const downloadAnchor = document.createElement('a');
+            const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `${selectedShmName}_session_${timeStr}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        // Add recording event listeners
+        document.getElementById('btn-toggle-record').addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+        document.getElementById('btn-export-csv').addEventListener('click', exportToCSV);
+        document.getElementById('btn-export-json').addEventListener('click', exportToJSON);
+        document.getElementById('btn-clear-record').addEventListener('click', () => {
+            if (confirm("Are you sure you want to clear the recorded session data?")) {
+                clearRecording();
+            }
+        });
         document.getElementById('btn-lock-axis').addEventListener('click', toggleAxisLock);
         document.getElementById('btn-apply-range').addEventListener('click', applyManualRange);
         document.getElementById('btn-toggle-layout').addEventListener('click', toggleLayoutMode);
