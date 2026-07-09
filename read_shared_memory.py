@@ -42,6 +42,13 @@ SHM_REGISTRY = {
         "record_format": "<4d",    # timestamp, temperature, pressure, altitude
         "fields": ["timestamp", "temperature", "pressure", "altitude"],
         "max_samples": 100,
+    },
+    "battery_status_stream": {
+        "magic": b"BATT",
+        "header_format": "<4sII",  # magic, write_index, sample_count
+        "record_format": "<5d",    # timestamp, voltage, current, capacity, consumed_mah
+        "fields": ["timestamp", "voltage", "current", "capacity", "consumed_mah"],
+        "max_samples": 120,
     }
 }
 
@@ -277,6 +284,33 @@ def mock_worker(shm_name, frequency, noise, mode):
                         else:
                             last_val = last_values.get(field, 180.0)
                             val = (last_val + random.uniform(-4.0, 4.0)) % 360.0
+                elif shm_name == "battery_status_stream":
+                    if field == "voltage":
+                        cap_val = last_values.get("capacity", 100.0)
+                        val = 10.5 + (cap_val / 100.0) * 2.1
+                    elif field == "current":
+                        if mode == "sine":
+                            val = 5.0 + 4.0 * math.sin(step * 0.05)
+                        else:
+                            last_val = last_values.get(field, 5.0)
+                            val = max(0.5, min(15.0, last_val + random.uniform(-0.5, 0.5)))
+                    elif field == "capacity":
+                        if mode == "sine":
+                            val = 50.0 + 48.0 * math.sin(step * 0.01)
+                        else:
+                            last_val = last_values.get(field, 100.0)
+                            val = last_val - 0.1
+                            if val <= 0:
+                                val = 100.0
+                    elif field == "consumed_mah":
+                        if mode == "sine":
+                            val = (step * 2.5) % 2200.0
+                        else:
+                            last_val = last_values.get(field, 0.0)
+                            curr_val = last_values.get("current", 5.0)
+                            val = last_val + (curr_val * 1000.0 * (1.0 / frequency) / 3600.0)
+                            if last_values.get("capacity", 100.0) >= 99.9:
+                                val = 0.0
                 else:  # future_sensor_stream
                     if field == "temperature":
                         val = 24.0 + 6.0 * math.sin(step * 0.02) if mode == "sine" else last_values.get(field, 24.0) + random.uniform(-0.1, 0.1)

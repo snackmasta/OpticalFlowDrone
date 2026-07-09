@@ -43,6 +43,9 @@ start_services() {
     echo "Starting Optical Flow Stream..."
     "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
+    echo "Starting Battery Monitor..."
+    "$PYTHON_BIN" "$PROJECT_DIR/battery_monitor.py" > "$LOG_DIR/battery_monitor.log" 2>&1 &
+
     echo "All services started."
 }
 
@@ -53,13 +56,14 @@ stop_services() {
     pkill -f "hmc5883l.py"
     pkill -f "read_shared_memory.py --dashboard"
     pkill -f "optical_flow_stream.py -stream"
+    pkill -f "battery_monitor.py"
     killall mediamtx 2>/dev/null || true
     echo "All services stopped."
 }
 
 check_status() {
     echo "=== Service Status ==="
-    for service in "mavproxy.py" "static_gps_injector.py" "hmc5883l.py" "read_shared_memory.py" "optical_flow_stream.py"; do
+    for service in "mavproxy.py" "static_gps_injector.py" "hmc5883l.py" "read_shared_memory.py" "optical_flow_stream.py" "battery_monitor.py"; do
         if pgrep -f "$service" > /dev/null; then
             echo -e "  $service: \e[32mRUNNING\e[0m"
         else
