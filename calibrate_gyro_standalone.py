@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Standalone Calibration Script for MPU6050 Gyroscope Bias.
-This script reads raw data from MPU6050, averages 200 samples, and computes the bias offsets.
+Standalone Calibration Script for MPU6050 Gyroscope Bias with CSV Logging.
+This script reads raw data from MPU6050, averages 200 samples, computes the bias offsets,
+and logs all individual samples to a CSV file.
 """
 
 import time
 import sys
+import os
+import csv
 
 try:
     from smbus2 import SMBus
@@ -21,6 +24,10 @@ GYRO_XOUT_H = 0x43
 GYRO_YOUT_H = 0x45
 GYRO_ZOUT_H = 0x47
 GYRO_LSB_PER_DPS = 131.0  # LSB per derajat/detik untuk skala +/- 250 dps
+
+# Path Output Log
+OUTPUT_DIR = "hasil_dan_pembahasan"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "gyro_calibration_samples.csv")
 
 def read_i2c_word(bus, addr, reg):
     """Membaca 2 byte register I2C dan mengonversinya menjadi integer 16-bit bertanda."""
@@ -55,6 +62,11 @@ def main():
     gy_total = 0.0
     gz_total = 0.0
     
+    # Pastikan direktori output ada
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+        
+    samples_data = []
     print(f"\nMemulai pengambilan {sample_count} sampel data (durasi ~2 detik)...")
     
     for i in range(sample_count):
@@ -71,6 +83,17 @@ def main():
             gx_total += gx_dps
             gy_total += gy_dps
             gz_total += gz_dps
+            
+            # Simpan data sampel
+            samples_data.append({
+                "sample_index": i + 1,
+                "gx_raw": gx_raw,
+                "gy_raw": gy_raw,
+                "gz_raw": gz_raw,
+                "gx_dps": gx_dps,
+                "gy_dps": gy_dps,
+                "gz_dps": gz_dps
+            })
             
             # Print progres secara interaktif
             if (i + 1) % 20 == 0:
@@ -89,10 +112,33 @@ def main():
     
     print("\n========================= HASIL KALIBRASI =======================")
     print(f"Sampel Terproses  : {sample_count}")
-    print(f"Bias Sumbu-X (dps): {bias_x:+.4f} dps (raw average: {bias_x * GYRO_LSB_PER_DPS:+.2f} LSB)")
-    print(f"Bias Sumbu-Y (dps): {bias_y:+.4f} dps (raw average: {bias_y * GYRO_LSB_PER_DPS:+.2f} LSB)")
-    print(f"Bias Sumbu-Z (dps): {bias_z:+.4f} dps (raw average: {bias_z * GYRO_LSB_PER_DPS:+.2f} LSB)")
+    print(f"Bias Sumbu-X (dps): {bias_x:+.4f} dps")
+    print(f"Bias Sumbu-Y (dps): {bias_y:+.4f} dps")
+    print(f"Bias Sumbu-Z (dps): {bias_z:+.4f} dps")
     print("=================================================================")
+    
+    # Simpan sampel ke berkas CSV
+    print(f"Menulis data sampel ke: {OUTPUT_FILE} ...")
+    try:
+        with open(OUTPUT_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            # Tulis header
+            writer.writerow([
+                "Sample Index", 
+                "GX Raw (LSB)", "GY Raw (LSB)", "GZ Raw (LSB)", 
+                "GX (dps)", "GY (dps)", "GZ (dps)"
+            ])
+            # Tulis baris data
+            for row in samples_data:
+                writer.writerow([
+                    row["sample_index"],
+                    row["gx_raw"], row["gy_raw"], row["gz_raw"],
+                    f"{row['gx_dps']:.6f}", f"{row['gy_dps']:.6f}", f"{row['gz_dps']:.6f}"
+                ])
+        print("Penulisan CSV berhasil!")
+    except Exception as e:
+        print(f"Gagal menulis file CSV: {e}")
+        
     print("\nFormat penulisan untuk konfigurasi Python:")
     print(f"gyro_bias = {{\n    'x': {bias_x:.6f},\n    'y': {bias_y:.6f},\n    'z': {bias_z:.6f}\n}}")
     print("=================================================================")

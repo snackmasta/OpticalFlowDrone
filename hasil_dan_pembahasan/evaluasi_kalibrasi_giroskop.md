@@ -65,3 +65,29 @@ Jika nilai bias sumbu-X sebesar $-8,1874\text{ dps}$ ini diabaikan (tidak dikomp
    Drone akan menganggap dirinya miring hampir $500^\circ$ padahal wahana berada dalam kondisi diam rata di meja.
 2. **Kesalahan Kompensasi Rotasi Aliran Optik**:
    Algoritma *optical flow* membutuhkan estimasi sudut sikap yang sangat presisi untuk menghilangkan efek rotasi lensa (*tilt compensation*). Galat sudut sikap yang besar akan memproyeksikan pergeseran rotasi semu sebagai kecepatan linier translasi fisik. Akibatnya, drone akan menghitung pergerakan navigasi otonom liar padahal wahana dalam keadaan diam sempurna.
+
+---
+
+## 5. Contoh Rekaman Sampel Kalibrasi (Sample Calibration Log)
+
+Seluruh 200 sampel data pembacaan sensor direkam secara otomatis ke dalam file log [gyro_calibration_samples.csv](file:///e:/OptFlowDrone/OpticalFlowDrone/hasil_dan_pembahasan/gyro_calibration_samples.csv). Contoh representasi 10 data pertama dari rekaman log beserta hasil rata-rata akhir 200 sampel disajikan pada **Tabel 2**.
+
+---
+
+## 5. Visualisasi Rekaman Sampel Kalibrasi (Visual Calibration Log)
+
+Seluruh 200 sampel data pembacaan sensor direkam secara otomatis ke dalam file log [gyro_calibration_samples.csv](file:///e:/OptFlowDrone/OpticalFlowDrone/hasil_dan_pembahasan/gyro_calibration_samples.csv). Karena jumlah data yang sangat banyak, sebaran data disajikan dalam bentuk plot sinyal giroskop tiga sumbu terhadap garis rata-rata biasnya pada **Gambar 1**.
+
+![Grafik Kalibrasi Giroskop](gyro_calibration_plot.png)
+<p align="center"><b>Gambar 1.</b> Grafik visualisasi 200 sampel pembacaan stasis giroskop MPU6050 terhadap garis rata-rata bias.</p>
+
+Ringkasan statistik akhir dari 200 sampel data log tersebut dirangkum pada **Tabel 2**.
+
+<p align="center"><b>Tabel 2.</b> Ringkasan Statistik Hasil Kalibrasi Giroskop</p>
+
+| Parameter Evaluasi | Sumbu-X (GX) | Sumbu-Y (GY) | Sumbu-Z (GZ) |
+|:-------------------|:------------:|:------------:|:------------:|
+| **Rata-rata Bias Mentah (LSB)** | -1072,55 LSB | +74,32 LSB | -35,55 LSB |
+| **Nilai Bias Terkalkulasi (dps)** | **-8,1874 dps** | **+0,5673 dps** | **-0,2714 dps** |
+| **Deviasi Standar (Derau/Noise)** | 0,0150 dps | 0,0100 dps | 0,0080 dps |
+
