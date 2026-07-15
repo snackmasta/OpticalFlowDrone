@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Standalone Calibration Script for MPU6050 Gyroscope Bias with CSV Logging.
-This script reads raw data from MPU6050, averages 200 samples, computes the bias offsets,
-and logs all individual samples to a CSV file.
+Logs raw, uncalibrated, and calibrated values to demonstrate calibration effect.
 """
 
 import time
@@ -23,14 +22,13 @@ IMU_PWR_MGMT_1 = 0x6B
 GYRO_XOUT_H = 0x43
 GYRO_YOUT_H = 0x45
 GYRO_ZOUT_H = 0x47
-GYRO_LSB_PER_DPS = 131.0  # LSB per derajat/detik untuk skala +/- 250 dps
+GYRO_LSB_PER_DPS = 131.0  # LSB per derajat/detik
 
 # Path Output Log
 OUTPUT_DIR = "hasil_dan_pembahasan"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "gyro_calibration_samples.csv")
 
 def read_i2c_word(bus, addr, reg):
-    """Membaca 2 byte register I2C dan mengonversinya menjadi integer 16-bit bertanda."""
     high = bus.read_byte_data(addr, reg)
     low = bus.read_byte_data(addr, reg + 1)
     value = (high << 8) | low
@@ -48,16 +46,15 @@ def main():
     
     try:
         bus = SMBus(IMU_I2C_BUS)
-        # Bangunkan MPU6050 (menulis 0 ke PWR_MGMT_1)
         bus.write_byte_data(IMU_I2C_ADDR, IMU_PWR_MGMT_1, 0)
         time.sleep(0.2)
         print("Koneksi berhasil! MPU6050 terbangun.")
     except Exception as e:
         print(f"Gagal menghubungkan ke sensor: {e}")
-        print("Pastikan koneksi kabel I2C (SDA, SCL) dan alamat 0x68 sudah benar.")
         sys.exit(1)
         
     sample_count = 200
+    dt = 0.01  # Interval 10 ms
     gx_total = 0.0
     gy_total = 0.0
     gz_total = 0.0
@@ -75,31 +72,29 @@ def main():
             gy_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_YOUT_H)
             gz_raw = read_i2c_word(bus, IMU_I2C_ADDR, GYRO_ZOUT_H)
             
-            # Konversi langsung ke dps (derajat per detik)
-            gx_dps = gx_raw / GYRO_LSB_PER_DPS
-            gy_dps = gy_raw / GYRO_LSB_PER_DPS
-            gz_dps = gz_raw / GYRO_LSB_PER_DPS
+            # Konversi uncalibrated dps
+            gx_uncal = gx_raw / GYRO_LSB_PER_DPS
+            gy_uncal = gy_raw / GYRO_LSB_PER_DPS
+            gz_uncal = gz_raw / GYRO_LSB_PER_DPS
             
-            gx_total += gx_dps
-            gy_total += gy_dps
-            gz_total += gz_dps
+            gx_total += gx_uncal
+            gy_total += gy_uncal
+            gz_total += gz_uncal
             
-            # Simpan data sampel
             samples_data.append({
                 "sample_index": i + 1,
                 "gx_raw": gx_raw,
                 "gy_raw": gy_raw,
                 "gz_raw": gz_raw,
-                "gx_dps": gx_dps,
-                "gy_dps": gy_dps,
-                "gz_dps": gz_dps
+                "gx_uncal": gx_uncal,
+                "gy_uncal": gy_uncal,
+                "gz_uncal": gz_uncal
             })
             
-            # Print progres secara interaktif
             if (i + 1) % 20 == 0:
                 print(f"Progress: {i + 1}/{sample_count} sampel terkumpul...")
                 
-            time.sleep(0.01)  # Jeda 10 ms antar-sampel
+            time.sleep(dt)
             
         except Exception as e:
             print(f"\nError saat membaca sensor pada sampel ke-{i+1}: {e}")
@@ -111,29 +106,59 @@ def main():
     bias_z = gz_total / sample_count
     
     print("\n========================= HASIL KALIBRASI =======================")
-    print(f"Sampel Terproses  : {sample_count}")
     print(f"Bias Sumbu-X (dps): {bias_x:+.4f} dps")
     print(f"Bias Sumbu-Y (dps): {bias_y:+.4f} dps")
     print(f"Bias Sumbu-Z (dps): {bias_z:+.4f} dps")
     print("=================================================================")
     
+    # Hitung data terkalibrasi dan integrasi
+    x_int_uncal, y_int_uncal, z_int_uncal = 0.0, 0.0, 0.0
+    x_int_cal, y_int_cal, z_int_cal = 0.0, 0.0, 0.0
+    
+    for row in samples_data:
+        # Terapkan koreksi bias
+        row["gx_cal"] = row["gx_uncal"] - bias_x
+        row["gy_cal"] = row["gy_uncal"] - bias_y
+        row["gz_cal"] = row["gz_uncal"] - bias_z
+        
+        # Hitung integrasi sudut (kecepatan * dt)
+        x_int_uncal += row["gx_uncal"] * dt
+        y_int_uncal += row["gy_uncal"] * dt
+        z_int_uncal += row["gz_uncal"] * dt
+        
+        x_int_cal += row["gx_cal"] * dt
+        y_int_cal += row["gy_cal"] * dt
+        z_int_cal += row["gz_cal"] * dt
+        
+        row["x_angle_uncal"] = x_int_uncal
+        row["y_angle_uncal"] = y_int_uncal
+        row["z_angle_uncal"] = z_int_uncal
+        
+        row["x_angle_cal"] = x_int_cal
+        row["y_angle_cal"] = y_int_cal
+        row["z_angle_cal"] = z_int_cal
+
     # Simpan sampel ke berkas CSV
     print(f"Menulis data sampel ke: {OUTPUT_FILE} ...")
     try:
         with open(OUTPUT_FILE, "w", newline="") as f:
             writer = csv.writer(f)
-            # Tulis header
             writer.writerow([
                 "Sample Index", 
                 "GX Raw (LSB)", "GY Raw (LSB)", "GZ Raw (LSB)", 
-                "GX (dps)", "GY (dps)", "GZ (dps)"
+                "GX Uncal (dps)", "GY Uncal (dps)", "GZ Uncal (dps)",
+                "GX Cal (dps)", "GY Cal (dps)", "GZ Cal (dps)",
+                "Roll Angle Uncal (deg)", "Pitch Angle Uncal (deg)", "Yaw Angle Uncal (deg)",
+                "Roll Angle Cal (deg)", "Pitch Angle Cal (deg)", "Yaw Angle Cal (deg)"
             ])
-            # Tulis baris data
-            for row in samples_data:
+            for r in samples_data:
                 writer.writerow([
-                    row["sample_index"],
-                    row["gx_raw"], row["gy_raw"], row["gz_raw"],
-                    f"{row['gx_dps']:.6f}", f"{row['gy_dps']:.6f}", f"{row['gz_dps']:.6f}"
+                    r["sample_index"],
+                    r["gx_raw"], r["gy_raw"], r["gz_raw"],
+                    f"{r['gx_uncal']:.6f}", f"{r['gy_uncal']:.6f}", f"{r['gz_uncal']:.6f}",
+                    f"{r['gx_cal']:.6f}", f"{r['gy_cal']:.6f}", f"{r['gz_cal']:.6f}",
+                    f"{r['x_angle_uncal']:.6f}", f"{r['y_angle_uncal']:.6f}", f"{r['z_angle_uncal']:.6f}",
+                    f"{r['x_angle_cal']:.6f}", f"{r['y_angle_cal']:.6f}", f"{r['z_angle_cal']:.6f}"
                 ])
         print("Penulisan CSV berhasil!")
     except Exception as e:
