@@ -107,7 +107,7 @@ def main():
     pitch_cf = 0.0
     
     log_data = []
-    duration = 10.0  # Durasi pengumpulan data: 10 detik
+    duration = 20.0  # Durasi pengumpulan data: 20 detik
     rate_hz = 50     # Frekuensi pengambilan data: 50 Hz
     dt = 1.0 / rate_hz
     
