@@ -525,7 +525,17 @@
             </div>
         </header>
 
-        <div class="layout-grid">
+        <!-- Mode Switcher -->
+        <div class="mode-switcher-container" style="display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <button class="toggle-btn active" id="btn-mode-stream" style="padding: 10px 20px; font-size: 0.95rem; font-weight: 600; border-radius: 10px; display: inline-flex; align-items: center; gap: 8px;">
+                📡 Stream Analysis (Live Telemetry)
+            </button>
+            <button class="toggle-btn" id="btn-mode-recording" style="padding: 10px 20px; font-size: 0.95rem; font-weight: 600; border-radius: 10px; display: inline-flex; align-items: center; gap: 8px;">
+                📊 Recording Analysis (Offline Log Viewer)
+            </button>
+        </div>
+
+        <div class="layout-grid" id="stream-analysis-view">
             <!-- Sidebar: Registry list -->
             <div class="sidebar">
                 <div class="card">
@@ -584,6 +594,23 @@
                     </div>
 
                     <div id="shm-inspector-content" style="display:none;">
+                        <!-- Client-Side Recording / Logging Controls -->
+                        <div class="chart-controls" style="margin-top: 10px; background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.15); display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span class="badge" style="background: rgba(15, 23, 42, 0.4); border-color: rgba(148, 163, 184, 0.12); padding: 6px 12px; display: inline-flex; align-items: center;">
+                                    <span class="dot offline" id="record-dot" style="margin-right: 6px; box-shadow: none; background: #94a3b8; width: 8px; height: 8px; border-radius: 50%;"></span>
+                                    <span id="record-status-text" style="font-size:0.8rem; color:var(--text-muted); font-weight:600; text-transform: uppercase;">Not Recording</span>
+                                </span>
+                                <span id="record-count" style="font-size: 0.85rem; color: var(--text-muted); display: none; font-family: 'JetBrains Mono', monospace;">0 samples recorded</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <button class="toggle-btn" id="btn-toggle-record" style="font-weight: 600;">Start Session Recording</button>
+                                <button class="toggle-btn" id="btn-export-csv" style="display: none;">Export CSV</button>
+                                <button class="toggle-btn" id="btn-export-json" style="display: none;">Export JSON</button>
+                                <button class="toggle-btn" id="btn-clear-record" style="display: none; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #ef4444;">Clear</button>
+                            </div>
+                        </div>
+
                         <!-- Chart Controls (Toggles and Axis lock) -->
                         <div class="chart-controls">
                             <div class="toggle-group" id="chart-dataset-toggles">
@@ -695,6 +722,67 @@
                 </div>
             </div>
         </div>
+
+        <!-- Recording Analysis View -->
+        <div id="recording-analysis-view" style="display: none;">
+            <div class="card">
+                <h2>Log File Analyzer</h2>
+                <p class="brand p" style="margin-bottom: 16px;">Upload a previously exported CSV or JSON telemetry log file to analyze, replay, and plot the complete dataset.</p>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px;">
+                    <!-- Drop Zone -->
+                    <div id="drop-zone" style="border: 2px dashed var(--accent-primary); border-radius: 16px; padding: 30px; text-align: center; background: rgba(14, 165, 233, 0.03); cursor: pointer; transition: all 0.2s;">
+                        <div style="font-size: 2rem; margin-bottom: 10px;">📂</div>
+                        <div style="font-weight: 600; color: var(--text-main);">Drag & Drop Log File</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Supports CSV and JSON exported from this dashboard</div>
+                        <input type="file" id="file-input" accept=".csv,.json" style="display: none;">
+                    </div>
+                    
+                    <!-- Load Current Session -->
+                    <div id="load-active-session-zone" style="border: 1px solid var(--border-color); border-radius: 16px; padding: 30px; text-align: center; background: var(--bg-card); display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                        <div style="font-size: 2rem; margin-bottom: 10px;">⏱️</div>
+                        <div style="font-weight: 600; color: var(--text-main);">Analyze Current Session</div>
+                        <div id="analysis-session-summary" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; margin-bottom: 12px;">No active session recorded.</div>
+                        <button class="toggle-btn" id="btn-analyze-active" disabled style="padding: 8px 16px;">Load Recorded Session</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Dashboard Panel -->
+            <div class="card" id="analysis-panel" style="display: none;">
+                <h2>
+                    <span id="analysis-title">Telemetry Log: unnamed</span>
+                    <div class="badge" id="analysis-records-badge" style="font-size: 0.8rem; padding: 4px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 99px;">0 records</div>
+                </h2>
+
+                <div class="chart-controls">
+                    <div class="toggle-group" id="analysis-dataset-toggles">
+                        <!-- Dynamic analysis checkboxes -->
+                    </div>
+                </div>
+
+                <div class="chart-container" style="height: 380px; position: relative;">
+                    <canvas id="analysisChart"></canvas>
+                </div>
+
+                <!-- Decoded Fields Table for Log Analysis -->
+                <div style="margin-top:24px;">
+                    <h3>Complete Session Dataset</h3>
+                    <div class="data-table-container" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 12px; margin-top: 10px;">
+                        <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+                            <thead>
+                                <tr id="table-analysis-headers" style="background: rgba(15, 23, 42, 0.6);">
+                                    <!-- Dynamic headers -->
+                                </tr>
+                            </thead>
+                            <tbody id="table-analysis-rows">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -719,6 +807,16 @@
         let mergedFields = {}; // targetField -> array of sourceFields
 
         let shmConfig = {};
+
+        // Client-side session recording state
+        let isRecording = false;
+        let recordedSamples = [];
+        let recordedFields = [];
+
+        // Offline Log Analyzer State
+        let analysisChartInstance = null;
+        let analysisData = [];
+        let analysisFields = [];
 
         async function loadConfig() {
             try {
@@ -783,6 +881,10 @@
         }
 
         function selectSegment(seg) {
+            if (seg.name !== selectedShmName) {
+                stopRecording();
+                clearRecording();
+            }
             selectedShmName = seg.name;
             
             // Initialize config if not existing
@@ -909,6 +1011,22 @@
                     updateChart(data.samples, data.fields);
                     if (selectedShmName === "optical_flow_stream") {
                         updateMinimap(data.samples);
+                    }
+
+                    if (isRecording && data.samples && data.samples.length > 0) {
+                        recordedFields = data.fields;
+                        for (let i = data.samples.length - 1; i >= 0; i--) {
+                            const sample = data.samples[i];
+                            const exists = recordedSamples.some(s => s.timestamp === sample.timestamp);
+                            if (!exists) {
+                                recordedSamples.push(sample);
+                            }
+                        }
+                        const countEl = document.getElementById('record-count');
+                        if (countEl) {
+                            countEl.textContent = `${recordedSamples.length} samples recorded`;
+                        }
+                        updateRecordingUI();
                     }
                 } else {
                     document.getElementById('hex-rows').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Segment uninitialized</td></tr>';
@@ -1597,6 +1715,131 @@
         }
 
         // Action Buttons Setup
+        // Client-Side Session Recording Helpers
+        function stopRecording() {
+            isRecording = false;
+            const dot = document.getElementById('record-dot');
+            const text = document.getElementById('record-status-text');
+            const btn = document.getElementById('btn-toggle-record');
+            
+            if (dot) {
+                dot.className = "dot offline";
+                dot.style.background = "#94a3b8";
+                dot.style.boxShadow = "none";
+            }
+            if (text) text.textContent = "Not Recording";
+            if (btn) {
+                btn.textContent = "Start Session Recording";
+                btn.classList.remove('active');
+            }
+            updateRecordingUI();
+        }
+
+        function startRecording() {
+            isRecording = true;
+            const dot = document.getElementById('record-dot');
+            const text = document.getElementById('record-status-text');
+            const btn = document.getElementById('btn-toggle-record');
+            const countEl = document.getElementById('record-count');
+            
+            if (dot) {
+                dot.className = "dot";
+                dot.style.background = "var(--accent-success)";
+                dot.style.boxShadow = "0 0 10px var(--accent-success)";
+            }
+            if (text) text.textContent = "Recording";
+            if (btn) {
+                btn.textContent = "Stop Session Recording";
+                btn.classList.add('active');
+            }
+            if (countEl) countEl.style.display = "inline-block";
+            updateRecordingUI();
+        }
+
+        function clearRecording() {
+            recordedSamples = [];
+            recordedFields = [];
+            const countEl = document.getElementById('record-count');
+            if (countEl) {
+                countEl.textContent = `0 samples recorded`;
+                countEl.style.display = "none";
+            }
+            updateRecordingUI();
+        }
+
+        function updateRecordingUI() {
+            const hasData = recordedSamples.length > 0;
+            const btnCsv = document.getElementById('btn-export-csv');
+            const btnJson = document.getElementById('btn-export-json');
+            const btnClear = document.getElementById('btn-clear-record');
+            
+            if (btnCsv) btnCsv.style.display = hasData ? 'inline-block' : 'none';
+            if (btnJson) btnJson.style.display = hasData ? 'inline-block' : 'none';
+            if (btnClear) btnClear.style.display = hasData ? 'inline-block' : 'none';
+
+            const loadBtn = document.getElementById('btn-analyze-active');
+            const summaryText = document.getElementById('analysis-session-summary');
+            if (loadBtn && summaryText) {
+                if (hasData) {
+                    summaryText.textContent = `Active session contains ${recordedSamples.length} samples (${selectedShmName || "unknown"}).`;
+                    loadBtn.disabled = false;
+                } else {
+                    summaryText.textContent = "No active session recorded.";
+                    loadBtn.disabled = true;
+                }
+            }
+        }
+
+        function exportToCSV() {
+            if (recordedSamples.length === 0 || recordedFields.length === 0) return;
+            
+            let csvContent = recordedFields.join(",") + "\n";
+            recordedSamples.forEach(sample => {
+                const row = recordedFields.map(field => {
+                    const val = sample[field];
+                    return val !== undefined ? val : "";
+                });
+                csvContent += row.join(",") + "\n";
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const downloadAnchor = document.createElement('a');
+            const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadAnchor.setAttribute("href", url);
+            downloadAnchor.setAttribute("download", `${selectedShmName}_session_${timeStr}.csv`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        function exportToJSON() {
+            if (recordedSamples.length === 0) return;
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(recordedSamples, null, 2));
+            const downloadAnchor = document.createElement('a');
+            const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `${selectedShmName}_session_${timeStr}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        // Add recording event listeners
+        document.getElementById('btn-toggle-record').addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+        document.getElementById('btn-export-csv').addEventListener('click', exportToCSV);
+        document.getElementById('btn-export-json').addEventListener('click', exportToJSON);
+        document.getElementById('btn-clear-record').addEventListener('click', () => {
+            if (confirm("Are you sure you want to clear the recorded session data?")) {
+                clearRecording();
+            }
+        });
         document.getElementById('btn-lock-axis').addEventListener('click', toggleAxisLock);
         document.getElementById('btn-apply-range').addEventListener('click', applyManualRange);
         document.getElementById('btn-toggle-layout').addEventListener('click', toggleLayoutMode);
@@ -2161,6 +2404,230 @@
                 alert("Error saving offsets: " + err);
             }
         });
+
+        // Offline Log Analyzer Functions & Switcher Logic
+        function parseLogContent(text, filename) {
+            analysisData = [];
+            analysisFields = [];
+            
+            text = text.trim();
+            if (text.startsWith('[') || text.startsWith('{')) {
+                try {
+                    analysisData = JSON.parse(text);
+                    if (analysisData.length > 0) {
+                        analysisFields = Object.keys(analysisData[0]);
+                    }
+                } catch (e) {
+                    alert("Error parsing JSON log file: " + e.message);
+                    return;
+                }
+            } else {
+                const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+                if (lines.length < 2) {
+                    alert("CSV log file is empty or missing data rows.");
+                    return;
+                }
+                analysisFields = lines[0].split(',').map(f => f.trim());
+                for (let i = 1; i < lines.length; i++) {
+                    const parts = lines[i].split(',');
+                    if (parts.length === analysisFields.length) {
+                        const row = {};
+                        analysisFields.forEach((field, idx) => {
+                            const val = parts[idx].trim();
+                            const num = parseFloat(val);
+                            row[field] = isNaN(num) ? val : num;
+                        });
+                        analysisData.push(row);
+                    }
+                }
+            }
+
+            if (analysisData.length === 0) {
+                alert("No valid telemetry records found in the log file.");
+                return;
+            }
+
+            document.getElementById('analysis-panel').style.display = 'block';
+            document.getElementById('analysis-title').textContent = `Telemetry Log: ${filename}`;
+            document.getElementById('analysis-records-badge').textContent = `${analysisData.length} records`;
+
+            initAnalysisUI();
+        }
+
+        function initAnalysisUI() {
+            const numericFields = analysisFields.filter(f => f !== 'timestamp');
+            
+            // Build toggles
+            const toggleContainer = document.getElementById('analysis-dataset-toggles');
+            toggleContainer.innerHTML = '';
+            numericFields.forEach((field, i) => {
+                const btn = document.createElement('button');
+                btn.className = 'toggle-btn active';
+                btn.textContent = field;
+                
+                const color = colors[i % colors.length];
+                btn.style.setProperty('--btn-color', color);
+                const glowColor = color.replace('rgb', 'rgba').replace(')', ', 0.35)');
+                btn.style.setProperty('--btn-color-glow', glowColor);
+
+                btn.onclick = () => {
+                    const isVisible = analysisChartInstance.isDatasetVisible(i);
+                    analysisChartInstance.setDatasetVisibility(i, !isVisible);
+                    analysisChartInstance.update();
+                    if (!isVisible) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                };
+                toggleContainer.appendChild(btn);
+            });
+
+            // Build headers
+            const headerTr = document.getElementById('table-analysis-headers');
+            headerTr.innerHTML = '<th>Timestamp</th>' + numericFields.map(f => `<th>${f}</th>`).join('');
+
+            // Build rows
+            const tbody = document.getElementById('table-analysis-rows');
+            tbody.innerHTML = '';
+            analysisData.forEach(samp => {
+                const tr = document.createElement('tr');
+                let tsStr = "N/A";
+                if (samp.timestamp) {
+                    const date = new Date(samp.timestamp * 1000);
+                    tsStr = date.toLocaleTimeString() + '.' + String(date.getMilliseconds()).padStart(3, '0');
+                }
+                let rowHtml = `<td>${tsStr}</td>`;
+                numericFields.forEach(field => {
+                    const val = samp[field];
+                    rowHtml += `<td>${typeof val === 'number' ? val.toFixed(4) : val}</td>`;
+                });
+                tr.innerHTML = rowHtml;
+                tbody.appendChild(tr);
+            });
+
+            // Build/Update analysis chart
+            const labels = analysisData.map(samp => {
+                const date = new Date(samp.timestamp * 1000);
+                return date.toLocaleTimeString(undefined, {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'}) + '.' + String(date.getMilliseconds()).padStart(3, '0');
+            });
+
+            const datasets = numericFields.map((field, i) => {
+                const color = colors[i % colors.length];
+                return {
+                    label: field,
+                    data: analysisData.map(samp => samp[field]),
+                    borderColor: color,
+                    backgroundColor: color.replace('rgb', 'rgba').replace(')', ', 0.1)'),
+                    borderWidth: 2,
+                    tension: 0.1,
+                    pointRadius: analysisData.length > 200 ? 0 : 2,
+                    fill: false
+                };
+            });
+
+            if (analysisChartInstance) {
+                analysisChartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('analysisChart').getContext('2d');
+            analysisChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(148, 163, 184, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(148, 163, 184, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Mode switching logic
+        const btnModeStream = document.getElementById('btn-mode-stream');
+        const btnModeRecording = document.getElementById('btn-mode-recording');
+        const streamView = document.getElementById('stream-analysis-view');
+        const recordingView = document.getElementById('recording-analysis-view');
+
+        btnModeStream.addEventListener('click', () => {
+            btnModeStream.classList.add('active');
+            btnModeRecording.classList.remove('active');
+            streamView.style.display = 'grid';
+            recordingView.style.display = 'none';
+        });
+
+        btnModeRecording.addEventListener('click', () => {
+            btnModeRecording.classList.add('active');
+            btnModeStream.classList.remove('active');
+            streamView.style.display = 'none';
+            recordingView.style.display = 'block';
+            updateRecordingUI(); // Sync info on active recorded sessions
+        });
+
+        // Load active session click handler
+        document.getElementById('btn-analyze-active').addEventListener('click', () => {
+            if (recordedSamples.length === 0) return;
+            analysisData = [...recordedSamples];
+            analysisFields = [...recordedFields];
+            
+            document.getElementById('analysis-panel').style.display = 'block';
+            document.getElementById('analysis-title').textContent = `Active Session Telemetry: ${selectedShmName || "unknown"}`;
+            document.getElementById('analysis-records-badge').textContent = `${analysisData.length} records`;
+
+            initAnalysisUI();
+        });
+
+        // File drop zone event listeners
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleLogFile(file);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--accent-success)';
+            dropZone.style.background = 'rgba(16, 185, 129, 0.04)';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = 'var(--accent-primary)';
+            dropZone.style.background = 'rgba(14, 165, 233, 0.03)';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--accent-primary)';
+            dropZone.style.background = 'rgba(14, 165, 233, 0.03)';
+            const file = e.dataTransfer.files[0];
+            if (file) handleLogFile(file);
+        });
+
+        function handleLogFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                parseLogContent(e.target.result, file.name);
+            };
+            reader.readAsText(file);
+        }
 
         // Initialize Page
         window.addEventListener('load', async () => {
