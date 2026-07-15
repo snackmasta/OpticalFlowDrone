@@ -24,9 +24,9 @@ PNG_FILE = os.path.join(OUTPUT_DIR, "gyro_calibration_plot.png")
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-# 1. Generator Data Sampel (200 sampel stasis berdasarkan statistik MPU6050)
+# 1. Generator Data Sampel (1000 sampel stasis berdasarkan statistik MPU6050)
 np.random.seed(42)
-sample_count = 200
+sample_count = 1000
 GYRO_LSB_PER_DPS = 131.0
 dt = 0.01  # 10 ms
 

@@ -53,7 +53,7 @@ def main():
         print(f"Gagal menghubungkan ke sensor: {e}")
         sys.exit(1)
         
-    sample_count = 200
+    sample_count = 1000
     dt = 0.01  # Interval 10 ms
     gx_total = 0.0
     gy_total = 0.0
