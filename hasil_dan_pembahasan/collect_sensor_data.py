@@ -76,6 +76,10 @@ def get_compass_heading(compass_shm):
 def normalize_angle_deg(angle_deg):
     return ((angle_deg + 180.0) % 360.0) - 180.0
 
+def invert_compass_heading_deg(heading_deg):
+    """Inversi sudut kompas sesuai implementasi di sensor_readers.py."""
+    return normalize_angle_deg(-heading_deg)
+
 def angular_error_deg(target_deg, current_deg):
     return normalize_angle_deg(target_deg - current_deg)
 
@@ -109,14 +113,24 @@ def main():
     except FileNotFoundError:
         print("Peringatan: Shared memory kompas tidak aktif. Menggunakan simulasi kompas magnetik.")
 
-    # Inisialisasi variabel integrasi
+    # Ambil pembacaan awal kompas untuk inisialisasi agar terhindar dari startup transient
+    initial_heading_raw = 257.40  # Nilai default jika simulasi
+    if compass_shm is not None:
+        shm_val = get_compass_heading(compass_shm)
+        if shm_val is not None:
+            initial_heading_raw = shm_val
+
+    # Konversi hadap awal sesuai metode di sensor_readers.py
+    initial_heading_deg = invert_compass_heading_deg(initial_heading_raw)
+
+    # Inisialisasi variabel integrasi dengan nilai awal kompas
     roll_gyro_pure = 0.0
     pitch_gyro_pure = 0.0
-    yaw_gyro_pure = 0.0
+    yaw_gyro_pure = initial_heading_deg
     
     roll_cf = 0.0
     pitch_cf = 0.0
-    yaw_cf = 0.0
+    yaw_cf = initial_heading_deg
     
     log_data = []
     duration = 20.0  # Durasi pengumpulan data: 20 detik
@@ -124,10 +138,7 @@ def main():
     dt = 1.0 / rate_hz
     
     print(f"\nMemulai pengumpulan data selama {duration} detik pada rate {rate_hz} Hz...")
-    if bus is None:
-        print("STATUS: Menjalankan simulasi gerakan harmonik (Roll/Pitch/Yaw)...")
-    else:
-        print("Silakan gerakkan drone untuk melihat perbedaan integrasinya.")
+    print(f"Yaw Awal diinisialisasi ke: {initial_heading_deg:.2f} derajat (raw compass: {initial_heading_raw:.2f})")
     
     start_time = time.time()
     
@@ -181,19 +192,22 @@ def main():
             # 5. Dapatkan Arah Hadap Kompas (Magnetometer)
             shm_heading = get_compass_heading(compass_shm)
             if shm_heading is not None:
-                heading = shm_heading
+                heading_raw = shm_heading
             else:
                 # Simulasi pembacaan kompas HMC5883L (arah hadap aktual + derau acak kompas)
-                actual_yaw = 45.0 + 10.0 * math.sin(now * 0.5)  # Pergerakan sudut yaw aktual
-                noise = random.gauss(0, 1.5)  # Derau kompas magnetik +/- 1.5 derajat
-                heading = normalize_angle_deg(actual_yaw + noise)
+                actual_yaw_raw = 257.40 + 10.0 * math.sin(now * 0.5)
+                noise = random.gauss(0, 1.5)
+                heading_raw = (actual_yaw_raw + noise) % 360
+
+            # Konversi dan inversi sesuai metode di sensor_readers.py
+            compass_heading_deg = invert_compass_heading_deg(heading_raw)
 
             # 6. Fusi Filter Komplementer Yaw dengan Kompas
-            # Integrasikan kecepatan sudut z (yaw) terlebih dahulu, lalu blend dengan kompas magnetik
             yaw_gyro_integrated = normalize_angle_deg(yaw_cf + gz_dps * dt)
-            yaw_cf = blend_angle_deg(yaw_gyro_integrated, heading, 1.0 - COMPLEMENTARY_FILTER_ALPHA)
+            yaw_cf = blend_angle_deg(yaw_gyro_integrated, compass_heading_deg, 1.0 - COMPLEMENTARY_FILTER_ALPHA)
 
             # Simpan data ke memori
+            # CATATAN: Untuk plot, simpan `compass_heading_deg` agar sebanding pada grafik
             log_data.append([
                 f"{now:.3f}",
                 f"{ax_g:.4f}", f"{ay_g:.4f}", f"{az_g:.4f}",
@@ -201,7 +215,7 @@ def main():
                 f"{roll_gyro_pure:.4f}", f"{pitch_gyro_pure:.4f}", f"{yaw_gyro_pure:.4f}",
                 f"{roll_accel:.4f}", f"{pitch_accel:.4f}",
                 f"{roll_cf:.4f}", f"{pitch_cf:.4f}", f"{yaw_cf:.4f}",
-                f"{heading:.2f}"
+                f"{compass_heading_deg:.2f}"
             ])
             
             # Tunggu hingga siklus 50Hz terpenuhi
