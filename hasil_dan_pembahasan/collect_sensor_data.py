@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Python Script to Collect and Compare Raw Sensor Data, Pure Gyro Integration,
-and Complementary Filter Outputs (including Yaw and Compass Fusi). Logs to CSV.
+and Complementary Filter Outputs. Outputs all Yaw angles in [0, 360] range
+to match the GPS NMEA injection format.
 """
 
 import time
@@ -77,7 +78,7 @@ def normalize_angle_deg(angle_deg):
     return ((angle_deg + 180.0) % 360.0) - 180.0
 
 def invert_compass_heading_deg(heading_deg):
-    """Inversi sudut kompas sesuai implementasi di sensor_readers.py."""
+    """Inversi sudut kompas sesuai dengan sensor_readers.py."""
     return normalize_angle_deg(-heading_deg)
 
 def angular_error_deg(target_deg, current_deg):
@@ -206,16 +207,19 @@ def main():
             yaw_gyro_integrated = normalize_angle_deg(yaw_cf + gz_dps * dt)
             yaw_cf = blend_angle_deg(yaw_gyro_integrated, compass_heading_deg, 1.0 - COMPLEMENTARY_FILTER_ALPHA)
 
+            # 7. Konversi Yaw ke Output Format NMEA [0, 360] derajat untuk penyimpanan log
+            yaw_cf_360 = (-yaw_cf) % 360.0
+            yaw_gyro_pure_360 = (-yaw_gyro_pure) % 360.0
+
             # Simpan data ke memori
-            # CATATAN: Untuk plot, simpan `compass_heading_deg` agar sebanding pada grafik
             log_data.append([
                 f"{now:.3f}",
                 f"{ax_g:.4f}", f"{ay_g:.4f}", f"{az_g:.4f}",
                 f"{gx_dps:.4f}", f"{gy_dps:.4f}", f"{gz_dps:.4f}",
-                f"{roll_gyro_pure:.4f}", f"{pitch_gyro_pure:.4f}", f"{yaw_gyro_pure:.4f}",
+                f"{roll_gyro_pure:.4f}", f"{pitch_gyro_pure:.4f}", f"{yaw_gyro_pure_360:.4f}",
                 f"{roll_accel:.4f}", f"{pitch_accel:.4f}",
-                f"{roll_cf:.4f}", f"{pitch_cf:.4f}", f"{yaw_cf:.4f}",
-                f"{compass_heading_deg:.2f}"
+                f"{roll_cf:.4f}", f"{pitch_cf:.4f}", f"{yaw_cf_360:.4f}",
+                f"{heading_raw:.2f}"
             ])
             
             # Tunggu hingga siklus 50Hz terpenuhi
@@ -226,7 +230,7 @@ def main():
     except KeyboardInterrupt:
         print("\nPengumpulan data dihentikan secara manual.")
 
-    # 7. Tulis ke CSV
+    # 8. Tulis ke CSV
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         
