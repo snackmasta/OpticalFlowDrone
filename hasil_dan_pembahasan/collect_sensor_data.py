@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Python Script to Collect and Compare Raw Sensor Data, Pure Gyro Integration,
-and Complementary Filter Outputs. Logs to CSV for evaluation.
+and Complementary Filter Outputs (including Yaw and Compass Fusi). Logs to CSV.
 """
 
 import time
@@ -10,6 +10,7 @@ import struct
 import csv
 import os
 import sys
+import random
 from multiprocessing import shared_memory
 
 # Buat pustaka smbus2 opsional agar dapat diuji di PC non-Pi
@@ -59,18 +60,27 @@ def read_i2c_word(bus, addr, reg):
 
 def get_compass_heading(compass_shm):
     if compass_shm is None:
-        return 0.0
+        return None
     try:
         magic, write_index, sample_count = struct.unpack_from(COMPASS_SHM_HEADER_FORMAT, compass_shm.buf, 0)
         if magic != COMPASS_SHM_MAGIC or sample_count == 0:
-            return 0.0
+            return None
         latest_index = (write_index - 1) % COMPASS_MAX_SAMPLES
         record_offset = COMPASS_SHM_HEADER_SIZE + (latest_index * COMPASS_SHM_RECORD_SIZE)
         # Record: timestamp, raw_heading, heading, x, y, z
         _, _, heading, _, _, _ = struct.unpack_from(COMPASS_SHM_RECORD_FORMAT, compass_shm.buf, record_offset)
         return heading
     except Exception:
-        return 0.0
+        return None
+
+def normalize_angle_deg(angle_deg):
+    return ((angle_deg + 180.0) % 360.0) - 180.0
+
+def angular_error_deg(target_deg, current_deg):
+    return normalize_angle_deg(target_deg - current_deg)
+
+def blend_angle_deg(current_deg, target_deg, blend):
+    return normalize_angle_deg(current_deg + (blend * angular_error_deg(target_deg, current_deg)))
 
 def main():
     print("=================================================================")
@@ -97,14 +107,16 @@ def main():
         compass_shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
         print("Berhasil terhubung ke Shared Memory Kompas.")
     except FileNotFoundError:
-        print("Peringatan: Shared memory kompas tidak aktif. Menggunakan nilai fallback 0.0.")
+        print("Peringatan: Shared memory kompas tidak aktif. Menggunakan simulasi kompas magnetik.")
 
     # Inisialisasi variabel integrasi
     roll_gyro_pure = 0.0
     pitch_gyro_pure = 0.0
+    yaw_gyro_pure = 0.0
     
     roll_cf = 0.0
     pitch_cf = 0.0
+    yaw_cf = 0.0
     
     log_data = []
     duration = 20.0  # Durasi pengumpulan data: 20 detik
@@ -113,9 +125,9 @@ def main():
     
     print(f"\nMemulai pengumpulan data selama {duration} detik pada rate {rate_hz} Hz...")
     if bus is None:
-        print("STATUS: Menjalankan simulasi gerakan harmonik (Roll/Pitch sinewave)...")
+        print("STATUS: Menjalankan simulasi gerakan harmonik (Roll/Pitch/Yaw)...")
     else:
-        print("Silakan gerakkan drone (roll dan pitch) untuk melihat perbedaan integrasinya.")
+        print("Silakan gerakkan drone untuk melihat perbedaan integrasinya.")
     
     start_time = time.time()
     
@@ -149,9 +161,9 @@ def main():
                 ax_g = 0.1 * math.sin(t_val)
                 ay_g = 0.15 * math.cos(t_val)
                 az_g = 0.98  # Gaya gravitasi bumi
-                gx_dps = 15.0 * math.cos(t_val)  # Kecepatan sudut X
-                gy_dps = -10.0 * math.sin(t_val) # Kecepatan sudut Y
-                gz_dps = 0.0
+                gx_dps = 15.0 * math.cos(t_val)   # Kecepatan sudut X
+                gy_dps = -10.0 * math.sin(t_val)  # Kecepatan sudut Y
+                gz_dps = 8.0 * math.sin(t_val)    # Kecepatan sudut Z (yaw rate)
 
             # 2. Hitung Sudut dari Akselerometer
             roll_accel = math.degrees(math.atan2(ay_g, az_g))
@@ -160,22 +172,35 @@ def main():
             # 3. Integrasi Murni Giroskop (Tanpa Filter)
             roll_gyro_pure += gx_dps * dt
             pitch_gyro_pure += gy_dps * dt
+            yaw_gyro_pure = normalize_angle_deg(yaw_gyro_pure + gz_dps * dt)
 
-            # 4. Filter Komplementer (Siklus Update Fusi)
+            # 4. Filter Komplementer Roll & Pitch
             roll_cf = (COMPLEMENTARY_FILTER_ALPHA * (roll_cf + gx_dps * dt)) + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * roll_accel)
             pitch_cf = (COMPLEMENTARY_FILTER_ALPHA * (pitch_cf + gy_dps * dt)) + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * pitch_accel)
 
-            # 5. Dapatkan Arah Hadap Kompas dari SHM
-            heading = get_compass_heading(compass_shm)
+            # 5. Dapatkan Arah Hadap Kompas (Magnetometer)
+            shm_heading = get_compass_heading(compass_shm)
+            if shm_heading is not None:
+                heading = shm_heading
+            else:
+                # Simulasi pembacaan kompas HMC5883L (arah hadap aktual + derau acak kompas)
+                actual_yaw = 45.0 + 10.0 * math.sin(now * 0.5)  # Pergerakan sudut yaw aktual
+                noise = random.gauss(0, 1.5)  # Derau kompas magnetik +/- 1.5 derajat
+                heading = normalize_angle_deg(actual_yaw + noise)
+
+            # 6. Fusi Filter Komplementer Yaw dengan Kompas
+            # Integrasikan kecepatan sudut z (yaw) terlebih dahulu, lalu blend dengan kompas magnetik
+            yaw_gyro_integrated = normalize_angle_deg(yaw_cf + gz_dps * dt)
+            yaw_cf = blend_angle_deg(yaw_gyro_integrated, heading, 1.0 - COMPLEMENTARY_FILTER_ALPHA)
 
             # Simpan data ke memori
             log_data.append([
                 f"{now:.3f}",
                 f"{ax_g:.4f}", f"{ay_g:.4f}", f"{az_g:.4f}",
                 f"{gx_dps:.4f}", f"{gy_dps:.4f}", f"{gz_dps:.4f}",
-                f"{roll_gyro_pure:.4f}", f"{pitch_gyro_pure:.4f}",
+                f"{roll_gyro_pure:.4f}", f"{pitch_gyro_pure:.4f}", f"{yaw_gyro_pure:.4f}",
                 f"{roll_accel:.4f}", f"{pitch_accel:.4f}",
-                f"{roll_cf:.4f}", f"{pitch_cf:.4f}",
+                f"{roll_cf:.4f}", f"{pitch_cf:.4f}", f"{yaw_cf:.4f}",
                 f"{heading:.2f}"
             ])
             
@@ -187,7 +212,7 @@ def main():
     except KeyboardInterrupt:
         print("\nPengumpulan data dihentikan secara manual.")
 
-    # 6. Tulis ke CSV
+    # 7. Tulis ke CSV
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         
@@ -199,9 +224,9 @@ def main():
                 "Time (s)",
                 "AX (g)", "AY (g)", "AZ (g)",
                 "GX (dps)", "GY (dps)", "GZ (dps)",
-                "Roll Gyro Pure (deg)", "Pitch Gyro Pure (deg)",
+                "Roll Gyro Pure (deg)", "Pitch Gyro Pure (deg)", "Yaw Gyro Pure (deg)",
                 "Roll Accel (deg)", "Pitch Accel (deg)",
-                "Roll CF (deg)", "Pitch CF (deg)",
+                "Roll CF (deg)", "Pitch CF (deg)", "Yaw CF (deg)",
                 "Compass Heading (deg)"
             ])
             writer.writerows(log_data)
