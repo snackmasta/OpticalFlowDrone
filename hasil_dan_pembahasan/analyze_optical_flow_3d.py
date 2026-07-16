@@ -23,6 +23,7 @@ except ImportError:
 INPUT_DIR = "hasil_dan_pembahasan"
 CSV_FILE = os.path.join(INPUT_DIR, "optical_flow_shm_log.csv")
 PNG_FILE = os.path.join(INPUT_DIR, "optical_flow_3d_trajectory.png")
+PNG_2D_FILE = os.path.join(INPUT_DIR, "optical_flow_2d_top_down.png")
 
 def main():
     print("=================================================================")
@@ -115,7 +116,7 @@ def main():
     ax.scatter(x_m[0], y_m[0], z_m[0], color='green', marker='^', s=100, label='Titik Mulai (Start)')
     ax.scatter(x_m[-1], y_m[-1], z_m[-1], color='red', marker='v', s=100, label='Titik Akhir (Stop)')
     
-    ax.legend(loc='upper right', fontsize=8)
+    ax.legend(loc='lower right', fontsize=8)
     plt.title("Visualisasi Trajektori Penerbangan 3D Estimasi Aliran Optik", fontsize=12, fontweight='bold', y=0.95)
     
     # Atur sudut kamera awal yang ideal untuk melihat 3D
@@ -124,8 +125,35 @@ def main():
     plt.tight_layout()
     plt.savefig(PNG_FILE, dpi=300)
     plt.close()
-    
     print(f"Visualisasi trajektori 3D berhasil disimpan di: {PNG_FILE}")
+    
+    # 4. Pembuatan Plot 2D (Tampak Atas)
+    print("Merender grafik tampak atas (2D)...")
+    plt.figure(figsize=(10, 8))
+    plt.plot(x_m, y_m, color='#555555', alpha=0.5, linewidth=1.5, label='Jalur Terbang')
+    sc2 = plt.scatter(x_m, y_m, c=v_mag, cmap='viridis', s=15, label='Posisi Drone (Warna: Kecepatan)')
+    
+    # Berikan titik start (hijau) dan stop (merah)
+    plt.scatter(x_m[0], y_m[0], color='green', marker='^', s=120, zorder=5, label='Titik Mulai (Start)')
+    plt.scatter(x_m[-1], y_m[-1], color='red', marker='v', s=120, zorder=5, label='Titik Akhir (Stop)')
+    
+    # Label dan judul
+    plt.xlabel('Posisi X (meter)', fontsize=10, fontweight='bold')
+    plt.ylabel('Posisi Y (meter)', fontsize=10, fontweight='bold')
+    plt.title('Tampak Atas Trajektori Lintasan Horizontal Drone', fontsize=12, fontweight='bold')
+    plt.grid(True, linestyle=":", alpha=0.6)
+    
+    cbar2 = plt.colorbar(sc2, shrink=0.7, aspect=12)
+    cbar2.set_label('Kecepatan Linier (m/s)', fontsize=9, fontweight='bold')
+    
+    # Atur axis equal agar proporsi X dan Y sebanding secara spasial (1:1 aspect ratio)
+    plt.gca().set_aspect('equal', adjustable='box')
+    
+    plt.legend(loc='lower right', fontsize=8)
+    plt.tight_layout()
+    plt.savefig(PNG_2D_FILE, dpi=300)
+    plt.close()
+    print(f"Visualisasi trajektori 2D tampak atas berhasil disimpan di: {PNG_2D_FILE}")
 
 if __name__ == "__main__":
     main()
