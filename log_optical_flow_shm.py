@@ -27,6 +27,12 @@ OUTPUT_DIR = "hasil_dan_pembahasan"
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "optical_flow_shm_log.csv")
 
 def main():
+    """
+    Main loop for logging optical flow shared memory data.
+    Attempts to attach to the shared memory block and track sample index updates,
+    writing all captured records to a CSV file. If shared memory is not available,
+    runs in circular motion simulation mode.
+    """
     print("=================================================================")
     print("          OPTICAL FLOW SHM DATA LOGGING SCRIPT (STANDALONE)      ")
     print("=================================================================")

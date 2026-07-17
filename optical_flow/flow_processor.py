@@ -99,21 +99,33 @@ def estimate_dense_flow_and_motion(old_gray, frame_gray, step=8):
 
 
 def to_small_gray(frame):
+    """
+    Downsamples a color frame using FLOW_SCALE and converts it to grayscale.
+    """
     small = cv2.resize(frame, None, fx=FLOW_SCALE, fy=FLOW_SCALE, interpolation=cv2.INTER_AREA)
     return cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
 
 def ensure_bgr(frame):
+    """
+    Converts 4-channel BGRA images to 3-channel BGR. Leaves other frame formats unchanged.
+    """
     if frame.ndim == 3 and frame.shape[2] == 4:
         return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
     return frame
 
 
 def focal_length_px(frame_width):
+    """
+    Calculates the camera's focal length in pixels using the horizontal FOV and frame width.
+    """
     return frame_width / (2.0 * math.tan(math.radians(CAMERA_HORIZONTAL_FOV_DEG / 2.0)))
 
 
 def reject_outlier_tracks(good_old, good_new):
+    """
+    Filters out outlier tracking points using RANSAC to calculate inlier feature points.
+    """
     good_old = np.asarray(good_old, dtype=np.float32).reshape(-1, 2)
     good_new = np.asarray(good_new, dtype=np.float32).reshape(-1, 2)
 
@@ -149,6 +161,10 @@ def reject_outlier_tracks(good_old, good_new):
 
 
 def estimate_body_velocity_mps(good_old, good_new, altitude_cm, dt_s, fx_px, fy_px):
+    """
+    Estimates the physical body frame velocity of the drone in meters per second.
+    Uses the median displacement of tracked feature points and camera altitude.
+    """
     if altitude_cm is None or altitude_cm <= 0 or dt_s <= 0:
         return None
     if len(good_new) < MIN_INLIERS_FOR_VELOCITY:

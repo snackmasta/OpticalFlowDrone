@@ -47,6 +47,10 @@ from picamera2 import Picamera2
 input_queue = queue.Queue()
 
 def console_input_thread():
+    """
+    Reads commands from standard input in a loop and pushes them to input_queue.
+    Runs in a background thread to avoid blocking the main execution loop.
+    """
     while True:
         try:
             line = sys.stdin.readline().strip().lower()
@@ -56,6 +60,10 @@ def console_input_thread():
             break
 
 def udp_command_listener():
+    """
+    Listens for UDP packets on port 5009 and processes commands like 'reset' or 'offset'.
+    Pushes valid commands into the global input_queue.
+    """
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -116,6 +124,10 @@ camera_offset_x = 0.0
 camera_offset_y = 0.0
 
 def load_calibration():
+    """
+    Loads tilt calibration and camera offsets from tilt_calibration.json.
+    Falls back to default values if the file is not found or fails to parse.
+    """
     global scale_x, scale_y, camera_offset_x, camera_offset_y
     if os.path.exists(CALIBRATION_FILE):
         try:
@@ -152,6 +164,10 @@ flow_shm_lock = threading.Lock()
 
 
 def attach_flow_stream_shm():
+    """
+    Attaches to or creates the shared memory block for optical flow stream data.
+    Ensures that the shared memory size is correct and initializes the header.
+    """
     global flow_shm
     with flow_shm_lock:
         if flow_shm is not None:
@@ -179,6 +195,9 @@ def attach_flow_stream_shm():
 
 
 def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading):
+    """
+    Writes a single optical flow state sample into the circular buffer of the shared memory block.
+    """
     try:
         shm = attach_flow_stream_shm()
         with flow_shm_lock:
@@ -208,6 +227,9 @@ def write_flow_stream_sample(timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, 
 
 
 def close_flow_stream_shm():
+    """
+    Closes and unlinks the shared memory resource when stopping the application.
+    """
     global flow_shm
     with flow_shm_lock:
         if flow_shm is None:
@@ -256,6 +278,10 @@ print("Press Ctrl+C to stop")
 
 
 def switch_to_file_sink(frame_size, fps, reason):
+    """
+    Switches the output sink from RTSP stream to a local file recording.
+    Triggered when the RTSP stream fails to initialize or write.
+    """
     global fallback_sink, output_sink, rtsp_selected, rtsp_server
     if fallback_sink is None:
         print(reason)
@@ -265,6 +291,11 @@ def switch_to_file_sink(frame_size, fps, reason):
 
 
 def record_optical_flow():
+    """
+    Main optical flow recording and streaming loop.
+    Captures video frames, estimates optical flow, applies tilt/offset compensation,
+    updates state, and writes results to shared memory and video sink.
+    """
     global old_gray, output_sink, scale_x, scale_y
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()

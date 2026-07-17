@@ -355,10 +355,16 @@ def run_dashboard(port):
 
     @app.route("/")
     def index():
+        """
+        Renders the main dashboard index page.
+        """
         return render_template("shm_dashboard.html")
 
     @app.route("/api/shm/list")
     def shm_list():
+        """
+        Lists all defined shared memory segments, status, sizes, and mock states.
+        """
         segments = []
         for name, cfg in SHM_REGISTRY.items():
             active = False
@@ -387,6 +393,9 @@ def run_dashboard(port):
 
     @app.route("/api/shm/data/<name>")
     def shm_data(name):
+        """
+        Retrieves samples and hex dumps for a specific shared memory segment.
+        """
         cfg = SHM_REGISTRY.get(name)
         if not cfg:
             return jsonify({"error": "Unknown shared memory name"}), 404
@@ -413,6 +422,9 @@ def run_dashboard(port):
 
     @app.route("/api/shm/unlink/<name>", methods=["POST"])
     def shm_unlink(name):
+        """
+        Closes and unlinks a shared memory segment from the operating system.
+        """
         # Stop mocking first
         if name in mock_active:
             mock_active[name] = False
@@ -432,6 +444,9 @@ def run_dashboard(port):
 
     @app.route("/api/shm/create/<name>", methods=["POST"])
     def shm_create(name):
+        """
+        Creates and initializes a new shared memory segment using the schema registry.
+        """
         cfg = SHM_REGISTRY.get(name)
         if not cfg:
             return jsonify({"error": "Unknown schema"}), 404
@@ -453,6 +468,9 @@ def run_dashboard(port):
 
     @app.route("/api/shm/mock/<name>", methods=["POST"])
     def shm_mock(name):
+        """
+        Starts or stops a background mock generator thread for a shared memory segment.
+        """
         cfg = SHM_REGISTRY.get(name)
         if not cfg:
             return jsonify({"error": "Unknown schema"}), 404
@@ -489,6 +507,9 @@ def run_dashboard(port):
 
     @app.route("/api/opticalflow/reset", methods=["POST"])
     def reset_opticalflow():
+        """
+        Sends a reset command via loopback UDP to the optical flow stream process.
+        """
         import socket
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -499,6 +520,10 @@ def run_dashboard(port):
 
     @app.route("/api/opticalflow/offset", methods=["GET", "POST"])
     def opticalflow_offset():
+        """
+        Gets or sets the camera tilt offset settings, updating both the config file
+        and sending updates via UDP.
+        """
         import json
         import os
         config_file = "tilt_calibration.json"
@@ -532,6 +557,9 @@ def run_dashboard(port):
 
 
     def shm_config():
+        """
+        Gets or updates the web dashboard configuration settings JSON file.
+        """
         import json
         import os
         config_path = "dashboard_config.json"
@@ -564,6 +592,11 @@ def run_dashboard(port):
 
 
 def main():
+    """
+    Main entry point for reading shared memory segments.
+    Parses CLI arguments to support either continuous standard output stream reading,
+    printing the latest sample once, or launching the Flask management dashboard.
+    """
     parser = argparse.ArgumentParser(description="Read or manage compass heading / other shared memories.")
     parser.add_argument("--once", action="store_true", help="Print one sample and exit.")
     parser.add_argument("--interval", type=float, default=0.05, help="Polling interval in seconds.")

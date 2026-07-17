@@ -83,6 +83,9 @@ accel_lock = threading.Lock()
 
 
 def read_i2c_word(bus, addr, reg):
+    """
+    Reads a signed 16-bit word from the I2C register.
+    """
     high = bus.read_byte_data(addr, reg)
     low = bus.read_byte_data(addr, reg + 1)
     value = (high << 8) | low
@@ -92,26 +95,44 @@ def read_i2c_word(bus, addr, reg):
 
 
 def normalize_angle_deg(angle_deg):
+    """
+    Normalizes a given angle in degrees to the range [-180, 180].
+    """
     return ((angle_deg + 180.0) % 360.0) - 180.0
 
 
 def angular_error_deg(target_deg, current_deg):
+    """
+    Calculates the shortest angular difference in degrees between two angles.
+    """
     return normalize_angle_deg(target_deg - current_deg)
 
 
 def blend_angle_deg(current_deg, target_deg, blend):
+    """
+    Blends/interpolates between two angles in degrees using a blend factor [0, 1].
+    """
     return normalize_angle_deg(current_deg + (blend * angular_error_deg(target_deg, current_deg)))
 
 
 def invert_compass_heading_deg(heading_deg):
+    """
+    Inverts the sign of a compass heading and normalizes it to [-180, 180].
+    """
     return normalize_angle_deg(-heading_deg)
 
 
 def blend_value(current_value, target_value, blend):
+    """
+    Linearly interpolates between two numeric values using a blend factor.
+    """
     return current_value + ((target_value - current_value) * blend)
 
 
 def accel_to_roll_pitch(ax_g, ay_g, az_g):
+    """
+    Calculates roll and pitch angles in degrees directly from accelerometer gravity vectors.
+    """
     magnitude = math.sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g)
     if magnitude < 0.1:
         return 0.0, 0.0
@@ -126,6 +147,9 @@ def accel_to_roll_pitch(ax_g, ay_g, az_g):
 
 
 def calibrate_gyro_bias(bus, sample_count=200):
+    """
+    Calculates the gyroscope zero-rate offset by averaging samples while the drone/sensor is stationary.
+    """
     global gyro_calibrated
     gx_total = 0.0
     gy_total = 0.0
@@ -150,6 +174,9 @@ def calibrate_gyro_bias(bus, sample_count=200):
 
 
 def open_compass_shared_memory(wait_interval=0.5):
+    """
+    Tries to connect to the compass shared memory block. Retries periodically until successful.
+    """
     while True:
         try:
             shm = shared_memory.SharedMemory(name=COMPASS_SHM_NAME)
@@ -164,6 +191,9 @@ def open_compass_shared_memory(wait_interval=0.5):
 
 
 def release_compass_shared_memory(shm):
+    """
+    Closes the compass shared memory segment.
+    """
     try:
         resource_tracker.unregister(shm._name, "shared_memory")
     except Exception:
@@ -176,6 +206,9 @@ def release_compass_shared_memory(shm):
 
 
 def read_latest_compass_sample(shm):
+    """
+    Reads the latest sample records (timestamp, coordinates, heading) from compass shared memory.
+    """
     magic, write_index, sample_count = struct.unpack_from(COMPASS_SHM_HEADER_FORMAT, shm.buf, 0)
     if magic != COMPASS_SHM_MAGIC or sample_count == 0:
         return None
@@ -196,10 +229,16 @@ def read_latest_compass_sample(shm):
 
 
 def sample_is_fresh(sample, freshness_threshold):
+    """
+    Checks if a sample timestamp is within the freshness threshold.
+    """
     return sample is not None and (time.time() - sample["timestamp"]) <= freshness_threshold
 
 
 def compass_reader_thread():
+    """
+    Thread runner that continuously monitors the compass shared memory segment and copies values to local states.
+    """
     global compass_stream_shm
 
     last_seen = None
@@ -253,7 +292,14 @@ def compass_reader_thread():
 
 
 def start_distance_sensor_reader():
+    """
+    Starts concurrent threads to read rangefinder data from MAVLink,
+    IMU data from the I2C MPU6050, and compass data from shared memory.
+    """
     def mavlink_reader():
+        """
+        Background reader that subscribes to MAVLink DISTANCE_SENSOR packets.
+        """
         try:
             master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
             master.wait_heartbeat()
@@ -275,6 +321,10 @@ def start_distance_sensor_reader():
             print(f"MAVLink reader error: {e}")
 
     def imu_reader():
+        """
+        Background reader that polls the MPU6050, integrates gyro angular rates,
+        and applies a complementary filter.
+        """
         try:
             bus = SMBus(IMU_I2C_BUS)
             bus.write_byte_data(IMU_I2C_ADDR, IMU_PWR_MGMT_1, 0)
@@ -383,4 +433,7 @@ def start_distance_sensor_reader():
 
 
 def is_gyro_calibrated():
+    """
+    Returns True if the gyroscope bias calibration has completed.
+    """
     return gyro_calibrated

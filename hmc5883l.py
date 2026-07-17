@@ -66,10 +66,17 @@ heading_stream_shm = None
 
 
 def normalize_heading(heading):
+    """
+    Normalizes a heading to the range [0, 360) degrees.
+    """
     return heading % 360
 
 
 def load_heading_zero_offset():
+    """
+    Loads the heading zero offset from the local configuration file (compass_zero_offset.json).
+    Falls back to 0.0 if not found or invalid.
+    """
     global heading_zero_offset
 
     try:
@@ -89,6 +96,9 @@ def load_heading_zero_offset():
 
 
 def save_heading_zero_offset():
+    """
+    Persists the current heading zero offset to compass_zero_offset.json.
+    """
     with data_lock:
         payload = {"zero_offset": round(heading_zero_offset, 2)}
 
@@ -103,6 +113,10 @@ def save_heading_zero_offset():
 
 
 def attach_heading_stream_shm():
+    """
+    Attaches to or creates the shared memory segment for the compass heading stream.
+    Initializes the header block if newly created.
+    """
     global heading_stream_shm
 
     with shared_memory_lock:
@@ -132,6 +146,10 @@ def attach_heading_stream_shm():
 
 
 def write_heading_stream_sample(timestamp, raw_heading, heading, x, y, z):
+    """
+    Writes a compass data sample (timestamp, raw heading, offset-corrected heading, and raw coordinates)
+    into the circular buffer of the shared memory segment.
+    """
     shm = attach_heading_stream_shm()
 
     with shared_memory_lock:
@@ -155,6 +173,9 @@ def write_heading_stream_sample(timestamp, raw_heading, heading, x, y, z):
 
 
 def close_heading_stream_shm():
+    """
+    Closes and unlinks the shared memory segment for the compass heading stream.
+    """
     global heading_stream_shm
 
     with shared_memory_lock:
@@ -172,6 +193,9 @@ def close_heading_stream_shm():
 
 
 def read_word(bus, reg):
+    """
+    Reads a 16-bit signed word from the specified register of the HMC5883L magnetometer sensor.
+    """
     high = bus.read_byte_data(HMC5883L_ADDR, reg)
     low = bus.read_byte_data(HMC5883L_ADDR, reg + 1)
     value = (high << 8) | low
@@ -181,6 +205,10 @@ def read_word(bus, reg):
 
 
 def compute_heading(x, y):
+    """
+    Calculates the heading in degrees using magnetic X and Y coordinates.
+    Adjusts with DECLINATION_DEGREES and normalizes output to [0, 360).
+    """
     heading = math.degrees(math.atan2(y, x))
     heading += DECLINATION_DEGREES
     if heading < 0:
@@ -191,24 +219,38 @@ def compute_heading(x, y):
 
 
 def apply_zero_offset(heading):
+    """
+    Applies the calibrated zero offset correction to the given raw heading.
+    """
     with data_lock:
         offset = heading_zero_offset
     return normalize_heading(heading - offset)
 
 
 def low_pass_filter(previous_value, current_value, alpha=LOW_PASS_ALPHA):
+    """
+    Applies a simple first-order low-pass filter to smooth sensor readings.
+    """
     if previous_value is None:
         return current_value
     return previous_value + (alpha * (current_value - previous_value))
 
 
 def cardinal_from_heading(heading):
+    """
+    Converts a numerical heading in degrees to a cardinal/ordinal direction string (e.g., 'N', 'NE', 'E').
+    """
     directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     index = int((heading + 22.5) // 45) % 8
     return directions[index]
 
 
 def compass_thread_worker():
+    """
+    Background worker thread that connects to the HMC5883L magnetometer,
+    periodically reads coordinates, applies filters, computes heading,
+    and updates the shared memory stream.
+    """
     bus = None
     filtered_x = None
     filtered_y = None
@@ -277,11 +319,17 @@ def compass_thread_worker():
 
 @app.route("/")
 def index():
+    """
+    Renders the HTML template for the main dashboard view.
+    """
     return render_template("compass_dashboard.html")
 
 
 @app.route("/api/compass-data")
 def get_compass_data():
+    """
+    Flask API endpoint that returns historical and latest compass state in JSON format.
+    """
     with data_lock:
         return jsonify({
             "timestamps": list(compass_data["timestamps"]),
@@ -295,6 +343,9 @@ def get_compass_data():
 
 @app.route("/api/compass/zero", methods=["POST"])
 def set_compass_zero():
+    """
+    Flask API endpoint that sets the current raw heading as the zero offset reference.
+    """
     global heading_zero_offset
 
     with data_lock:
@@ -315,6 +366,9 @@ def set_compass_zero():
 
 @app.route("/api/compass/zero/reset", methods=["POST"])
 def reset_compass_zero():
+    """
+    Flask API endpoint that resets the zero offset calibration to 0.0.
+    """
     global heading_zero_offset
 
     with data_lock:
@@ -330,6 +384,10 @@ def reset_compass_zero():
 
 
 def main():
+    """
+    Main entry point for starting the Flask web dashboard server
+    and initiating the background compass reader thread.
+    """
     load_heading_zero_offset()
     attach_heading_stream_shm()
 

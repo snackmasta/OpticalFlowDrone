@@ -90,6 +90,11 @@ def write_battery_sample(timestamp, voltage, current, capacity, consumed_mah):
         print(f"Error writing to shared memory: {e}", file=sys.stderr)
 
 def main():
+    """
+    Main execution routine for the battery monitor.
+    Parses command-line arguments, connects to MAVLink or initializes
+    a telemetry simulation, and periodically streams battery status to shared memory.
+    """
     parser = argparse.ArgumentParser(description="Monitor battery telemetry and stream to shared memory.")
     parser.add_argument("--connection", type=str, default="udp:127.0.0.1:14552", help="MAVLink connection target.")
     parser.add_argument("--simulate", action="store_true", help="Force simulation mode even if MAVLink is available.")

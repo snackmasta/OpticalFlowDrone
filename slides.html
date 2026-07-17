@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optical Flow Drone Navigation & Attitude Fusion Presentation</title>
+    <!-- Reveal.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <!-- Premium Dark Theme -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/black.min.css">
+    <!-- Highlight.js theme for code blocks -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
+    <style>
+        :root {
+            --r-background-color: #0b0f19;
+            --r-main-font: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+            --r-heading-font: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+            --r-link-color: #00d2ff;
+            --r-link-color-hover: #00a8ff;
+            --accent-primary: #00d2ff;
+            --accent-secondary: #00ff87;
+            --accent-tertiary: #ff416c;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --shadow-primary: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .reveal {
+            font-family: var(--r-main-font);
+            color: #e2e8f0;
+        }
+
+        .reveal h1, .reveal h2, .reveal h3, .reveal h4, .reveal h5, .reveal h6 {
+            color: #ffffff;
+            font-family: var(--r-heading-font);
+            font-weight: 700;
+            text-transform: none;
+            letter-spacing: -0.02em;
+            text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .reveal h1 {
+            background: linear-gradient(135deg, #ffffff 30%, var(--accent-primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .reveal h2 {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 30px;
+        }
+
+        .slide-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 30px 40px;
+            box-shadow: var(--shadow-primary);
+            width: 90%;
+            margin: 0 auto;
+            text-align: left;
+            box-sizing: border-box;
+        }
+
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            width: 100%;
+            align-items: start;
+        }
+
+        .highlight-text {
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .accent-green {
+            color: var(--accent-secondary);
+            font-weight: 600;
+        }
+
+        .accent-red {
+            color: var(--accent-tertiary);
+            font-weight: 600;
+        }
+
+        .list-unstyled {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .list-unstyled li {
+            position: relative;
+            padding-left: 25px;
+            margin-bottom: 12px;
+        }
+
+        .list-unstyled li::before {
+            content: "✦";
+            position: absolute;
+            left: 0;
+            color: var(--accent-primary);
+        }
+
+        .math-formula {
+            background: rgba(0,0,0,0.3);
+            border-left: 4px solid var(--accent-primary);
+            padding: 15px;
+            font-family: 'Courier New', Courier, monospace;
+            border-radius: 4px;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+
+        .badge {
+            background: rgba(0, 210, 255, 0.15);
+            border: 1px solid var(--accent-primary);
+            color: var(--accent-primary);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.6em;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 800;
+            color: var(--accent-secondary);
+            margin: 5px 0;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            color: #a0aec0;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .footer-note {
+            font-size: 0.5em !important;
+            color: #718096;
+            margin-top: 30px;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* Responsive image size inside slides */
+        .reveal img {
+            max-height: 380px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- SLIDE 1: Title Slide -->
+            <section data-background-gradient="linear-gradient(135deg, #0b0f19 0%, #1a103c 100%)">
+                <div class="slide-container">
+                    <span class="badge">Thesis Presentation</span>
+                    <h1 style="font-size: 1.8em;">Autonomous Drone Optical Flow Navigation & Multi-Sensor Attitude Fusion</h1>
+                    <p style="font-size: 0.8em; color: #a0aec0; margin-top: 20px;">
+                        Implementation of Real-time Drift-free Odometry & Sensor Fusion for GPS-denied Flight Operations
+                    </p>
+                    <p style="font-size: 0.6em; margin-top: 40px; color: var(--accent-primary);">
+                        Author: Project Team / Skripsi Researcher <br>
+                        Platform: Raspberry Pi + Picamera2 + GY-86 IMU + ArduPilot/MAVLink
+                    </p>
+                </div>
+            </section>
+
+            <!-- SLIDE 2: Project Background & Motivation -->
+            <section data-background-transition="zoom">
+                <div class="slide-container">
+                    <h2>Project Background & Motivation</h2>
+                    <div class="glass-panel">
+                        <p class="highlight-text" style="font-size: 1.1em; margin-bottom: 20px;">
+                            Why do we need autonomous optical flow navigation?
+                        </p>
+                        <ul class="list-unstyled">
+                            <li><strong>GPS-Denied Environments:</strong> Indoor warehouses, tunnels, and dense urban canyons block GPS signals entirely.</li>
+                            <li><strong>State Estimation Needs:</strong> For autonomous stabilization (Loiter/Position Hold), a drone needs to know its velocity and translation in real-time.</li>
+                            <li><strong>Low-Cost Edge Computing:</strong> Utilizing lightweight sensors (GY-86 IMU, HMC5883L Compass, VL53L1X/MAVLink Altimeter) with a Raspberry Pi companion computer.</li>
+                            <li><strong>Dynamic Tilt Distortions:</strong> Drone rotations warp camera images, generating fake optical flow that must be isolated from physical translation.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 3: System Architecture Overview -->
+            <section>
+                <div class="slide-container">
+                    <h2>System Architecture</h2>
+                    <div class="glass-panel two-columns">
+                        <div>
+                            <span class="badge">Hardware Integration</span>
+                            <ul style="font-size: 0.85em;" class="list-unstyled">
+                                <li><strong>Sensors:</strong> GY-86 (MPU6050 + HMC5883L + MS5611) on I2C bus.</li>
+                                <li><strong>Camera:</strong> Raspberry Pi Camera Module v3 (Picamera2) capturing at 60 FPS.</li>
+                                <li><strong>Flight Controller:</strong> Pixhawk running ArduPilot connected via Telemetry Serial port.</li>
+                                <li><strong>Companion:</strong> Raspberry Pi 4/5 doing image processing & sensor fusion.</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <span class="badge">Software Pipelines</span>
+                            <ul style="font-size: 0.85em;" class="list-unstyled">
+                                <li><strong>sensor_readers.py:</strong> Fuses IMU & Compass data using a Complementary Filter.</li>
+                                <li><strong>optical_flow_stream.py:</strong> Dense LK/Farneback tracker with tilt & offset compensation.</li>
+                                <li><strong>shared_memory:</strong> Ultra-low latency IPC sending states to logger and web frontend.</li>
+                                <li><strong>mavlink_reboot.py / mavlink_set_mode.py:</strong> Commands to the flight controller.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 4: Hardware Component Details -->
+            <section>
+                <div class="slide-container">
+                    <h2>Hardware Interfaces & Sensor Specs</h2>
+                    <div class="glass-panel">
+                        <table style="width: 100%; font-size: 0.75em; border-collapse: collapse; margin-top: 10px;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--accent-primary); color: #fff;">
+                                    <th style="padding: 10px;">Sensor</th>
+                                    <th>Interface</th>
+                                    <th>Measurement</th>
+                                    <th>Sample Rate</th>
+                                    <th>Purpose</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                    <td style="padding: 10px;" class="highlight-text">MPU6050 Gyro/Accel</td>
+                                    <td>I2C (0x68)</td>
+                                    <td>Rotational Vel & Linear Accel</td>
+                                    <td>50 Hz (20ms loop)</td>
+                                    <td>High-rate attitude dynamics & tilt tracking</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                    <td style="padding: 10px;" class="highlight-text">HMC5883L Compass</td>
+                                    <td>I2C (0x1E)</td>
+                                    <td>Earth Magnetic Field Vectors</td>
+                                    <td>10 Hz (100ms loop)</td>
+                                    <td>Absolute Yaw heading correction</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                    <td style="padding: 10px;" class="highlight-text">VL53L1X Lidar / FC</td>
+                                    <td>MAVLink Telemetry</td>
+                                    <td>Laser/Barometer Altitude</td>
+                                    <td>Dynamic</td>
+                                    <td>Scaling optical flow to physical velocity</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 10px;" class="highlight-text">Picamera2</td>
+                                    <td>CSI-2 Port</td>
+                                    <td>Wider FOV Image Stream</td>
+                                    <td>60 FPS (16.6ms intervals)</td>
+                                    <td>Visual motion tracking</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 5: Sensor Reading & Multithreading Architecture -->
+            <section>
+                <div class="slide-container">
+                    <h2>Sensor Reading & Multithreading</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.9em; margin-bottom: 15px;">
+                            To achieve steady, low-latency measurements without frame drops, the companion program uses python threads and thread-safe shared variables:
+                        </p>
+                        <div class="two-columns" style="font-size: 0.8em;">
+                            <div>
+                                <h3 style="font-size: 1.1em; color: var(--accent-primary);">Threads</h3>
+                                <ul>
+                                    <li><strong>imu_reader Thread:</strong> Reads MPU6050, computes integrated gyro angles, runs the complementary filter, updates attitude at 50Hz.</li>
+                                    <li><strong>compass_reader Thread:</strong> Polls HMC5883L, normalizes magnetic fields, and provides stable magnetic heading.</li>
+                                    <li><strong>mavlink_reader Thread:</strong> Polls flight controller for altitude (distance sensor) and internal telemetry.</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h3 style="font-size: 1.1em; color: var(--accent-secondary);">Locks & Synch</h3>
+                                <ul>
+                                    <li><strong>attitude_lock:</strong> Guards attitude roll, pitch, yaw, and gyro rate updates.</li>
+                                    <li><strong>compass_lock:</strong> Syncs magnetometer heading and timestamps.</li>
+                                    <li><strong>distance_lock:</strong> Protects altimeter distance updates.</li>
+                                    <li><strong>Thread Safety:</strong> Uses Python standard `threading.Lock()` to prevent memory corruption.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 6: Mathematical Model of Optical Flow -->
+            <section>
+                <div class="slide-container">
+                    <h2>Mathematical Model of Optical Flow</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            Optical flow measures the velocity of pixel brightness patterns moving across the image plane. For a downward-facing camera, pixel displacements $(\Delta u, \Delta v)$ are mapped to translational velocities using focal length $f$ and altitude $Z$:
+                        </p>
+                        <div class="math-formula">
+                            V_x^{body} = \frac{\Delta x \cdot Z}{f \cdot \Delta t}, \quad V_y^{body} = -\frac{\Delta y \cdot Z}{f \cdot \Delta t}
+                        </div>
+                        <p style="font-size: 0.8em;">
+                            Where:
+                        </p>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li>$Z$: Altitude above the ground plane (provided by Lidar/Sonar distance sensor).</li>
+                            <li>$f$: Focal length in pixels, calculated based on sensor width and FOV: <br>
+                                <span class="highlight-text">$f = \frac{Width}{2 \cdot \tan(\frac{FOV}{2})}$</span>
+                            </li>
+                            <li>$\Delta x, \Delta y$: Compensated translation values in pixels.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 7: The Attitude Drift Problem -->
+            <section>
+                <div class="slide-container">
+                    <h2>The Attitude Drift Problem</h2>
+                    <div class="glass-panel two-columns">
+                        <div>
+                            <span class="badge accent-red" style="background: rgba(255,65,108,0.15); border-color: var(--accent-tertiary);">The Gyroscope Pitfall</span>
+                            <p style="font-size: 0.85em;">
+                                Gyroscopes measure <strong>angular rate</strong> ($\omega$). Calculating attitude requires integration:
+                            </p>
+                            <div class="math-formula" style="border-left-color: var(--accent-tertiary); font-size: 0.85em;">
+                                \theta_t = \theta_{t-1} + \omega \cdot \Delta t
+                            </div>
+                            <p style="font-size: 0.8em;">
+                                Standard low-cost MEMS gyroscopes suffer from **sensor bias and noise**. Over time, integrating these errors causes the attitude value to drift uncontrollably away from the true angle.
+                            </p>
+                        </div>
+                        <div>
+                            <span class="badge accent-green" style="background: rgba(0,255,135,0.15); border-color: var(--accent-secondary);">The Accelerometer Pitfall</span>
+                            <p style="font-size: 0.85em;">
+                                Accelerometers measure gravity to find tilt angles, but they are highly corrupted by **high-frequency vibrations (noise)** and drone linear accelerations.
+                            </p>
+                            <p style="font-size: 0.8em; margin-top: 15px;" class="highlight-text">
+                                Fusion is mandatory!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 8: Complementary Filter Theory -->
+            <section>
+                <div class="slide-container">
+                    <h2>Complementary Filter Theory</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            The Complementary Filter acts as a **High-Pass Filter** for the gyroscope (trusting its quick changes in the short term) and a **Low-Pass Filter** for the accelerometer/magnetometer (trusting its absolute reference value in the long term).
+                        </p>
+                        <div class="math-formula">
+                            Angle_{fused} = \alpha \cdot (Angle_{prev} + Gyro_{rate} \cdot dt) + (1 - \alpha) \cdot Angle_{ref}
+                        </div>
+                        <p style="font-size: 0.85em; margin-top: 15px;">
+                            Here, <span class="highlight-text">$\alpha = 0.96$</span> is chosen in this project:
+                        </p>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li>$96\%$ of the new angle comes from gyroscope integration (smooth, fast, vibration-resistant).</li>
+                            <li>$4\%$ of the new angle comes from the absolute sensor reference (pulls the angle back to reality, eliminating accumulated drift).</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 9: Roll & Pitch Estimation Implementation -->
+            <section>
+                <div class="slide-container">
+                    <h2>Roll & Pitch Estimation Code</h2>
+                    <div class="glass-panel">
+                        <pre><code class="language-python" style="font-size: 0.8em;"># sensor_readers.py - Attitude Update Loop (50 Hz)
+roll_gyro_deg = attitude_state["roll_deg"] + (xgyro_dps * dt)
+pitch_gyro_deg = attitude_state["pitch_deg"] + (ygyro_dps * dt)
+
+# Apply Complementary Filter blending Gyro with Accelerometer
+attitude_state["roll_deg"] = normalize_angle_deg(
+    (COMPLEMENTARY_FILTER_ALPHA * roll_gyro_deg)
+    + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * roll_accel_deg)
+)
+attitude_state["pitch_deg"] = normalize_angle_deg(
+    (COMPLEMENTARY_FILTER_ALPHA * pitch_gyro_deg)
+    + ((1.0 - COMPLEMENTARY_FILTER_ALPHA) * pitch_accel_deg)
+)</code></pre>
+                        <p style="font-size: 0.75em; color: #a0aec0; margin-top: 15px;">
+                            The blending constant <code>COMPLEMENTARY_FILTER_ALPHA</code> is set to <code>0.96</code>, providing the perfect balance between high-frequency response and long-term stability.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 10: Yaw Estimation & Magnetometer Fusion -->
+            <section>
+                <div class="slide-container">
+                    <h2>Yaw Estimation & Magnetometer Fusion</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            Yaw cannot be corrected by an accelerometer since gravity is parallel to the yaw rotation axis. The project fuses the Z-axis Gyroscope with the HMC5883L Magnetometer:
+                        </p>
+                        <pre><code class="language-python" style="font-size: 0.8em;"># Compass Heading Fusion using blend_angle_deg to handle 0-360 transition safely
+yaw_gyro_deg = attitude_state["yaw_deg"] + (zgyro_dps * dt)
+
+if compass_heading_deg is not None and compass_age_s <= COMPASS_FRESHNESS_THRESHOLD_S:
+    attitude_state["yaw_deg"] = blend_angle_deg(
+        yaw_gyro_deg,
+        compass_heading_deg,
+        1.0 - COMPLEMENTARY_FILTER_ALPHA, # 0.04 weight for absolute compass heading
+    )
+else:
+    # Fallback to pure gyro integration when magnetometer is unavailable
+    attitude_state["yaw_deg"] = normalize_angle_deg(yaw_gyro_deg)</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 11: Standalone Gyroscope Calibration -->
+            <section>
+                <div class="slide-container">
+                    <h2>Gyroscope Calibration</h2>
+                    <div class="glass-panel two-columns">
+                        <div>
+                            <span class="badge">Offset Calibration</span>
+                            <p style="font-size: 0.8em;">
+                                Gyroscope offset bias is calculated at startup while the drone is completely stationary. The script averages 300 samples to establish the bias offsets.
+                            </p>
+                            <pre><code class="language-python" style="font-size: 0.75em;"># Standalone calibration
+gx_offset = sum_gx / num_samples
+gy_offset = sum_gy / num_samples
+gz_offset = sum_gz / num_samples</code></pre>
+                        </div>
+                        <div>
+                            <span class="badge accent-green">Filtering Output</span>
+                            <p style="font-size: 0.8em;">
+                                Subtracting these offsets from raw measurements is necessary. Any uncalibrated static offset would result in a constant angular speed reading, causing the attitude integration to drift rapidly.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 12: Tilt Compensation in Optical Flow -->
+            <section>
+                <div class="slide-container">
+                    <h2>Tilt Compensation in Optical Flow</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            When the drone tilts (pitch or roll), the camera rotates. This rotation shifts the entire image frame, producing a displacement vector that mimics translation (horizontal flight velocity).
+                        </p>
+                        <div class="math-formula">
+                            \Delta x_{compensated} = \Delta x_{raw} - (scale\_x \cdot \Delta Roll_{reticle})
+                        </div>
+                        <div class="math-formula">
+                            \Delta y_{compensated} = \Delta y_{raw} - (scale\_y \cdot \Delta Pitch_{reticle})
+                        </div>
+                        <p style="font-size: 0.8em;">
+                            We compute <code>d_reticle_x</code> and <code>d_reticle_y</code> as the change in the attitude angle scaled to pixel equivalents, and subtract this rotation-induced flow from raw tracked flow to isolate true vehicle velocities.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 13: Calibration of Tilt Scale Factors -->
+            <section>
+                <div class="slide-container">
+                    <h2>Calibration of Tilt Scale Factors</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            To ensure precise tilt subtraction, the scaling factors <code>scale_x</code> and <code>scale_y</code> (mapping degrees of rotation to pixel shifts) must be calibrated:
+                        </p>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li><strong>Dynamic Calibration Mode:</strong> Initiated by typing <code>'c'</code> in the console.</li>
+                            <li><strong>Movement:</strong> The user tilts and rolls the drone back and forth without shifting its physical location.</li>
+                            <li><strong>Calculations:</strong> The system collects ratios of camera displacement over attitude reticle movement:
+                                <div class="math-formula" style="font-size: 0.85em;">scale\_x = \text{median}(\frac{tx}{d\_reticle\_x}), \quad scale\_y = \text{median}(\frac{ty}{d\_reticle\_y})</div>
+                            </li>
+                            <li><strong>Saving:</strong> Results are persisted in <code>tilt_calibration.json</code> for immediate reuse.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 14: Camera Offset Compensation -->
+            <section>
+                <div class="slide-container">
+                    <h2>Camera Offset Compensation</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            If the camera is not mounted at the drone's center of gravity (CoG), yaw rotations create a secondary translation. The script compensates for this using the camera's offset coordinates $(O_x, O_y)$ in cm:
+                        </p>
+                        <pre><code class="language-python" style="font-size: 0.8em;"># Calculate rotational velocity correction (in meters/sec)
+yaw_rate_rad = math.radians(zgyro_dps)
+v_offset_x = -yaw_rate_rad * (camera_offset_y / 100.0)
+v_offset_y = yaw_rate_rad * (camera_offset_x / 100.0)
+
+# Subtract offsets from calculated physical body velocity
+vx_mps_body_comp = vx_mps_body - v_offset_x
+vy_mps_body_comp = vy_mps_body - v_offset_y</code></pre>
+                        <p style="font-size: 0.85em; margin-top: 15px;">
+                            This prevents yaw rotations (spinning in place) from registering as horizontal movements.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 15: Flow-to-Velocity Conversion -->
+            <section>
+                <div class="slide-container">
+                    <h2>Flow-to-Velocity Conversion</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            With compensated translations ($tx_{comp}, ty_{comp}$) and altitude in meters ($Z$), the raw velocities are computed, rotated to absolute frame using Yaw ($\Psi$), and then filtered via rate-limiters:
+                        </p>
+                        <pre><code class="language-python" style="font-size: 0.75em;"># Body frame velocity calculation
+vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
+vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
+
+# Rotate compensated velocities to absolute frame (East/North) using compass Yaw
+yaw_rad = math.radians(-yaw_deg)
+vx_mps_calc = vx_mps_body_comp * math.cos(yaw_rad) + vy_mps_body_comp * math.sin(yaw_rad)
+vy_mps_calc = -vx_mps_body_comp * math.sin(yaw_rad) + vy_mps_body_comp * math.cos(yaw_rad)
+
+# Apply acceleration rate-limiter (clamp to 15.0 m/s^2 max acceleration)
+max_dv = 15.0 * dt_s
+vx_mps = np.clip(vx_mps_calc, prev_vx - max_dv, prev_vx + max_dv)
+vy_mps = np.clip(vy_mps_calc, prev_vy - max_dv, prev_vy + max_dv)</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 16: Position Tracking & Integration -->
+            <section>
+                <div class="slide-container">
+                    <h2>Position Tracking & Path Integration</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            Calculated velocities are integrated over time to track the drone's absolute position $(x, y)$ in centimeters:
+                        </p>
+                        <pre><code class="language-python" style="font-size: 0.8em;"># Update physical position state
+with position_lock:
+    position_state["x_cm"] += vx_mps * dt_s * 100.0
+    position_state["y_cm"] += vy_mps * dt_s * 100.0
+    
+    # Store trajectory path for plotting/visualization
+    current_x = position_state["x_cm"]
+    current_y = position_state["y_cm"]
+    position_state["path"].append((current_x, current_y))</code></pre>
+                        <p style="font-size: 0.85em; margin-top: 15px;">
+                            This enables real-time trajectory visualization, displaying the 2D top-down flight path on the dashboard.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 17: MAVLink Integration -->
+            <section>
+                <div class="slide-container">
+                    <h2>MAVLink Integration</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            Communicating with the ArduPilot autopilot is done via <code>pymavlink</code> in <code>sensor_readers.py</code>:
+                        </p>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li><strong>Heartbeats:</strong> System sends heartbeats to register as a GCS or Companion Computer.</li>
+                            <li><strong>Telemetry Subscriptions:</strong> Requesting distance sensor values (lidar/sonar) for precise rangefinding.</li>
+                            <li><strong>State Injector:</strong> Ability to inject simulated static GPS data (<code>static_gps_injector.py</code>) to bypass safety arming checks in indoor testing environments.</li>
+                            <li><strong>Control Utilities:</strong> Includes helper scripts for system reboot and setting flight modes (e.g. GUIDED, LOITER, STABILIZE).</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 18: Shared Memory Architecture (SHM) -->
+            <section>
+                <div class="slide-container">
+                    <h2>Shared Memory Architecture (SHM)</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em;">
+                            To transfer high-frequency (60Hz) navigation state data across processes (e.g., from the tracker stream to the logger and web services) without pipe overhead, a Python <code>SharedMemory</code> buffer is implemented.
+                        </p>
+                        <div class="math-formula" style="font-size: 0.8em;">
+                            SHM Layout: [Magic Header (4 Bytes)] + [Write Index (4B)] + [Count (4B)] + [120 Samples x 88 Bytes Data]
+                        </div>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li><strong>Structure:</strong> The data package writes timestamp, position $(X, Y)$, raw position, velocities, altitude, and heading.</li>
+                            <li><strong>Performance:</strong> Zero serialization overhead, sub-millisecond reader/writer latency.</li>
+                            <li><strong>Unlink Safeguards:</strong> Uses shared memory locks and automatic resource tracker unregistration to avoid segmentation faults.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 19: Web Dashboard & Frontend Visualization -->
+            <section>
+                <div class="slide-container">
+                    <h2>Web Dashboard & Frontend</h2>
+                    <div class="glass-panel two-columns">
+                        <div>
+                            <span class="badge">Real-Time Interface</span>
+                            <ul style="font-size: 0.8em;" class="list-unstyled">
+                                <li><strong>Video Streaming:</strong> RTSP server streams camera view with HUD overlays (artificial horizon, reticle, motion vectors).</li>
+                                <li><strong>Dashboard:</strong> A responsive web interface displaying real-time graphs for Roll/Pitch, Compass Heading, and Altimeter readings.</li>
+                                <li><strong>Telemetry:</strong> Live updates of calculated 2D positions.</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <span class="badge accent-green">Flask Integration</span>
+                            <p style="font-size: 0.85em;">
+                                A light python server reads from shared memory and broadcasts sensor values to the UI, offering a robust monitoring panel for testing.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 20: Standalone Gyro Calibrator Tool -->
+            <section>
+                <div class="slide-container">
+                    <h2>Standalone Gyro Calibrator Tool</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            The script <code>calibrate_gyro_standalone.py</code> allows isolated calibration and diagnostic plotting:
+                        </p>
+                        <ul style="font-size: 0.8em;" class="list-unstyled">
+                            <li>Collects raw IMU values from the MPU6050 over I2C.</li>
+                            <li>Calculates average offsets, standard deviations, and noise thresholds.</li>
+                            <li>Saves the calibration parameters into `gyro_calibration.json` for the main program to load.</li>
+                            <li>Generates visualization logs showing calibration sample distributions, verifying offset flatness.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 21: Experimental Setup & Test Methodology -->
+            <section>
+                <div class="slide-container">
+                    <h2>Experimental Setup & Methodology</h2>
+                    <div class="glass-panel">
+                        <p style="font-size: 0.85em; margin-bottom: 15px;">
+                            Validation was performed using simulated and real flight logs logged in the <code>hasil_dan_pembahasan</code> directory:
+                        </p>
+                        <ol style="font-size: 0.8em; line-height: 1.6;">
+                            <li><strong>Setup:</strong> Drone was fixed to a test stand allowing rotations along three axes.</li>
+                            <li><strong>Sensors:</strong> GY-86 MPU6050 + HMC5883L magnetometer logging raw and filtered angles.</li>
+                            <li><strong>Data Logging:</strong> Ran `collect_sensor_data.py` to record pure integrated gyro, raw accelerometer/compass, and complementary filter outputs.</li>
+                            <li><strong>Analysis:</strong> Executed `analyze_sensor_data.py` to compute Root-Mean-Square Error (RMSE) and Drift rates.</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 22: Results - Gyroscope Calibration Analysis -->
+            <section>
+                <div class="slide-container">
+                    <h2>Results: Gyroscope Calibration</h2>
+                    <div class="glass-panel">
+                        <p class="highlight-text" style="font-size: 1em; margin-bottom: 20px;">
+                            Calibration results show successful elimination of raw sensor offsets:
+                        </p>
+                        <div class="two-columns" style="font-size: 0.8em;">
+                            <div>
+                                <h3 style="font-size: 1.1em; color: var(--accent-primary);">Before Calibration</h3>
+                                <ul>
+                                    <li>Raw sensor bias injects a constant angular rate error.</li>
+                                    <li>Causes the attitude angle estimate to drift continuously, even when stationary.</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h3 style="font-size: 1.1em; color: var(--accent-secondary);">After Calibration</h3>
+                                <ul>
+                                    <li>Average static angular velocities are zeroed out.</li>
+                                    <li>Residual noise is reduced to white noise with low standard deviation.</li>
+                                    <li>Calibration parameters are stored as static JSON files.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 23: Results - Roll & Pitch Attitude Stability -->
+            <section>
+                <div class="slide-container">
+                    <h2>Results: Roll & Pitch Stability</h2>
+                    <div class="glass-panel stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Roll Drift Rate</div>
+                            <div class="stat-value">0.1270 °/s</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Without Filter</div>
+                        </div>
+                        <div class="stat-card" style="border-color: var(--accent-secondary);">
+                            <div class="stat-label">Roll RMSE</div>
+                            <div class="stat-value">0.9035°</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Filtered Angle</div>
+                        </div>
+                        <div class="stat-card" style="border-color: var(--accent-secondary);">
+                            <div class="stat-label">Pitch RMSE</div>
+                            <div class="stat-value">1.1655°</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Filtered Angle</div>
+                        </div>
+                    </div>
+                    <div class="glass-panel" style="margin-top: 20px; font-size: 0.8em;">
+                        <p>
+                            <strong>Analysis:</strong> Pure Gyroscope Roll drifts by **$2.53^\circ$ in just 20 seconds**. The Complementary Filter keeps the estimation locked to the gravity reference, reducing Roll and Pitch errors to **$<1.2^\circ$** with zero drift over time.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 24: Results - Yaw Stability & Compass Fusion -->
+            <section>
+                <div class="slide-container">
+                    <h2>Results: Yaw Stability & Compass Fusion</h2>
+                    <div class="glass-panel stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Yaw Drift Rate</div>
+                            <div class="stat-value">0.0639 °/s</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Pure Gyro integration</div>
+                        </div>
+                        <div class="stat-card" style="border-color: var(--accent-secondary);">
+                            <div class="stat-label">Yaw RMSE</div>
+                            <div class="stat-value">0.2532°</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Fused with Magnetometer</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Total Drift (20s)</div>
+                            <div class="stat-value">-1.2776°</div>
+                            <div class="stat-label" style="font-size: 0.6em;">Pure Gyro Z</div>
+                        </div>
+                    </div>
+                    <div class="glass-panel" style="margin-top: 20px; font-size: 0.8em;">
+                        <p>
+                            <strong>Analysis:</strong> Fusing the Z-gyroscope with the HMC5883L Magnetometer locks the absolute Yaw angle to the magnetic North. The drift is eliminated, keeping Yaw deviation extremely low at **$0.25^\circ$ RMSE**.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 25: Conclusion & Future Work -->
+            <section data-background-gradient="linear-gradient(135deg, #0b0f19 0%, #112c3f 100%)">
+                <div class="slide-container">
+                    <h2>Conclusion & Future Work</h2>
+                    <div class="glass-panel" style="font-size: 0.85em;">
+                        <h3 style="font-size: 1.1em; color: var(--accent-secondary); margin-bottom: 10px;">Key Accomplishments</h3>
+                        <ul class="list-unstyled" style="margin-bottom: 20px;">
+                            <li>Implemented dynamic, real-time attitude estimation using a 50Hz Complementary Filter.</li>
+                            <li>Achieved drift-free optical flow navigation by subtracting tilt-induced camera rotations.</li>
+                            <li>Created low-latency multi-process communication via shared memory.</li>
+                        </ul>
+                        <h3 style="font-size: 1.1em; color: var(--accent-primary); margin-bottom: 10px;">Future Improvements</h3>
+                        <ul class="list-unstyled">
+                            <li>Transition from Complementary Filter to an Extended Kalman Filter (EKF) for non-linear state estimation.</li>
+                            <li>Integrate depth-learning based optical flow for low-texture environment tracking.</li>
+                            <li>Implement full closed-loop autonomous navigation commands directly using MAVLink.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Reveal.js & dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        // Initialize Reveal.js with modern settings
+        Reveal.initialize({
+            hash: true,
+            controls: true,
+            progress: true,
+            history: true,
+            center: true,
+            transition: 'slide', // none/fade/slide/convex/concave/zoom
+            plugins: [ RevealHighlight ]
+        });
+    </script>
+</body>
+</html>

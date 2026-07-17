@@ -19,6 +19,9 @@ RETICLE_PITCH_SCALE_PX_PER_DEG = 6.0
 
 
 def compass_cardinal_from_heading_deg(heading_deg):
+    """
+    Converts a numerical heading in degrees into a cardinal/ordinal string representation.
+    """
     directions = ["N", "NW", "W", "SW", "S", "SE", "E", "NE"]   
     normalized_heading_deg = heading_deg % 360.0
     index = int((normalized_heading_deg + 22.5) // 45.0) % 8
@@ -26,6 +29,9 @@ def compass_cardinal_from_heading_deg(heading_deg):
 
 
 def draw_compass_widget(frame, heading_deg, age_s):
+    """
+    Draws a visual compass rose widget on the frame showing current heading.
+    """
     h, w = frame.shape[:2]
     radius_outer = max(22, min(w, h) // 12)
     radius_inner = max(8, radius_outer // 2)
@@ -73,6 +79,9 @@ def draw_compass_widget(frame, heading_deg, age_s):
 
 
 def draw_imu_analysis_widget(frame, imu_roll_deg, imu_pitch_deg, imu_yaw_deg, accel_roll_deg, accel_pitch_deg, accel_tilt_deg):
+    """
+    Draws a sidebar widget showing detailed comparison bars between Gyro IMU and Accel angles.
+    """
     h, w = frame.shape[:2]
     box_w = min(300, max(220, int(w * 0.34)))
     box_h = 166
@@ -86,6 +95,9 @@ def draw_imu_analysis_widget(frame, imu_roll_deg, imu_pitch_deg, imu_yaw_deg, ac
     cv2.putText(frame, "IMU / ACCEL ANALYSIS", (x0 + 10, y0 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 1, cv2.LINE_AA)
 
     def draw_signed_bar(label, value_deg, row, color):
+        """
+        Inner helper to draw a horizontal progress bar centered at zero for signed values.
+        """
         y = y0 + 38 + (row * 22)
         bar_x0 = x0 + 104
         bar_x1 = x0 + box_w - 12
@@ -110,6 +122,10 @@ def draw_imu_analysis_widget(frame, imu_roll_deg, imu_pitch_deg, imu_yaw_deg, ac
 
 
 def draw_osd(frame, total_tracked=0):
+    """
+    Overlays a HUD dashboard OSD (On-Screen Display) with telemetry widgets, 
+    minimap, compass, and analysis readouts on top of the video frame.
+    """
     with distance_lock:
         current_distance = distance_state["current_distance"]
     with attitude_lock:
@@ -213,6 +229,9 @@ def draw_osd(frame, total_tracked=0):
 
 
 def draw_raw_sensor_widget(frame, gx, gy, gz, ax, ay, az):
+    """
+    Draws a sidebar widget showing raw values for Gyroscope (dps) and Accelerometer (g) axes.
+    """
     h, w = frame.shape[:2]
     box_w = min(300, max(220, int(w * 0.34)))
     box_h = 166
@@ -226,6 +245,9 @@ def draw_raw_sensor_widget(frame, gx, gy, gz, ax, ay, az):
     cv2.putText(frame, "RAW IMU & ACCEL", (x0 + 10, y0 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 1, cv2.LINE_AA)
 
     def draw_signed_bar(label, value, max_val, row, color):
+        """
+        Inner helper to draw a signed raw sensor value bar.
+        """
         y = y0 + 38 + (row * 22)
         bar_x0 = x0 + 104
         bar_x1 = x0 + box_w - 12
@@ -250,6 +272,9 @@ def draw_raw_sensor_widget(frame, gx, gy, gz, ax, ay, az):
 
 
 def draw_gyro_drift_widget(frame, int_roll, int_pitch, int_yaw, flt_roll, flt_pitch, flt_yaw):
+    """
+    Draws a widget analyzing drift of integrated raw gyro angles compared to complementary-filtered angles.
+    """
     h, w = frame.shape[:2]
     box_w = min(300, max(220, int(w * 0.34)))
     box_h = 166
@@ -267,6 +292,9 @@ def draw_gyro_drift_widget(frame, int_roll, int_pitch, int_yaw, flt_roll, flt_pi
     drift_yaw = normalize_angle_deg(int_yaw - flt_yaw)
 
     def draw_signed_bar(label, value, max_val, row, color):
+        """
+        Inner helper to draw a signed drift comparison bar.
+        """
         y = y0 + 38 + (row * 22)
         bar_x0 = x0 + 104
         bar_x1 = x0 + box_w - 12
@@ -291,6 +319,9 @@ def draw_gyro_drift_widget(frame, int_roll, int_pitch, int_yaw, flt_roll, flt_pi
 
 
 def draw_feature_track_widget(frame, total_tracked):
+    """
+    Draws a widget showing track counts, inliers, outliers, inlier percentage, speed, and axis velocities.
+    """
     h, w = frame.shape[:2]
     box_w = min(300, max(220, int(w * 0.34)))
     box_h = 166
@@ -311,6 +342,9 @@ def draw_feature_track_widget(frame, total_tracked):
     inlier_ratio = (inliers / max(1, total_tracked)) * 100.0
 
     def draw_label_value_bar(label, value, value_str, max_val, row, color):
+        """
+        Inner helper to draw labeled feature tracking progress bars.
+        """
         y = y0 + 38 + (row * 22)
         bar_x0 = x0 + 104
         bar_x1 = x0 + box_w - 12
@@ -335,6 +369,10 @@ def draw_feature_track_widget(frame, total_tracked):
 
 
 def draw_minimap_widget(frame):
+    """
+    Draws a 2D positioning minimap at the bottom center of the frame showing
+    historical path tracking of the drone from optical flow.
+    """
     h, w = frame.shape[:2]
     box_w = 160
     box_h = 160
@@ -401,6 +439,10 @@ def draw_minimap_widget(frame):
 
 
 def draw_ground_reticle(frame):
+    """
+    Draws a dynamic central ground HUD reticle warped by current roll, pitch, and yaw.
+    Also overlays an accelerometer-driven crosshair vector showing force direction.
+    """
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2
     radius_outer = max(24, min(w, h) // 7)

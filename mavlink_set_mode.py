@@ -12,6 +12,11 @@ from pymavlink import mavutil
 
 
 def main():
+    """
+    Main entry point for changing the drone's flight mode.
+    Parses arguments for port and mode, establishes MAVLink connection,
+    waits for heartbeat, maps the desired mode name to its ID, and sends the command.
+    """
     parser = argparse.ArgumentParser(description="Barebone MAVLink Flight Mode Changer.")
     parser.add_argument(
         "--port",

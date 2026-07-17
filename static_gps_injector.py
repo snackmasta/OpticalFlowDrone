@@ -47,6 +47,10 @@ flow_shm = None
 
 
 def get_latest_flow_data():
+    """
+    Tries to connect to the optical flow shared memory segment and read the latest
+    displacement (X, Y) and altitude. Returns (X_meters, Y_meters, altitude_meters) or None.
+    """
     global flow_shm
     if flow_shm is None:
         try:
@@ -80,6 +84,9 @@ def get_latest_flow_data():
 
 
 def get_latest_compass_heading():
+    """
+    Tries to connect to the compass shared memory segment and read the latest heading value in degrees.
+    """
     global compass_shm
     if compass_shm is None:
         try:
@@ -111,6 +118,9 @@ def get_latest_compass_heading():
 
 
 def checksum(s):
+    """
+    Calculates the 8-bit XOR checksum of the given NMEA string, returned as a 2-character hex code.
+    """
     c = 0
     for x in s:
         c ^= ord(x)
@@ -118,6 +128,9 @@ def checksum(s):
 
 
 def to_nmea_lat(lat):
+    """
+    Converts decimal latitude to NMEA DDMM.MMMM format and returns a tuple (formatted_string, N/S direction).
+    """
     deg = int(abs(lat))
     minutes = (abs(lat)-deg)*60
     ns = "S" if lat < 0 else "N"
@@ -125,6 +138,9 @@ def to_nmea_lat(lat):
 
 
 def to_nmea_lon(lon):
+    """
+    Converts decimal longitude to NMEA DDDMM.MMMM format and returns a tuple (formatted_string, E/W direction).
+    """
     deg = int(abs(lon))
     minutes = (abs(lon)-deg)*60
     ew = "W" if lon < 0 else "E"

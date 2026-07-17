@@ -31,6 +31,10 @@ OUTPUT_DIR = "hasil_dan_pembahasan"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "gyro_calibration_samples.csv")
 
 def read_i2c_word(bus, addr, reg):
+    """
+    Reads a 16-bit signed word from the specified I2C register.
+    Combines high and low bytes and handles 2's complement conversion.
+    """
     high = bus.read_byte_data(addr, reg)
     low = bus.read_byte_data(addr, reg + 1)
     value = (high << 8) | low
@@ -39,6 +43,11 @@ def read_i2c_word(bus, addr, reg):
     return value
 
 def main():
+    """
+    Executes the standalone MPU6050 gyroscope calibration routine.
+    Collects raw samples, calculates sensor bias, performs tilt integration,
+    and logs the raw/calibrated data to a CSV file.
+    """
     print("=================================================================")
     print("      PROSES KALIBRASI BIAS GIROSKOP MPU6050 (STANDALONE)        ")
     print("=================================================================")

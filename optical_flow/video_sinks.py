@@ -10,6 +10,9 @@ MEDIAMTX_BIN = PROJECT_ROOT/ "./.." / ".tools" / "mediamtx" / "mediamtx"
 
 
 def choose_output_mode():
+    """
+    Prompts the user via console input to select the output mode (either RTSP stream or local recording).
+    """
     default_mode = "record"
     prompt = "Choose output mode: [r]ecord locally or [s]tream via RTSP? [r/s] "
     try:
@@ -23,6 +26,9 @@ def choose_output_mode():
 
 
 def choose_rtsp_url():
+    """
+    Prompts the user via console input to enter the RTSP stream name, falling back to 'drone'.
+    """
     default_url = "drone"
     try:
         value = input(f"RTSP stream name [{default_url}]: ").strip()
@@ -32,6 +38,9 @@ def choose_rtsp_url():
 
 
 class FileSink:
+    """
+    Saves video frames locally into an MP4 file.
+    """
     def __init__(self, frame_size, fps):
         RECORDINGS_DIR.mkdir(exist_ok=True)
         self.output_path = RECORDINGS_DIR / f"optical_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
@@ -44,14 +53,23 @@ class FileSink:
         print(f"Recording optical flow to {self.output_path}")
 
     def write(self, frame):
+        """
+        Writes a single frame to the video file.
+        """
         self.writer.write(frame)
 
     def release(self):
+        """
+        Releases the VideoWriter resource and prints the path of the saved video.
+        """
         self.writer.release()
         print(f"Saved recording: {self.output_path}")
 
 
 class RtspServer:
+    """
+    Spawns and manages a local MediaMTX RTSP server subprocess.
+    """
     def __init__(self):
         if not MEDIAMTX_BIN.exists():
             raise RuntimeError(f"MediaMTX binary not found at {MEDIAMTX_BIN}")
@@ -68,6 +86,9 @@ class RtspServer:
             raise RuntimeError("MediaMTX failed to start")
 
     def release(self):
+        """
+        Terminates the MediaMTX subprocess.
+        """
         if self.process.poll() is None:
             self.process.terminate()
             try:
@@ -77,6 +98,9 @@ class RtspServer:
 
 
 class RtspSink:
+    """
+    Streams video frames to a local RTSP server using ffmpeg via stdin pipe.
+    """
     def __init__(self, frame_size, fps, rtsp_url):
         frame_width, frame_height = frame_size
         self.rtsp_url = rtsp_url
@@ -117,6 +141,9 @@ class RtspSink:
         print(f"Streaming optical flow to {rtsp_url}")
 
     def write(self, frame):
+        """
+        Pipes a raw video frame to the running ffmpeg subprocess.
+        """
         if self.failed:
             return
         if self.process.stdin is None:
@@ -137,9 +164,15 @@ class RtspSink:
             raise
 
     def is_failed(self):
+        """
+        Returns True if streaming has failed due to a broken pipe or connection drop.
+        """
         return self.failed
 
     def release(self):
+        """
+        Closes the stdin stream to ffmpeg and waits for the subprocess to terminate.
+        """
         if self.process.stdin is not None:
             try:
                 self.process.stdin.close()
@@ -153,6 +186,9 @@ class RtspSink:
 
 
 def create_output_sink(frame_size, fps, mode=None, rtsp_name=None):
+    """
+    Creates and returns the appropriate video output sink (FileSink or RtspSink) based on configuration.
+    """
     if mode is None:
         mode = choose_output_mode()
     if mode == "rtsp":
