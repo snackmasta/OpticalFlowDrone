@@ -450,11 +450,15 @@ def record_optical_flow():
             tx_comp = tx - (scale_x * d_reticle_x)
             ty_comp = ty - (scale_y * d_reticle_y)
 
-            with distance_lock:
-                altitude_cm = distance_state["current_distance"]
+            # Estimate altitude using optical flow scale factor: Z_t = Z_t-1 / scale
+            # We clip scale to [0.95, 1.05] to make altitude transitions smooth and robust to noise.
+            clipped_scale = np.clip(scale, 0.95, 1.05)
+            with position_lock:
+                position_state["z_cm"] = np.clip(position_state["z_cm"] / clipped_scale, 20.0, 500.0)
+                altitude_cm = position_state["z_cm"]
 
             # Calculate physical velocity using compensated translations (body frame)
-            altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+            altitude_m = altitude_cm / 100.0
             vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
             vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
@@ -509,7 +513,7 @@ def record_optical_flow():
             with position_lock:
                 position_state["x_cm"] += vx_mps * 100.0 * dt_s
                 position_state["y_cm"] += vy_mps * 100.0 * dt_s
-                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"], position_state["z_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
@@ -532,7 +536,7 @@ def record_optical_flow():
             velocity_state["last_update"] = frame_ts
 
             with position_lock:
-                position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
+                position_state["path"].append((position_state["x_cm"], position_state["y_cm"], position_state["z_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
 
@@ -540,11 +544,9 @@ def record_optical_flow():
         with position_lock:
             current_x_cm = position_state["x_cm"]
             current_y_cm = position_state["y_cm"]
+            current_alt = position_state["z_cm"] / 100.0
         current_vx = velocity_state["vx_mps"]
         current_vy = velocity_state["vy_mps"]
-        with distance_lock:
-            altitude_cm = distance_state["current_distance"]
-        current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
         write_flow_stream_sample(
             frame_ts,
             current_x_cm,

@@ -6,6 +6,7 @@
     <title>Shared Memory Registry & Manager</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <style>
         :root {
             --bg-base: #060b16;
@@ -643,11 +644,15 @@
 
                         <!-- Minimap Container -->
                         <div id="minimap-container" style="display: none; margin-top: 24px;">
-                            <h3>2D Position Tracking (Minimaps)</h3>
-                            <div class="minimap-layout" style="display: grid; grid-template-columns: 1fr 1fr 280px; gap: 20px; margin-top: 12px;">
+                            <h3>3D Position & 2D Minimap Tracking</h3>
+                            <div class="minimap-layout" style="display: grid; grid-template-columns: 1fr 1fr 1fr 280px; gap: 20px; margin-top: 12px;">
                                 <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: 16px; padding: 16px; position: relative; height: 350px;">
                                     <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; text-align: center;">Local Coordinates (Cartesian XY)</div>
                                     <canvas id="minimapCanvas" style="width: 100%; height: calc(100% - 24px); display: block;"></canvas>
+                                </div>
+                                <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: 16px; padding: 16px; position: relative; height: 350px;">
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; text-align: center;">3D Cartesian Path (Plotly 3D)</div>
+                                    <div id="plotly3DDiv" style="width: 100%; height: calc(100% - 24px); display: block;"></div>
                                 </div>
                                 <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: 16px; padding: 16px; position: relative; height: 350px;">
                                     <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; text-align: center;">GPS Position Estimation</div>
@@ -1969,6 +1974,81 @@
 
         window.addEventListener('resize', resizeMinimap);
 
+        function updatePlotly3D(samples) {
+            const container = document.getElementById('plotly3DDiv');
+            if (!container) return;
+
+            if (!samples || samples.length === 0) {
+                container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-family:'Outfit';">Waiting for optical flow telemetry...</div>`;
+                return;
+            }
+
+            // Extract points in chronological order (oldest to newest)
+            const pts = [...samples].reverse();
+            const x = pts.map(s => s.x_cm / 100.0); // Convert to meters
+            const y = pts.map(s => s.y_cm / 100.0);
+            const z = pts.map(s => s.alt); // alt is in meters
+
+            const tracePath = {
+                x: x,
+                y: y,
+                z: z,
+                mode: 'lines',
+                type: 'scatter3d',
+                line: {
+                    color: '#0ea5e9',
+                    width: 5
+                },
+                name: 'Path'
+            };
+
+            const traceCurrent = {
+                x: [x[x.length - 1]],
+                y: [y[y.length - 1]],
+                z: [z[z.length - 1]],
+                mode: 'markers',
+                type: 'scatter3d',
+                marker: {
+                    color: '#10b981',
+                    size: 8,
+                    symbol: 'circle'
+                },
+                name: 'Current'
+            };
+
+            const layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 0, r: 0, b: 0, t: 0 },
+                scene: {
+                    xaxis: {
+                        title: 'X (m)',
+                        color: '#94a3b8',
+                        gridcolor: 'rgba(148, 163, 184, 0.1)',
+                        zerolinecolor: 'rgba(148, 163, 184, 0.2)'
+                    },
+                    yaxis: {
+                        title: 'Y (m)',
+                        color: '#94a3b8',
+                        gridcolor: 'rgba(148, 163, 184, 0.1)',
+                        zerolinecolor: 'rgba(148, 163, 184, 0.2)'
+                    },
+                    zaxis: {
+                        title: 'Z (m)',
+                        color: '#94a3b8',
+                        gridcolor: 'rgba(148, 163, 184, 0.1)',
+                        zerolinecolor: 'rgba(148, 163, 184, 0.2)'
+                    },
+                    camera: {
+                        eye: { x: 1.5, y: 1.5, z: 1.2 }
+                    }
+                },
+                showlegend: false
+            };
+
+            Plotly.react('plotly3DDiv', [tracePath, traceCurrent], layout, {displayModeBar: false, responsive: true});
+        }
+
         function updateMinimap(samples) {
             const canvas = document.getElementById('minimapCanvas');
             if (!canvas) return;
@@ -2165,6 +2245,7 @@
 
             // Render absolute GPS coordinates minimap side-by-side
             updateGpsMinimap(samples);
+            updatePlotly3D(samples);
         }
 
         function updateGpsMinimap(samples) {
