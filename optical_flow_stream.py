@@ -310,10 +310,12 @@ def record_optical_flow():
     calib_paused = False
     calib_samples_x = []
     calib_samples_y = []
+    use_optical_flow = True
     
     print("\n=======================================================")
     print("Type 'c' and press Enter to start tilt calibration.")
     print("Type 'r' and press Enter to reset positions to zero.")
+    print("Type 'o' and press Enter to toggle opticalflow but still use the IMU+Compass.")
     print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
     
@@ -392,6 +394,11 @@ def record_optical_flow():
                 except Exception as e:
                     print(f"Failed to save camera offset calibration: {e}")
 
+            if command == 'o':
+                use_optical_flow = not use_optical_flow
+                status = "ENABLED" if use_optical_flow else "DISABLED"
+                print(f"\n>>> OPTICAL FLOW {status} (IMU+Compass remain active).")
+
             if command == 'r':
                 x_raw_cm = 0.0
                 y_raw_cm = 0.0
@@ -408,7 +415,10 @@ def record_optical_flow():
         img = frame.copy()
         draw_scale = 1.0 / FLOW_SCALE
 
-        dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
+        if use_optical_flow:
+            dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
+        else:
+            dense_motion = None
 
         # Calculate reticle displacement for tilt compensation
         with attitude_lock:
