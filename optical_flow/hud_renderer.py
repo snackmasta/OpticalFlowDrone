@@ -405,7 +405,7 @@ def draw_minimap_widget(frame):
     with position_lock:
         x_curr = position_state["x_cm"] / 100.0
         y_curr = position_state["y_cm"] / 100.0
-        path = [(xp / 100.0, yp / 100.0) for xp, yp in position_state["path"]]
+        path = [(pt[0] / 100.0, pt[1] / 100.0) for pt in position_state["path"]]
 
     # Draw trail
     points = []

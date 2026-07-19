@@ -400,7 +400,7 @@ def record_optical_flow():
                 with position_lock:
                     position_state["x_cm"] = 0.0
                     position_state["y_cm"] = 0.0
-                    position_state["path"] = [(0.0, 0.0)]
+                    position_state["path"] = [(0.0, 0.0, position_state.get("z_cm", 120.0))]
                 print("\n>>> POSITIONS RESET TO ZERO.")
 
         frame = ensure_bgr(picam2.capture_array())

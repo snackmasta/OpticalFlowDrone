@@ -33,7 +33,8 @@ velocity_state = {
 position_state = {
     "x_cm": 0.0,
     "y_cm": 0.0,
-    "path": [(0.0, 0.0)],
+    "z_cm": 120.0, # Default startup altitude in cm
+    "path": [(0.0, 0.0, 120.0)],
 }
 position_lock = threading.Lock()
 
