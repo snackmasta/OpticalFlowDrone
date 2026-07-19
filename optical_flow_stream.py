@@ -94,7 +94,9 @@ from optical_flow.sensor_readers import (
     distance_state,
     attitude_lock,
     attitude_state,
-    is_gyro_calibrated
+    is_gyro_calibrated,
+    accel_lock,
+    accel_state
 )
 from optical_flow.flow_processor import (
     to_small_gray,
@@ -539,16 +541,59 @@ def record_optical_flow():
                 img = cv2.line(img, (cx, dy), (ax, by), (0, 255, 0), 1)
                 img = cv2.circle(img, (ax, by), 3, (0, 0, 255), -1)
         else:
-            velocity_state["vx_mps"] = 0.0
-            velocity_state["vy_mps"] = 0.0
-            velocity_state["speed_mps"] = 0.0
+            # Fallback / Optical Flow Disabled: Use IMU acceleration integration
+            with accel_lock:
+                ax = accel_state["x_g"]
+                ay = accel_state["y_g"]
+            
+            # Simple gravity compensation in body frame
+            roll_rad = math.radians(roll_deg)
+            pitch_rad = math.radians(pitch_deg)
+            gx = -math.sin(pitch_rad)
+            gy = math.sin(roll_rad) * math.cos(pitch_rad)
+            
+            ax_lin = (ax - gx) * 9.80665
+            ay_lin = (ay - gy) * 9.80665
+            
+            # Rotate to absolute frame (East/North) using actual compass heading
+            yaw_actual_deg = -yaw_deg
+            yaw_rad = math.radians(yaw_actual_deg)
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            
+            ax_abs = ax_lin * cos_yaw + ay_lin * sin_yaw
+            ay_abs = -ax_lin * sin_yaw + ay_lin * cos_yaw
+            
+            # Integrate velocity
+            prev_vx = velocity_state["vx_mps"]
+            prev_vy = velocity_state["vy_mps"]
+            
+            # Integrate and apply minor damping to prevent unbounded drift
+            vx_mps = (prev_vx + ax_abs * dt_s) * 0.95
+            vy_mps = (prev_vy + ay_abs * dt_s) * 0.95
+            vx_mps = np.clip(vx_mps, -5.0, 5.0)
+            vy_mps = np.clip(vy_mps, -5.0, 5.0)
+            
+            vx_raw_mps = vx_mps
+            vy_raw_mps = vy_mps
+            vx_raw_prev = vx_raw_mps
+            vy_raw_prev = vy_raw_mps
+            
+            velocity_state["vx_mps"] = vx_mps
+            velocity_state["vy_mps"] = vy_mps
+            velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
             velocity_state["inliers"] = 0
             velocity_state["last_update"] = frame_ts
-
+            
             with position_lock:
+                position_state["x_cm"] += vx_mps * 100.0 * dt_s
+                position_state["y_cm"] += vy_mps * 100.0 * dt_s
                 position_state["path"].append((position_state["x_cm"], position_state["y_cm"], position_state["z_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
+                    
+            x_raw_cm += vx_raw_mps * 100.0 * dt_s
+            y_raw_cm += vy_raw_mps * 100.0 * dt_s
 
         # Stream current X, Y position, velocity, and altitude to shared memory
         with position_lock:

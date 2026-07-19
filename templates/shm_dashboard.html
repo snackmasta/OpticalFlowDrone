@@ -2016,6 +2016,45 @@
                 name: 'Current'
             };
 
+            const lastSample = pts[pts.length - 1];
+            const headingDeg = lastSample && lastSample.heading !== undefined ? lastSample.heading : 0;
+            const headingRad = headingDeg * Math.PI / 180.0;
+            const vx_dir = Math.sin(headingRad);
+            const vy_dir = Math.cos(headingRad);
+
+            const arrowLength = 0.4; // 40 cm long vector pointer
+            const x_curr = x[x.length - 1];
+            const y_curr = y[y.length - 1];
+            const z_curr = z[z.length - 1];
+
+            const traceHeading = {
+                x: [x_curr, x_curr + vx_dir * arrowLength],
+                y: [y_curr, y_curr + vy_dir * arrowLength],
+                z: [z_curr, z_curr],
+                mode: 'lines',
+                type: 'scatter3d',
+                line: {
+                    color: '#ef4444',
+                    width: 6
+                },
+                name: 'Heading Line'
+            };
+
+            const traceHeadingCone = {
+                type: 'cone',
+                x: [x_curr + vx_dir * arrowLength],
+                y: [y_curr + vy_dir * arrowLength],
+                z: [z_curr],
+                u: [vx_dir],
+                v: [vy_dir],
+                w: [0],
+                sizemode: 'absolute',
+                sizeref: 0.15,
+                showscale: false,
+                colorscale: [[0, '#ef4444'], [1, '#ef4444']],
+                name: 'Heading Pointer'
+            };
+
             const layout = {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
@@ -2046,7 +2085,7 @@
                 showlegend: false
             };
 
-            Plotly.react('plotly3DDiv', [tracePath, traceCurrent], layout, {displayModeBar: false, responsive: true});
+            Plotly.react('plotly3DDiv', [tracePath, traceCurrent, traceHeading, traceHeadingCone], layout, {displayModeBar: false, responsive: true});
         }
 
         function updateMinimap(samples) {
