@@ -236,3 +236,41 @@ with position_lock:
     position_state["x_cm"] += vx_mps * dt_s * 100.0
     position_state["y_cm"] += vy_mps * dt_s * 100.0
 ```
+
+---
+
+## 8. Madgwick AHRS 6-DOF IMU & Position Estimation Model
+The **Madgwick AHRS algorithm** (6-DOF IMU mode, operating without a magnetometer) estimates orientation by fusing gyroscope angular rates with gradient descent orientation corrections computed from accelerometer gravity measurements.
+
+### 8.1. Orientation Quaternion Gradient Descent Update
+Given orientation quaternion $\mathbf{q} = [q_w, q_x, q_y, q_z]^T$, the objective function $f(\mathbf{q}, \hat{\mathbf{a}})$ aligns the measured body acceleration vector $\hat{\mathbf{a}}$ with the reference gravity direction:
+
+$$f(\mathbf{q}) = \begin{bmatrix}
+2(q_x q_z - q_w q_y) - a_x \\
+2(q_w q_x + q_y q_z) - a_y \\
+2(0.5 - q_x^2 - q_y^2) - a_z
+\end{bmatrix}$$
+
+The gradient $\boldsymbol{\nabla} f = J^T(\mathbf{q}) f(\mathbf{q})$ is calculated using the Jacobian matrix $J(\mathbf{q})$. The total quaternion rate of change combines gyro integration and gradient descent correction:
+
+$$\dot{\mathbf{q}} = \frac{1}{2} \mathbf{q} \otimes [0, \boldsymbol{\omega}] - \beta \frac{\boldsymbol{\nabla} f}{\|\boldsymbol{\nabla} f\|}$$
+
+$$\mathbf{q}_{t+1} = \frac{\mathbf{q}_t + \dot{\mathbf{q}} \cdot dt}{\|\mathbf{q}_t + \dot{\mathbf{q}} \cdot dt\|}$$
+
+### 8.2. Earth-Frame Linear Acceleration Extraction & Position Double Integration
+Linear acceleration in Earth frame is extracted by rotating body acceleration into Earth coordinates via quaternion $\mathbf{q}$ and removing gravity:
+
+$$\mathbf{a}_{\text{earth}} = \mathbf{q} \otimes [0, a_x, a_y, a_z]^T \otimes \mathbf{q}^* - [0, 0, 0, g]^T$$
+
+To bound integration drift from accelerometer noise, a zero-velocity update (ZUPT) and exponential decay factor $\lambda_{\text{vel}} \approx 0.985$ are applied:
+
+$$\mathbf{v}_{t+1} = \lambda_{\text{vel}} \cdot (\mathbf{v}_t + \mathbf{a}_{\text{earth}} \cdot dt)$$
+$$\mathbf{p}_{t+1} = \mathbf{p}_t + \mathbf{v}_{t+1} \cdot dt$$
+
+#### 💻 Code Implementation
+In [`madgwick_ahrs.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/madgwick_ahrs.py#L140-L245):
+```python
+estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=50.0)
+state = estimator.update(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt)
+pos_x, pos_y, pos_z = state["position"]["x"], state["position"]["y"], state["position"]["z"]
+```

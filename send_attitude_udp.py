@@ -117,6 +117,8 @@ def read_latest_flow():
         return None
 
 
+from madgwick_ahrs import MadgwickPositionEstimator
+
 def main():
     parser = argparse.ArgumentParser(description="Send Shared Memory Roll Pitch Yaw to web_server.py via UDP.")
     parser.add_argument("--ip", type=str, default=DEFAULT_TARGET_IP, help=f"Target UDP IP (default: {DEFAULT_TARGET_IP})")
@@ -127,7 +129,10 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     interval = 1.0 / args.rate
 
-    print(f"[SHM UDP Sender] Streaming RPY SHM to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
+    # Instantiate Madgwick AHRS Position Estimator (6DoF IMU mode, no magnetometer)
+    madgwick_estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=args.rate)
+
+    print(f"[SHM UDP Sender] Streaming Madgwick AHRS & Position Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
 
     try:
         while True:
@@ -139,18 +144,36 @@ def main():
                 roll = att["roll"]
                 pitch = att["pitch"]
                 yaw = att["yaw"]
-                quat = euler_to_quaternion(roll, pitch, yaw)
+                gx = att["gx"]
+                gy = att["gy"]
+                gz = att["gz"]
 
-                pos_x = flow["x_m"] if flow else 0.0
-                pos_y = flow["y_m"] if flow else 0.0
-                pos_z = flow["z_m"] if flow else 0.0
-                vel_x = flow["vx"] if flow else 0.0
-                vel_y = flow["vy"] if flow else 0.0
+                # Calculate gravity projections for accelerometer input
+                roll_rad = math.radians(roll)
+                pitch_rad = math.radians(pitch)
+                ax_g = -math.sin(pitch_rad)
+                ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
+                az_g = math.cos(roll_rad) * math.cos(pitch_rad)
+
+                # Update Madgwick AHRS & Position state
+                m_state = madgwick_estimator.update(
+                    gx_dps=gx, gy_dps=gy, gz_dps=gz,
+                    ax_g=ax_g, ay_g=ay_g, az_g=az_g
+                )
+
+                # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
+                pos_x = flow["x_m"] if flow else m_state["position"]["x"]
+                pos_y = flow["y_m"] if flow else m_state["position"]["y"]
+                pos_z = flow["z_m"] if flow else m_state["position"]["z"]
+
+                vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
+                vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
+                vel_z = m_state["velocity"]["z"]
 
                 telemetry_packet = {
                     "timestamp": att["timestamp"],
                     "rotation": {
-                        "quaternion": quat,
+                        "quaternion": m_state["quaternion"],
                         "euler": {
                             "roll": round(roll, 2),
                             "pitch": round(pitch, 2),
@@ -158,9 +181,9 @@ def main():
                         },
                     },
                     "translation": {
-                        "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-                        "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(0.0, 3)},
-                        "linear_accel": {"x": 0.0, "y": 0.0, "z": 0.0},
+                        "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
+                        "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(vel_z, 3)},
+                        "linear_accel": m_state["linear_accel"],
                     },
                     "heading": round(yaw, 2),
                     "status": "connected",
