@@ -73,6 +73,8 @@ def udp_command_listener():
             cmd = data.decode("utf-8").strip().lower()
             if cmd == "reset":
                 input_queue.put("r")
+            elif cmd in ("toggle", "t"):
+                input_queue.put("t")
             elif cmd.startswith("offset "):
                 parts = cmd.split()
                 if len(parts) == 3:
@@ -94,6 +96,8 @@ from optical_flow.sensor_readers import (
     distance_state,
     attitude_lock,
     attitude_state,
+    accel_lock,
+    accel_state,
     is_gyro_calibrated
 )
 from optical_flow.flow_processor import (
@@ -306,6 +310,11 @@ def record_optical_flow():
     vx_raw_prev = 0.0
     vy_raw_prev = 0.0
     
+    translation_source = "flow"
+    velocity_state["translation_source"] = translation_source
+    accel_vx_mps = 0.0
+    accel_vy_mps = 0.0
+    
     is_calibrating = False
     calib_paused = False
     calib_samples_x = []
@@ -314,6 +323,7 @@ def record_optical_flow():
     print("\n=======================================================")
     print("Type 'c' and press Enter to start tilt calibration.")
     print("Type 'r' and press Enter to reset positions to zero.")
+    print("Type 't' and press Enter to toggle translation source (FLOW vs ACCEL).")
     print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
     
@@ -391,6 +401,12 @@ def record_optical_flow():
                     print(f"\n>>> CAMERA OFFSET UPDATED: x={camera_offset_x:.2f} cm, y={camera_offset_y:.2f} cm")
                 except Exception as e:
                     print(f"Failed to save camera offset calibration: {e}")
+
+            if command == 't':
+                new_source = "accel" if translation_source == "flow" else "flow"
+                translation_source = new_source
+                velocity_state["translation_source"] = translation_source
+                print(f"\n>>> TRANSLATION SOURCE TOGGLED TO: {translation_source.upper()}")
 
             if command == 'r':
                 x_raw_cm = 0.0
@@ -507,16 +523,50 @@ def record_optical_flow():
             vz_mps = float(np.clip(vz_mps_calc, prev_vz - max_dv, prev_vz + max_dv))
             vz_mps = float(np.clip(vz_mps, -5.0, 5.0))
 
-            velocity_state["vx_mps"] = vx_mps
-            velocity_state["vy_mps"] = vy_mps
+            # Compute accelerometer linear acceleration & velocity integration (translation source == 'accel')
+            with accel_lock:
+                xaccel_g = accel_state["x_g"]
+                yaccel_g = accel_state["y_g"]
+            with attitude_lock:
+                roll_rad = math.radians(attitude_state["roll_deg"])
+                pitch_rad = math.radians(attitude_state["pitch_deg"])
+
+            # Subtract static gravity component based on tilt angle
+            accel_x_m_s2 = (xaccel_g - math.sin(pitch_rad)) * 9.80665
+            accel_y_m_s2 = (yaccel_g + math.sin(roll_rad)) * 9.80665
+
+            # Deadband filter to prevent static drift
+            if abs(accel_x_m_s2) < 0.15:
+                accel_x_m_s2 = 0.0
+            if abs(accel_y_m_s2) < 0.15:
+                accel_y_m_s2 = 0.0
+
+            # Integrate acceleration over time to update velocity (Earth/Body aligned)
+            accel_vx_mps = float(np.clip(accel_vx_mps + accel_x_m_s2 * dt_s, -5.0, 5.0))
+            accel_vy_mps = float(np.clip(accel_vy_mps + accel_y_m_s2 * dt_s, -5.0, 5.0))
+            # Apply high-pass damping/decay to prevent runaway accelerometer integration drift
+            accel_vx_mps *= 0.98
+            accel_vy_mps *= 0.98
+
+            # Select final active velocity based on translation_source toggle ('flow' vs 'accel')
+            if translation_source == "accel":
+                active_vx_mps = accel_vx_mps
+                active_vy_mps = accel_vy_mps
+            else:
+                active_vx_mps = vx_mps
+                active_vy_mps = vy_mps
+
+            velocity_state["vx_mps"] = active_vx_mps
+            velocity_state["vy_mps"] = active_vy_mps
             velocity_state["vz_mps"] = vz_mps
-            velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
+            velocity_state["speed_mps"] = float(math.hypot(active_vx_mps, active_vy_mps))
             velocity_state["inliers"] = tracked_count
             velocity_state["last_update"] = frame_ts
+            velocity_state["translation_source"] = translation_source
 
             with position_lock:
-                position_state["x_cm"] += vx_mps * 100.0 * dt_s
-                position_state["y_cm"] += vy_mps * 100.0 * dt_s
+                position_state["x_cm"] += active_vx_mps * 100.0 * dt_s
+                position_state["y_cm"] += active_vy_mps * 100.0 * dt_s
                 position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                 if len(position_state["path"]) > 200:
                     position_state["path"].pop(0)
