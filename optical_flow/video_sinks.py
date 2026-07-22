@@ -127,6 +127,8 @@ class RtspSink:
                 "ultrafast",
                 "-tune",
                 "zerolatency",
+                "-flags",
+                "+global_header",
                 "-pix_fmt",
                 "yuv420p",
                 "-f",
