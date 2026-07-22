@@ -68,28 +68,44 @@ class FileSink:
 
 class RtspServer:
     """
-    Spawns and manages a local MediaMTX RTSP server subprocess.
+    Spawns and manages a local MediaMTX RTSP server subprocess if one is not already running.
     """
     def __init__(self):
         if not MEDIAMTX_BIN.exists():
             raise RuntimeError(f"MediaMTX binary not found at {MEDIAMTX_BIN}")
 
+        self.spawned = False
+        self.process = None
+
+        try:
+            res = subprocess.run(["pgrep", "-f", "mediamtx"], capture_output=True)
+            if res.returncode == 0:
+                # mediamtx is already running
+                return
+        except Exception:
+            pass
+
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = open(log_dir / "mediamtx.log", "a")
+
         self.process = subprocess.Popen(
             [str(MEDIAMTX_BIN)],
             cwd=str(MEDIAMTX_BIN.parent),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
         )
+        self.spawned = True
 
         time.sleep(1)
         if self.process.poll() is not None:
-            raise RuntimeError("MediaMTX failed to start")
+            raise RuntimeError("MediaMTX failed to start. Check logs/mediamtx.log for details.")
 
     def release(self):
         """
-        Terminates the MediaMTX subprocess.
+        Terminates the MediaMTX subprocess if spawned by this class.
         """
-        if self.process.poll() is None:
+        if self.spawned and self.process and self.process.poll() is None:
             self.process.terminate()
             try:
                 self.process.wait(timeout=5)
@@ -127,14 +143,20 @@ class RtspSink:
                 "ultrafast",
                 "-tune",
                 "zerolatency",
+                "-bf",
+                "0",
+                "-g",
+                str(int(fps)),
                 "-flags",
                 "+global_header",
+                "-bsf:v",
+                "h264_mp4toannexb",
                 "-pix_fmt",
                 "yuv420p",
-                "-f",
-                "rtsp",
                 "-rtsp_transport",
                 "tcp",
+                "-f",
+                "rtsp",
                 rtsp_url,
             ],
             stdin=subprocess.PIPE,
