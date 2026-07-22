@@ -139,6 +139,7 @@ def main():
     try:
         while True:
             loop_start = time.time()
+            t = loop_start - start_time
             att = read_latest_attitude()
             flow = read_latest_flow()
 
@@ -152,7 +153,6 @@ def main():
                 ts = att["timestamp"]
             else:
                 # Fallback: Synthesize smooth dynamic 3D motion for demonstration
-                t = loop_start - start_time
                 roll = 18.0 * math.sin(t * 1.8)
                 pitch = 12.0 * math.cos(t * 1.4)
                 yaw = math.degrees(math.atan2(math.sin(t * 0.8), math.cos(t * 0.8)))
@@ -164,10 +164,10 @@ def main():
             # Calculate gravity projections + dynamic linear acceleration for 3D translation (including Z axis)
             roll_rad = math.radians(roll)
             pitch_rad = math.radians(pitch)
-            ax_g = -math.sin(pitch_rad) + (0.12 * math.cos(loop_start * 2.0) if 't' in locals() else 0.0)
-            ay_g = math.sin(roll_rad) * math.cos(pitch_rad) + (0.12 * math.sin(loop_start * 1.8) if 't' in locals() else 0.0)
+            ax_g = -math.sin(pitch_rad) + 0.15 * math.cos(t * 2.0)
+            ay_g = math.sin(roll_rad) * math.cos(pitch_rad) + 0.15 * math.sin(t * 1.8)
             # Dynamic Z acceleration (vertical heave/thrust variation)
-            az_g = math.cos(roll_rad) * math.cos(pitch_rad) + (0.18 * math.sin(loop_start * 1.5) if 't' in locals() else 0.0)
+            az_g = math.cos(roll_rad) * math.cos(pitch_rad) + 0.25 * math.sin(t * 1.5)
 
             # Update Madgwick AHRS & Position state
             m_state = madgwick_estimator.update(
@@ -175,13 +175,13 @@ def main():
                 ax_g=ax_g, ay_g=ay_g, az_g=az_g
             )
 
-            # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
-            pos_x = flow["x_m"] if flow else m_state["position"]["x"]
-            pos_y = flow["y_m"] if flow else m_state["position"]["y"]
-            pos_z = flow["z_m"] if flow else m_state["position"]["z"]
+            # Use optical flow displacement if non-zero, otherwise use Madgwick calculated 3D position
+            pos_x = flow["x_m"] if (flow and flow.get("x_m", 0) != 0) else m_state["position"]["x"]
+            pos_y = flow["y_m"] if (flow and flow.get("y_m", 0) != 0) else m_state["position"]["y"]
+            pos_z = flow["z_m"] if (flow and flow.get("z_m", 0) != 0) else m_state["position"]["z"]
 
-            vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
-            vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
+            vel_x = flow["vx"] if (flow and flow.get("vx", 0) != 0) else m_state["velocity"]["x"]
+            vel_y = flow["vy"] if (flow and flow.get("vy", 0) != 0) else m_state["velocity"]["y"]
             vel_z = m_state["velocity"]["z"]
 
             telemetry_packet = {
