@@ -125,6 +125,201 @@ function createControllerMesh() {
   controllerGroup.add(stickMesh);
 
   scene.add(controllerGroup);
+  
+  // Create 6DOF Robotic Linkage Arm connected from base (0,0,0)
+  createRoboticArmLinkages();
+}
+
+// ----------------------------------------------------
+// 6DOF Robotic Manipulator Arm & IK Solver (Base at 0,0,0)
+// ----------------------------------------------------
+let roboticArmGroup;
+let j1Group, j2Group, j3Group, j4Group, j5Group, j6Group;
+
+// Link lengths (meters)
+const L1 = 0.25; // Base height (Joint 1 to Joint 2)
+const L2 = 0.40; // Upper arm length (Joint 2 to Joint 3)
+const L3 = 0.35; // Forearm length (Joint 3 to Wrist Center)
+const L4 = 0.12; // Wrist offset (Wrist Center to Controller tip)
+
+function createRoboticArmLinkages() {
+  roboticArmGroup = new THREE.Group();
+  scene.add(roboticArmGroup);
+
+  // Materials
+  const baseMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x1e293b : 0x475569, metalness: 0.8, roughness: 0.2 });
+  const jointMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0xec4899 : 0xdb2777, metalness: 0.6, roughness: 0.3 });
+  const linkMat1 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x06b6d4 : 0x0284c7, metalness: 0.7, roughness: 0.3 });
+  const linkMat2 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x3b82f6 : 0x2563eb, metalness: 0.7, roughness: 0.3 });
+
+  // Base Pedestal at (0, 0, 0)
+  const basePedestal = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.16, 0.05, 32),
+    baseMat
+  );
+  basePedestal.position.set(0, -0.025, 0);
+  roboticArmGroup.add(basePedestal);
+
+  // Joint 1 Group (Base Yaw - rot around Y at 0,0,0)
+  j1Group = new THREE.Group();
+  roboticArmGroup.add(j1Group);
+
+  // Link 1 (Base column height L1)
+  const link1Mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.055, L1, 24),
+    linkMat1
+  );
+  link1Mesh.position.set(0, L1 / 2, 0);
+  j1Group.add(link1Mesh);
+
+  // Joint 1 housing / pivot sphere
+  const j1Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 24), jointMat);
+  j1Sphere.position.set(0, L1, 0);
+  j1Group.add(j1Sphere);
+
+  // Joint 2 Group (Shoulder Pitch - pivot at 0, L1, 0)
+  j2Group = new THREE.Group();
+  j2Group.position.set(0, L1, 0);
+  j1Group.add(j2Group);
+
+  // Link 2 (Upper Arm length L2)
+  const link2Mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.038, 0.042, L2, 24),
+    linkMat2
+  );
+  link2Mesh.position.set(0, L2 / 2, 0);
+  j2Group.add(link2Mesh);
+
+  const j2Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.045, 24, 24), jointMat);
+  j2Sphere.position.set(0, L2, 0);
+  j2Group.add(j2Sphere);
+
+  // Joint 3 Group (Elbow Pitch - pivot at 0, L2, 0)
+  j3Group = new THREE.Group();
+  j3Group.position.set(0, L2, 0);
+  j2Group.add(j3Group);
+
+  // Link 3 (Forearm length L3)
+  const link3Mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.035, L3, 24),
+    linkMat1
+  );
+  link3Mesh.position.set(0, L3 / 2, 0);
+  j3Group.add(link3Mesh);
+
+  const j3Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.038, 24, 24), jointMat);
+  j3Sphere.position.set(0, L3, 0);
+  j3Group.add(j3Sphere);
+
+  // Joint 4 Group (Forearm Roll - pivot at 0, L3, 0)
+  j4Group = new THREE.Group();
+  j4Group.position.set(0, L3, 0);
+  j3Group.add(j4Group);
+
+  // Joint 5 Group (Wrist Pitch)
+  j5Group = new THREE.Group();
+  j4Group.add(j5Group);
+
+  const j5Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.032, 24, 24), jointMat);
+  j5Group.add(j5Sphere);
+
+  // Joint 6 Group (Wrist Roll / Flange)
+  j6Group = new THREE.Group();
+  j5Group.add(j6Group);
+
+  const flangeMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.03, L4, 24),
+    linkMat2
+  );
+  flangeMesh.position.set(0, L4 / 2, 0);
+  j6Group.add(flangeMesh);
+
+  // Attach VR Controller mesh to the tip of Joint 6 flange (0, L4, 0)
+  if (controllerGroup) {
+    scene.remove(controllerGroup);
+    controllerGroup.position.set(0, L4, 0);
+    controllerGroup.rotation.set(0, 0, 0);
+    j6Group.add(controllerGroup);
+  }
+}
+
+// Compute 6-DOF Inverse Kinematics for Manipulator Arm
+function updateRoboticArm() {
+  if (!j1Group || !currentTargetPos) return;
+
+  const elJ1 = document.getElementById('j1Angle');
+  const elJ2 = document.getElementById('j2Angle');
+  const elJ3 = document.getElementById('j3Angle');
+  const elJ4 = document.getElementById('j4Angle');
+  const elJ5 = document.getElementById('j5Angle');
+  const elJ6 = document.getElementById('j6Angle');
+
+  // Target end-effector position and orientation
+  const targetPos = currentTargetPos;
+  const targetQuat = currentTargetQuat;
+
+  // Tool direction vector (Y-axis of target end-effector)
+  const toolDir = new THREE.Vector3(0, 1, 0).applyQuaternion(targetQuat);
+
+  // Wrist Center Position (P_wc = P_target - L4 * toolDir)
+  const pWC = new THREE.Vector3().copy(targetPos).sub(toolDir.clone().multiplyScalar(L4));
+
+  // 1. Joint 1: Base Yaw (rotation around Y-axis at base)
+  const theta1 = Math.atan2(pWC.x, pWC.z);
+
+  // 2. Joint 2 & 3: Planar Shoulder and Elbow Pitch
+  const r = Math.sqrt(pWC.x * pWC.x + pWC.z * pWC.z); // Horizontal radial distance
+  const yPrime = pWC.y - L1; // Height relative to Shoulder joint
+
+  let D = Math.sqrt(r * r + yPrime * yPrime);
+  // Clamp reach D to valid reach limits
+  const maxReach = L2 + L3 - 0.001;
+  const minReach = Math.abs(L2 - L3) + 0.001;
+  D = THREE.MathUtils.clamp(D, minReach, maxReach);
+
+  // Cosine law for elbow interior angle
+  const cosGamma = (L2 * L2 + L3 * L3 - D * D) / (2 * L2 * L3);
+  const gamma = Math.acos(THREE.MathUtils.clamp(cosGamma, -1, 1));
+  const theta3 = Math.PI - gamma; // Elbow bend angle
+
+  // Shoulder angle calculation
+  const phi1 = Math.atan2(yPrime, r);
+  const cosPhi2 = (L2 * L2 + D * D - L3 * L3) / (2 * L2 * D);
+  const phi2 = Math.acos(THREE.MathUtils.clamp(cosPhi2, -1, 1));
+  const theta2 = (Math.PI / 2) - (phi1 + phi2);
+
+  // Apply positional joint angles (J1, J2, J3)
+  j1Group.rotation.y = theta1;
+  j2Group.rotation.z = -theta2;
+  j3Group.rotation.z = -theta3;
+
+  // 3. Wrist Orientation (Joints 4, 5, 6)
+  // Compute forward orientation matrix of Frame 3 (up to Joint 3)
+  const qJ1 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta1);
+  const qJ2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta2);
+  const qJ3 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta3);
+
+  const qArm3 = new THREE.Quaternion().copy(qJ1).multiply(qJ2).multiply(qJ3);
+  
+  // Relative quaternion for Wrist R_36 = R_03^T * R_target
+  const qWrist = qArm3.clone().invert().multiply(targetQuat);
+  const eulerWrist = new THREE.Euler().setFromQuaternion(qWrist, 'YXZ');
+
+  const theta4 = eulerWrist.y;
+  const theta5 = eulerWrist.x;
+  const theta6 = eulerWrist.z;
+
+  j4Group.rotation.y = theta4;
+  j5Group.rotation.x = theta5;
+  j6Group.rotation.z = theta6;
+
+  // Update Telemetry HUD with angles in degrees
+  if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
+  if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
+  if (elJ3) elJ3.textContent = `${THREE.MathUtils.radToDeg(theta3).toFixed(1)}°`;
+  if (elJ4) elJ4.textContent = `${THREE.MathUtils.radToDeg(theta4).toFixed(1)}°`;
+  if (elJ5) elJ5.textContent = `${THREE.MathUtils.radToDeg(theta5).toFixed(1)}°`;
+  if (elJ6) elJ6.textContent = `${THREE.MathUtils.radToDeg(theta6).toFixed(1)}°`;
 }
 
 
@@ -386,15 +581,12 @@ let followMode = false;
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smoothly interpolate controller 3D position and orientation
-  if (controllerGroup) {
-    controllerGroup.position.lerp(currentTargetPos, 0.3);
-    controllerGroup.quaternion.slerp(currentTargetQuat, 0.3);
+  // Update 6DOF Robotic Manipulator Arm via Inverse Kinematics
+  updateRoboticArm();
 
-    // Smoothly track controller position with camera target if follow mode is active
-    if (followMode) {
-      controls.target.lerp(controllerGroup.position, 0.1);
-    }
+  // Smoothly track controller target position with camera target if follow mode is active
+  if (followMode && currentTargetPos) {
+    controls.target.lerp(currentTargetPos, 0.1);
   }
 
   controls.update();
