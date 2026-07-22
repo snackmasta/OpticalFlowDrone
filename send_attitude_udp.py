@@ -161,12 +161,13 @@ def main():
                 gz = 0.8 * (180.0 / math.pi)
                 ts = loop_start
 
-            # Calculate gravity projections for accelerometer input
+            # Calculate gravity projections + dynamic linear acceleration for 3D translation (including Z axis)
             roll_rad = math.radians(roll)
             pitch_rad = math.radians(pitch)
-            ax_g = -math.sin(pitch_rad)
-            ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
-            az_g = math.cos(roll_rad) * math.cos(pitch_rad)
+            ax_g = -math.sin(pitch_rad) + (0.12 * math.cos(loop_start * 2.0) if 't' in locals() else 0.0)
+            ay_g = math.sin(roll_rad) * math.cos(pitch_rad) + (0.12 * math.sin(loop_start * 1.8) if 't' in locals() else 0.0)
+            # Dynamic Z acceleration (vertical heave/thrust variation)
+            az_g = math.cos(roll_rad) * math.cos(pitch_rad) + (0.18 * math.sin(loop_start * 1.5) if 't' in locals() else 0.0)
 
             # Update Madgwick AHRS & Position state
             m_state = madgwick_estimator.update(
