@@ -25,6 +25,7 @@ lk_params = dict(
 velocity_state = {
     "vx_mps": 0.0,
     "vy_mps": 0.0,
+    "vz_mps": 0.0,
     "speed_mps": 0.0,
     "inliers": 0,
     "last_update": 0.0,

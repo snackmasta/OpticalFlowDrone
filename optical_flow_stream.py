@@ -500,8 +500,16 @@ def record_optical_flow():
             vx_raw_prev = vx_raw_mps
             vy_raw_prev = vy_raw_mps
 
+            # Calculate vertical velocity (vz_mps) using scale expansion/contraction:
+            # scale > 1.0 (expansion => descending, vz < 0), scale < 1.0 (contraction => climbing, vz > 0)
+            vz_mps_calc = altitude_m * (1.0 - scale) / dt_s if abs(1.0 - scale) >= 0.005 else 0.0
+            prev_vz = velocity_state.get("vz_mps", 0.0)
+            vz_mps = float(np.clip(vz_mps_calc, prev_vz - max_dv, prev_vz + max_dv))
+            vz_mps = float(np.clip(vz_mps, -5.0, 5.0))
+
             velocity_state["vx_mps"] = vx_mps
             velocity_state["vy_mps"] = vy_mps
+            velocity_state["vz_mps"] = vz_mps
             velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
             velocity_state["inliers"] = tracked_count
             velocity_state["last_update"] = frame_ts
