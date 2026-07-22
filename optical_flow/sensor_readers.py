@@ -30,6 +30,75 @@ COMPASS_SHM_RECORD_SIZE = struct.calcsize(COMPASS_SHM_RECORD_FORMAT)
 COMPASS_MAX_SAMPLES = 120
 COMPASS_FRESHNESS_THRESHOLD_S = 0.75
 
+ATTITUDE_SHM_NAME = "drone_attitude_stream"
+ATTITUDE_SHM_MAGIC = b"ATT "
+ATTITUDE_SHM_HEADER_FORMAT = "<4sII"
+ATTITUDE_SHM_RECORD_FORMAT = "<7d"
+ATTITUDE_SHM_HEADER_SIZE = struct.calcsize(ATTITUDE_SHM_HEADER_FORMAT)
+ATTITUDE_SHM_RECORD_SIZE = struct.calcsize(ATTITUDE_SHM_RECORD_FORMAT)
+ATTITUDE_MAX_SAMPLES = 120
+ATTITUDE_SHM_SIZE = ATTITUDE_SHM_HEADER_SIZE + (ATTITUDE_MAX_SAMPLES * ATTITUDE_SHM_RECORD_SIZE)
+
+attitude_shm = None
+attitude_shm_lock = threading.Lock()
+
+
+def attach_attitude_shm():
+    """
+    Attaches to or creates the shared memory block for drone attitude stream data.
+    """
+    global attitude_shm
+    with attitude_shm_lock:
+        if attitude_shm is not None:
+            return attitude_shm
+        try:
+            attitude_shm = shared_memory.SharedMemory(name=ATTITUDE_SHM_NAME, create=True, size=ATTITUDE_SHM_SIZE)
+        except FileExistsError:
+            attitude_shm = shared_memory.SharedMemory(name=ATTITUDE_SHM_NAME, create=False)
+            if attitude_shm.size < ATTITUDE_SHM_SIZE:
+                attitude_shm.close()
+                try:
+                    attitude_shm.unlink()
+                except FileNotFoundError:
+                    pass
+                attitude_shm = shared_memory.SharedMemory(name=ATTITUDE_SHM_NAME, create=True, size=ATTITUDE_SHM_SIZE)
+
+        try:
+            resource_tracker.unregister(attitude_shm._name, "shared_memory")
+        except Exception:
+            pass
+
+        struct.pack_into(ATTITUDE_SHM_HEADER_FORMAT, attitude_shm.buf, 0, ATTITUDE_SHM_MAGIC, 0, 0)
+        return attitude_shm
+
+
+def write_attitude_sample(timestamp, roll_deg, pitch_deg, yaw_deg, xgyro_dps, ygyro_dps, zgyro_dps):
+    """
+    Writes a single attitude sample (roll, pitch, yaw, gyro rates) into drone_attitude_stream SHM.
+    """
+    try:
+        shm = attach_attitude_shm()
+        with attitude_shm_lock:
+            _, write_index, sample_count = struct.unpack_from(ATTITUDE_SHM_HEADER_FORMAT, shm.buf, 0)
+            record_offset = ATTITUDE_SHM_HEADER_SIZE + (write_index * ATTITUDE_SHM_RECORD_SIZE)
+            struct.pack_into(
+                ATTITUDE_SHM_RECORD_FORMAT,
+                shm.buf,
+                record_offset,
+                float(timestamp),
+                float(roll_deg),
+                float(pitch_deg),
+                float(yaw_deg),
+                float(xgyro_dps),
+                float(ygyro_dps),
+                float(zgyro_dps),
+            )
+            write_index = (write_index + 1) % ATTITUDE_MAX_SAMPLES
+            sample_count = min(sample_count + 1, ATTITUDE_MAX_SAMPLES)
+            struct.pack_into(ATTITUDE_SHM_HEADER_FORMAT, shm.buf, 0, ATTITUDE_SHM_MAGIC, write_index, sample_count)
+    except Exception as exc:
+        pass
+
 gyro_calibrated = False
 
 gyro_bias = {
@@ -414,6 +483,17 @@ def start_distance_sensor_reader():
                                 attitude_state["yaw_deg"] = normalize_angle_deg(yaw_gyro_deg)
 
                     attitude_state["last_update"] = now
+
+                    # Stream live roll, pitch, yaw and rates to shared memory
+                    write_attitude_sample(
+                        now,
+                        attitude_state["roll_deg"],
+                        attitude_state["pitch_deg"],
+                        attitude_state["yaw_deg"],
+                        attitude_state["xgyro_dps"],
+                        attitude_state["ygyro_dps"],
+                        attitude_state["zgyro_dps"],
+                    )
 
                 last_imu_ts = now
                 time.sleep(0.02)

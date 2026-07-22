@@ -49,6 +49,13 @@ SHM_REGISTRY = {
         "record_format": "<5d",    # timestamp, voltage, current, capacity, consumed_mah
         "fields": ["timestamp", "voltage", "current", "capacity", "consumed_mah"],
         "max_samples": 120,
+    },
+    "drone_attitude_stream": {
+        "magic": b"ATT ",
+        "header_format": "<4sII",  # magic, write_index, sample_count
+        "record_format": "<7d",    # timestamp, roll_deg, pitch_deg, yaw_deg, xgyro_dps, ygyro_dps, zgyro_dps
+        "fields": ["timestamp", "roll_deg", "pitch_deg", "yaw_deg", "xgyro_dps", "ygyro_dps", "zgyro_dps"],
+        "max_samples": 120,
     }
 }
 
@@ -311,6 +318,19 @@ def mock_worker(shm_name, frequency, noise, mode):
                             val = last_val + (curr_val * 1000.0 * (1.0 / frequency) / 3600.0)
                             if last_values.get("capacity", 100.0) >= 99.9:
                                 val = 0.0
+                elif shm_name == "drone_attitude_stream":
+                    if field == "roll_deg":
+                        val = 15.0 * math.sin(step * 0.08) if mode == "sine" else max(-45.0, min(45.0, last_values.get(field, 0.0) + random.uniform(-1.5, 1.5)))
+                    elif field == "pitch_deg":
+                        val = 12.0 * math.cos(step * 0.06) if mode == "sine" else max(-45.0, min(45.0, last_values.get(field, 0.0) + random.uniform(-1.5, 1.5)))
+                    elif field == "yaw_deg":
+                        val = (step * 2.0) % 360.0 if mode == "sine" else (last_values.get(field, 0.0) + random.uniform(-2.0, 2.0)) % 360.0
+                    elif field == "xgyro_dps":
+                        val = 20.0 * math.cos(step * 0.08) if mode == "sine" else last_values.get(field, 0.0) + random.uniform(-1.0, 1.0)
+                    elif field == "ygyro_dps":
+                        val = -18.0 * math.sin(step * 0.06) if mode == "sine" else last_values.get(field, 0.0) + random.uniform(-1.0, 1.0)
+                    elif field == "zgyro_dps":
+                        val = 2.0 if mode == "sine" else last_values.get(field, 0.0) + random.uniform(-0.5, 0.5)
                 else:  # future_sensor_stream
                     if field == "temperature":
                         val = 24.0 + 6.0 * math.sin(step * 0.02) if mode == "sine" else last_values.get(field, 24.0) + random.uniform(-0.1, 0.1)
