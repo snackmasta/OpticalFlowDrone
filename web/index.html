@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>6DoF VR Controller 3D Trajectory Visualizer</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Three.js and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <!-- Chart.js for Real-Time Telemetry Graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- WebGL Render Canvas -->
+  <canvas id="canvas3d"></canvas>
+
+  <!-- Glassmorphism Header Overlay -->
+  <header class="hud-header">
+    <div class="brand">
+      <i class="fa-solid me-2 fa-vr-cardboard logo-icon"></i>
+      <div>
+        <h1>VR Controller 6DoF Visualizer</h1>
+        <p class="subtitle">IMU (0x68) + Magnetometer (0x1E) 3D Pose Tracking</p>
+      </div>
+    </div>
+    
+    <div class="status-container">
+      <span class="status-badge disconnected" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">Connecting...</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Glassmorphism Floating Telemetry Dashboard -->
+  <main class="hud-dashboard">
+    
+    <!-- Position Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-location-crosshairs"></i>
+        <span>3D Translation (m)</span>
+      </div>
+      <div class="card-body grid-3">
+        <div class="metric">
+          <span class="label">X</span>
+          <span class="value" id="posX">0.00</span>
+        </div>
+        <div class="metric">
+          <span class="label">Y</span>
+          <span class="value" id="posY">0.00</span>
+        </div>
+        <div class="metric">
+          <span class="label">Z</span>
+          <span class="value" id="posZ">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rotation Card (Euler) -->
+    <div class="hud-card">
+      <div class="card-header flex-between">
+        <div>
+          <i class="fa-solid fa-arrows-spin"></i>
+          <span>3D Rotation (Euler °)</span>
+        </div>
+        <button class="btn-card-action" id="btnQuickAxisSwap" title="Swap & Remap Axes">
+          <i class="fa-solid fa-sliders"></i> Swap Axes
+        </button>
+      </div>
+      <div class="card-body grid-3">
+        <div class="metric">
+          <span class="label">Roll</span>
+          <span class="value highlight-roll" id="rotRoll">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Pitch</span>
+          <span class="value highlight-pitch" id="rotPitch">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Yaw</span>
+          <span class="value highlight-yaw" id="rotYaw">0.0°</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quaternion Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-cube"></i>
+        <span>Quaternion [w, x, y, z]</span>
+      </div>
+      <div class="card-body grid-4">
+        <div class="metric-mini">
+          <span class="label">qw</span>
+          <span class="val-sm" id="qw">1.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qx</span>
+          <span class="val-sm" id="qx">0.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qy</span>
+          <span class="val-sm" id="qy">0.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qz</span>
+          <span class="val-sm" id="qz">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heading & Motion Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-compass"></i>
+        <span>Heading & Speed</span>
+      </div>
+      <div class="card-body grid-2">
+        <div class="metric">
+          <span class="label">Heading</span>
+          <span class="value" id="headingVal">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Speed</span>
+          <span class="value" id="speedVal">0.00 m/s</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Collapsible Axis Remap / Swap Drawer -->
+  <aside class="axis-swap-drawer hidden" id="axisSwapDrawer">
+    <div class="drawer-header">
+      <h3><i class="fa-solid fa-sliders me-2"></i> Remap & Swap Rotation Axes</h3>
+      <button class="btn-close-drawer" id="btnCloseAxisDrawer" title="Close Axis Swap Panel"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="swap-body">
+      <p class="swap-info"><i class="fa-solid fa-circle-info me-1"></i> Swap input source or invert sign for Roll, Pitch, and Yaw.</p>
+
+      <!-- Roll Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-roll"><i class="fa-solid fa-rotate-right me-1"></i> Roll Output</label>
+        <div class="swap-inputs">
+          <select id="selectRollAxis" class="swap-select">
+            <option value="roll">Source: Roll</option>
+            <option value="pitch">Source: Pitch</option>
+            <option value="yaw">Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertRoll"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Pitch Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-pitch"><i class="fa-solid fa-arrows-up-down me-1"></i> Pitch Output</label>
+        <div class="swap-inputs">
+          <select id="selectPitchAxis" class="swap-select">
+            <option value="roll">Source: Roll</option>
+            <option value="pitch">Source: Pitch</option>
+            <option value="yaw">Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertPitch"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Yaw Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-yaw"><i class="fa-solid fa-arrows-left-right me-1"></i> Yaw Output</label>
+        <div class="swap-inputs">
+          <select id="selectYawAxis" class="swap-select">
+            <option value="roll">Source: Roll</option>
+            <option value="pitch">Source: Pitch</option>
+            <option value="yaw">Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertYaw"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="preset-section">
+        <span class="preset-title">Quick Presets:</span>
+        <div class="preset-grid">
+          <button class="btn-preset" id="presetDefault">Default (R,P,Y)</button>
+          <button class="btn-preset" id="presetSwapRP">Swap Roll ↔ Pitch</button>
+          <button class="btn-preset" id="presetSwapPY">Swap Pitch ↔ Yaw</button>
+          <button class="btn-preset" id="presetSwapRY">Swap Roll ↔ Yaw</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Collapsible Real-Time Raw Sensor Graphs Drawer -->
+  <aside class="graph-drawer hidden" id="graphDrawer">
+    <div class="graph-drawer-header">
+      <h3><i class="fa-solid fa-chart-line me-2"></i> Real-Time Raw Sensor Streams</h3>
+      <button class="btn-close-drawer" id="btnCloseDrawer" title="Close Graphs"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="graph-container">
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-arrows-spin me-2"></i> Orientation (Roll, Pitch, Yaw °)</div>
+        <div class="canvas-box"><canvas id="eulerChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-gauge-high me-2"></i> Accelerometer (g)</div>
+        <div class="canvas-box"><canvas id="accelChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-rotate me-2"></i> Gyroscope (°/s)</div>
+        <div class="canvas-box"><canvas id="gyroChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-magnet me-2"></i> Magnetometer (µT)</div>
+        <div class="canvas-box"><canvas id="magChart"></canvas></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Interactive Floating Toolbar -->
+  <div class="hud-toolbar">
+    <button class="btn-tool" id="btnToggleAxisSwap" title="Remap / Swap Roll, Pitch, Yaw Axes">
+      <i class="fa-solid fa-sliders"></i>
+      <span>Swap Axes</span>
+    </button>
+    <button class="btn-tool" id="btnToggleGraphs" title="Toggle Real-Time Raw Graphs">
+      <i class="fa-solid fa-chart-line"></i>
+      <span>Raw Graphs</span>
+    </button>
+    <button class="btn-tool" id="btnCalibrateDrift" title="Zero out position drift & recalibrate origin">
+      <i class="fa-solid fa-compass-drafting"></i>
+      <span>Zero Drift</span>
+    </button>
+    <button class="btn-tool" id="btnToggleFollow" title="Follow Controller with Camera">
+      <i class="fa-solid fa-eye"></i>
+      <span>Follow Mode</span>
+    </button>
+    <button class="btn-tool" id="btnResetTrail" title="Clear Trajectory Path">
+      <i class="fa-solid fa-broom"></i>
+      <span>Clear Trail</span>
+    </button>
+    <button class="btn-tool" id="btnResetPos" title="Reset Origin Position">
+      <i class="fa-solid fa-arrows-to-dot"></i>
+      <span>Reset Origin</span>
+    </button>
+    <button class="btn-tool" id="btnRecenterCam" title="Recenter 3D Camera">
+      <i class="fa-solid fa-video"></i>
+      <span>Recenter Cam</span>
+    </button>
+    <button class="btn-tool active" id="btnToggleGrid" title="Toggle Grid Plane">
+      <i class="fa-solid fa-border-all"></i>
+      <span>Toggle Grid</span>
+    </button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+
+
