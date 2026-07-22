@@ -6,7 +6,7 @@ set -e
 
 # Navigate to project directory
 
-cd ~/Desktop/drone
+cd ~/Desktop/OpticalFlowDrone
 
 # Activate virtual environment
 

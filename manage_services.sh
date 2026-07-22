@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-PROJECT_DIR="/home/raspi/Desktop/drone"
+PROJECT_DIR="/home/raspi/Desktop/OpticalFlowDrone"
 PYTHON_BIN="$PROJECT_DIR/venv/bin/python"
 LOG_DIR="$PROJECT_DIR/logs"
 
