@@ -277,8 +277,8 @@ def compute_heading(x, y, z=0.0, roll_deg=0.0, pitch_deg=0.0):
     cos_pitch = math.cos(pitch_rad)
     sin_pitch = math.sin(pitch_rad)
 
-    xh = (x * cos_pitch) + (y * sin_roll * sin_pitch) + (z * cos_roll * sin_pitch)
-    yh = (y * cos_roll) - (z * sin_roll)
+    xh = (x * cos_pitch) + (y * sin_roll * sin_pitch) - (z * cos_roll * sin_pitch)
+    yh = (y * cos_roll) + (z * sin_roll)
 
     heading = math.degrees(math.atan2(yh, xh))
     heading += DECLINATION_DEGREES
