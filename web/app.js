@@ -237,9 +237,9 @@ function updateTelemetry(data) {
   const mappedPitch = getMappedAxisValue(axisSwapConfig.pitchSource, axisSwapConfig.invertPitch, rawEuler);
   const mappedYaw = getMappedAxisValue(axisSwapConfig.yawSource, axisSwapConfig.invertYaw, rawEuler);
 
-  // Calculate position adjusted for origin reset
+  // Calculate position adjusted for origin reset (inverting Y for intuitive 3D camera coordinate space)
   const posX = rawPos.x - positionOffset.x;
-  const posY = rawPos.y - positionOffset.y;
+  const posY = -(rawPos.y - positionOffset.y);
   const posZ = rawPos.z - positionOffset.z;
 
   // Exponential moving average filter for buttery smooth position rendering (alpha = 0.2)
