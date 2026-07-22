@@ -535,18 +535,22 @@ def record_optical_flow():
             accel_x_m_s2 = (xaccel_g - math.sin(pitch_rad)) * 9.80665
             accel_y_m_s2 = (yaccel_g + math.sin(roll_rad)) * 9.80665
 
-            # Deadband filter to prevent static drift
-            if abs(accel_x_m_s2) < 0.15:
+            # Deadband filter to prevent static drift from sensor noise
+            if abs(accel_x_m_s2) < 0.25:
                 accel_x_m_s2 = 0.0
-            if abs(accel_y_m_s2) < 0.15:
+            if abs(accel_y_m_s2) < 0.25:
                 accel_y_m_s2 = 0.0
 
-            # Integrate acceleration over time to update velocity (Earth/Body aligned)
-            accel_vx_mps = float(np.clip(accel_vx_mps + accel_x_m_s2 * dt_s, -5.0, 5.0))
-            accel_vy_mps = float(np.clip(accel_vy_mps + accel_y_m_s2 * dt_s, -5.0, 5.0))
-            # Apply high-pass damping/decay to prevent runaway accelerometer integration drift
-            accel_vx_mps *= 0.98
-            accel_vy_mps *= 0.98
+            # Zero-Velocity Update (ZUPT): If net acceleration is zero (stationary / low movement), quickly bleed off accumulated velocity
+            if accel_x_m_s2 == 0.0:
+                accel_vx_mps *= 0.85  # Strong damping when stationary
+            else:
+                accel_vx_mps = float(np.clip(accel_vx_mps + accel_x_m_s2 * dt_s, -3.0, 3.0))
+
+            if accel_y_m_s2 == 0.0:
+                accel_vy_mps *= 0.85  # Strong damping when stationary
+            else:
+                accel_vy_mps = float(np.clip(accel_vy_mps + accel_y_m_s2 * dt_s, -3.0, 3.0))
 
             # Select final active velocity based on translation_source toggle ('flow' vs 'accel')
             if translation_source == "accel":
