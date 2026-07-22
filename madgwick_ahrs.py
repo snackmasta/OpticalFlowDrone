@@ -200,6 +200,7 @@ class MadgwickPositionEstimator:
         self.pos = [0.0, 0.0, 0.0]  # [x, y, z] in meters
         self.vel = [0.0, 0.0, 0.0]  # [vx, vy, vz] in m/s
         self.lin_accel_earth = [0.0, 0.0, 0.0]  # [ax, ay, az] in m/s^2 in Earth frame
+        self.lin_accel_filtered = [0.0, 0.0, 0.0]
         self.last_ts = None
 
     def reset_position(self):
@@ -207,6 +208,7 @@ class MadgwickPositionEstimator:
         self.pos = [0.0, 0.0, 0.0]
         self.vel = [0.0, 0.0, 0.0]
         self.lin_accel_earth = [0.0, 0.0, 0.0]
+        self.lin_accel_filtered = [0.0, 0.0, 0.0]
 
     def reset_all(self):
         """Resets both orientation filter and position/velocity states."""
@@ -266,27 +268,39 @@ class MadgwickPositionEstimator:
         # 3. Rotate body acceleration vector into Earth frame
         ax_earth, ay_earth, az_earth = self.rotate_vector_by_quaternion(ax_ms2, ay_ms2, az_ms2, q)
 
-        # 4. Subtract gravity (gravity acts along Earth +Z or -Z depending on convention; Z-up means +g on sensor, minus g)
-        # Assuming Z-up Earth coordinate frame:
+        # 4. Subtract gravity (gravity acts along Earth +Z)
         lin_ax = ax_earth
         lin_ay = ay_earth
         lin_az = az_earth - self.gravity
 
         self.lin_accel_earth = [lin_ax, lin_ay, lin_az]
 
+        # Low-pass filter linear acceleration to eliminate high-frequency motor/sensor noise (alpha = 0.2)
+        alpha_accel = 0.2
+        self.lin_accel_filtered[0] += (lin_ax - self.lin_accel_filtered[0]) * alpha_accel
+        self.lin_accel_filtered[1] += (lin_ay - self.lin_accel_filtered[1]) * alpha_accel
+        self.lin_accel_filtered[2] += (lin_az - self.lin_accel_filtered[2]) * alpha_accel
+
+        fax, fay, faz = self.lin_accel_filtered
+
+        # Deadband small noise floor below 0.025 m/s^2
+        if abs(fax) < 0.025: fax = 0.0
+        if abs(fay) < 0.025: fay = 0.0
+        if abs(faz) < 0.025: faz = 0.0
+
         # 5. Check linear acceleration magnitude for Zero Velocity Update (ZUPT)
-        accel_norm = math.sqrt(lin_ax * lin_ax + lin_ay * lin_ay + lin_az * lin_az)
+        accel_norm = math.sqrt(fax * fax + fay * fay + faz * faz)
 
         if accel_norm < self.zupt_threshold:
-            # Damp velocity rapidly to prevent stationary drift
-            self.vel[0] *= 0.7
-            self.vel[1] *= 0.7
-            self.vel[2] *= 0.7
+            # Smooth exponential velocity dampening when stationary
+            self.vel[0] *= 0.90
+            self.vel[1] *= 0.90
+            self.vel[2] *= 0.90
         else:
             # Integrate acceleration to velocity with exponential decay factor
-            self.vel[0] = (self.vel[0] + lin_ax * dt) * self.vel_decay
-            self.vel[1] = (self.vel[1] + lin_ay * dt) * self.vel_decay
-            self.vel[2] = (self.vel[2] + lin_az * dt) * self.vel_decay
+            self.vel[0] = (self.vel[0] + fax * dt) * self.vel_decay
+            self.vel[1] = (self.vel[1] + fay * dt) * self.vel_decay
+            self.vel[2] = (self.vel[2] + faz * dt) * self.vel_decay
 
         # 6. Integrate velocity to position
         self.pos[0] += self.vel[0] * dt

@@ -242,8 +242,17 @@ function updateTelemetry(data) {
   const posY = rawPos.y - positionOffset.y;
   const posZ = rawPos.z - positionOffset.z;
 
+  // Exponential moving average filter for buttery smooth position rendering (alpha = 0.2)
+  if (typeof targetPosSmooth === 'undefined') {
+    window.targetPosSmooth = new THREE.Vector3(posX, posY, posZ);
+  } else {
+    targetPosSmooth.x += (posX - targetPosSmooth.x) * 0.2;
+    targetPosSmooth.y += (posY - targetPosSmooth.y) * 0.2;
+    targetPosSmooth.z += (posZ - targetPosSmooth.z) * 0.2;
+  }
+
   // Update target 3D transform
-  currentTargetPos.set(posX, posY, posZ);
+  currentTargetPos.copy(targetPosSmooth);
 
   // Apply custom axis mapping to 3D rotation quaternion if modified from default
   const isCustomMapping = axisSwapConfig.rollSource !== 'roll' ||
@@ -263,8 +272,11 @@ function updateTelemetry(data) {
     currentTargetQuat.set(rawQuat.x, rawQuat.y, rawQuat.z, rawQuat.w); // Three.js uses (x, y, z, w)
   }
 
-  // Add point to 3D trajectory trail
-  addTrajectoryPoint(posX, posY, posZ);
+  // Only add point to 3D trajectory trail when movement > 1cm to prevent stationary trail jitter
+  const lastPoint = trajectoryPoints[trajectoryPoints.length - 1];
+  if (!lastPoint || lastPoint.distanceTo(targetPosSmooth) > 0.01) {
+    addTrajectoryPoint(targetPosSmooth.x, targetPosSmooth.y, targetPosSmooth.z);
+  }
 
   // Update Dashboard Text Metrics
   elPosX.textContent = posX.toFixed(2);
