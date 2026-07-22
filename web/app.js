@@ -4,8 +4,10 @@
 
 let scene, camera, renderer, controls;
 let controllerGroup, trajectoryLine, gridHelper;
+let handleMat, ringMat, stickMat;
 let trajectoryPoints = [];
 const MAX_TRAJECTORY_POINTS = 1000;
+let isDarkMode = true;
 
 // Origin offset for resetting zero-position
 let positionOffset = { x: 0, y: 0, z: 0 };
@@ -36,7 +38,7 @@ function initScene() {
   
   // Scene (No fog, so objects never fade out at distance)
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x090d16);
+  scene.background = new THREE.Color(isDarkMode ? 0x090d16 : 0xf1f5f9);
 
   // Camera (Far plane expanded to 100,000 to prevent clipping)
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100000);
@@ -69,7 +71,7 @@ function initScene() {
   scene.add(pointLight);
 
   // Grid
-  gridHelper = new THREE.GridHelper(10, 20, 0x06b6d4, 0x1e293b);
+  gridHelper = new THREE.GridHelper(10, 20, isDarkMode ? 0x06b6d4 : 0x0284c7, isDarkMode ? 0x334155 : 0xcbd5e1);
   gridHelper.position.y = -0.5;
   scene.add(gridHelper);
 
@@ -90,12 +92,12 @@ function initScene() {
 function createControllerMesh() {
   controllerGroup = new THREE.Group();
 
-  // Handle (Cylinder)
+  // Handle (Cylinder) - theme-inverted for high visibility
   const handleGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.22, 16);
-  const handleMat = new THREE.MeshStandardMaterial({
-    color: 0x1e293b,
-    roughness: 0.3,
-    metalness: 0.8
+  handleMat = new THREE.MeshStandardMaterial({
+    color: isDarkMode ? 0xe2e8f0 : 0x0f172a,
+    roughness: isDarkMode ? 0.2 : 0.3,
+    metalness: isDarkMode ? 0.5 : 0.8
   });
   const handleMesh = new THREE.Mesh(handleGeo, handleMat);
   handleMesh.rotation.x = Math.PI / 6;
@@ -104,10 +106,10 @@ function createControllerMesh() {
 
   // Tracking Ring (Torus)
   const ringGeo = new THREE.TorusGeometry(0.08, 0.012, 16, 32);
-  const ringMat = new THREE.MeshStandardMaterial({
-    color: 0x06b6d4,
-    emissive: 0x06b6d4,
-    emissiveIntensity: 0.4,
+  ringMat = new THREE.MeshStandardMaterial({
+    color: isDarkMode ? 0x06b6d4 : 0x0284c7,
+    emissive: isDarkMode ? 0x06b6d4 : 0x0284c7,
+    emissiveIntensity: isDarkMode ? 0.5 : 0.3,
     roughness: 0.2
   });
   const ringMesh = new THREE.Mesh(ringGeo, ringMat);
@@ -117,7 +119,7 @@ function createControllerMesh() {
 
   // Joystick (Sphere + Shaft)
   const stickGeo = new THREE.SphereGeometry(0.015, 16, 16);
-  const stickMat = new THREE.MeshStandardMaterial({ color: 0xec4899 });
+  stickMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0xec4899 : 0xdb2777 });
   const stickMesh = new THREE.Mesh(stickGeo, stickMat);
   stickMesh.position.set(0, 0.04, 0);
   controllerGroup.add(stickMesh);
@@ -521,12 +523,117 @@ document.getElementById('presetSwapRY')?.addEventListener('click', () => {
   saveAxisSwapConfig();
 });
 
+// ----------------------------------------------------
+// Dark / Light Theme Logic & Inverted Controller Mesh
+// ----------------------------------------------------
+function loadThemeConfig() {
+  try {
+    const saved = localStorage.getItem('slimevr_theme');
+    if (saved === 'light') {
+      isDarkMode = false;
+    } else {
+      isDarkMode = true;
+    }
+  } catch (e) {
+    isDarkMode = true;
+  }
+}
+
+function toggleTheme() {
+  isDarkMode = !isDarkMode;
+  try {
+    localStorage.setItem('slimevr_theme', isDarkMode ? 'dark' : 'light');
+  } catch (e) {}
+  applyTheme(isDarkMode);
+}
+
+function applyTheme(isDark) {
+  document.body.classList.toggle('light-theme', !isDark);
+
+  const elThemeIcon = document.getElementById('themeIcon');
+  if (elThemeIcon) {
+    elThemeIcon.className = isDark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+  }
+
+  const elThemeToolBtn = document.getElementById('btnToggleThemeTool');
+  if (elThemeToolBtn) {
+    elThemeToolBtn.classList.toggle('active', !isDark);
+  }
+
+  // Update WebGL Scene Background
+  if (scene) {
+    scene.background = new THREE.Color(isDark ? 0x090d16 : 0xf1f5f9);
+  }
+
+  // Invert Controller handle & ring colors for maximum contrast against theme background
+  if (handleMat) {
+    handleMat.color.setHex(isDark ? 0xe2e8f0 : 0x0f172a);
+    handleMat.metalness = isDark ? 0.5 : 0.8;
+    handleMat.roughness = isDark ? 0.2 : 0.3;
+    handleMat.needsUpdate = true;
+  }
+  if (ringMat) {
+    ringMat.color.setHex(isDark ? 0x06b6d4 : 0x0284c7);
+    ringMat.emissive.setHex(isDark ? 0x06b6d4 : 0x0284c7);
+    ringMat.emissiveIntensity = isDark ? 0.5 : 0.3;
+    ringMat.needsUpdate = true;
+  }
+  if (stickMat) {
+    stickMat.color.setHex(isDark ? 0xec4899 : 0xdb2777);
+    stickMat.needsUpdate = true;
+  }
+
+  // Update Trajectory Line
+  if (trajectoryLine && trajectoryLine.material) {
+    trajectoryLine.material.color.setHex(isDark ? 0x06b6d4 : 0x0284c7);
+  }
+
+  // Update 3D Grid Helper
+  if (gridHelper && scene) {
+    scene.remove(gridHelper);
+    if (gridHelper.geometry) gridHelper.geometry.dispose();
+    const gridCenterColor = isDark ? 0x06b6d4 : 0x0284c7;
+    const gridLineColor = isDark ? 0x334155 : 0xcbd5e1;
+    gridHelper = new THREE.GridHelper(10, 20, gridCenterColor, gridLineColor);
+    gridHelper.position.y = -0.5;
+    gridHelper.visible = typeof gridVisible !== 'undefined' ? gridVisible : true;
+    scene.add(gridHelper);
+  }
+
+  // Update Real-Time Sensor Graphs
+  updateChartThemes(isDark);
+}
+
+function updateChartThemes(isDark) {
+  const tickColor = isDark ? '#94a3b8' : '#475569';
+  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.08)';
+  const legendColor = isDark ? '#f8fafc' : '#0f172a';
+
+  [eulerChart, accelChart, gyroChart, magChart].forEach(chart => {
+    if (!chart) return;
+    if (chart.options && chart.options.scales && chart.options.scales.y) {
+      chart.options.scales.y.ticks.color = tickColor;
+      chart.options.scales.y.grid.color = gridColor;
+    }
+    if (chart.options && chart.options.plugins && chart.options.plugins.legend) {
+      chart.options.plugins.legend.labels.color = legendColor;
+    }
+    chart.update('none');
+  });
+}
+
+// Bind Theme Toggle Buttons
+document.getElementById('btnToggleTheme')?.addEventListener('click', toggleTheme);
+document.getElementById('btnToggleThemeTool')?.addEventListener('click', toggleTheme);
+
 // Launch on page load
 window.addEventListener('DOMContentLoaded', () => {
+  loadThemeConfig();
   loadAxisSwapConfig();
   syncAxisSwapUI();
   initScene();
   initSensorCharts();
+  applyTheme(isDarkMode);
   connectTelemetryStream();
 });
 
