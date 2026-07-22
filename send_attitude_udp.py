@@ -206,6 +206,10 @@ def main():
             payload = json.dumps(telemetry_packet).encode("utf-8")
             sock.sendto(payload, (args.ip, args.port))
 
+            if 'last_send_log' not in locals() or (loop_start - last_send_log) >= 1.0:
+                print(f"[UDP Tx -> {args.ip}:{args.port}] Pos: X={pos_x:+.3f}m | Y={pos_y:+.3f}m | Z={pos_z:+.3f}m")
+                last_send_log = loop_start
+
             elapsed = time.time() - loop_start
             time.sleep(max(0.001, interval - elapsed))
     except KeyboardInterrupt:

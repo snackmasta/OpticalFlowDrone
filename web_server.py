@@ -79,8 +79,8 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
 
 def start_udp_listener():
     """
-    Listens for incoming UDP telemetry packets from main.py
-    and updates global latest_telemetry state.
+    Listens for incoming UDP telemetry packets from main.py / send_attitude_udp.py
+    and updates global latest_telemetry state with clean translation logging.
     """
     global latest_telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -91,13 +91,28 @@ def start_udp_listener():
         print(f"[ERROR] Failed to bind UDP listener: {e}")
         return
 
+    last_log_time = 0.0
+
     while True:
         try:
-            data, _ = sock.recvfrom(4096)
+            data, addr = sock.recvfrom(4096)
             payload = json.loads(data.decode('utf-8'))
             payload["status"] = "connected"
             with clients_lock:
                 latest_telemetry = payload
+
+            now = time.time()
+            if now - last_log_time >= 0.5:
+                pos = payload.get("translation", {}).get("position", {})
+                rot = payload.get("rotation", {}).get("euler", {})
+                px = pos.get("x", 0.0)
+                py = pos.get("y", 0.0)
+                pz = pos.get("z", 0.0)
+                r = rot.get("roll", 0.0)
+                p = rot.get("pitch", 0.0)
+                y = rot.get("yaw", 0.0)
+                print(f"[UDP Rx {addr[0]}:{addr[1]}] Pos -> X: {px:+.3f}m | Y: {py:+.3f}m | Z: {pz:+.3f}m  (Roll: {r:+.1f}°, Pitch: {p:+.1f}°, Yaw: {y:+.1f}°)")
+                last_log_time = now
         except Exception:
             pass
 
