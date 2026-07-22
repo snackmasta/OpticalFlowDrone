@@ -14,7 +14,10 @@ import time
 from collections import deque
 
 from flask import Flask, jsonify, render_template
-from smbus2 import SMBus
+try:
+    from smbus2 import SMBus
+except (ImportError, ModuleNotFoundError):
+    SMBus = None
 
 
 HMC5883L_ADDR = 0x1E
@@ -204,18 +207,82 @@ def read_word(bus, reg):
     return value
 
 
-def compute_heading(x, y):
+def get_current_attitude(bus=None):
     """
-    Calculates the heading in degrees using magnetic X and Y coordinates.
+    Tries to retrieve the current roll and pitch attitude angles in degrees.
+    First checks the 'drone_attitude_stream' shared memory segment.
+    If unavailable or stale, attempts a direct MPU6050 accelerometer read via I2C (0x68).
+    Falls back to (0.0, 0.0, 'none') if unreadable.
+    """
+    try:
+        shm = shared_memory.SharedMemory(name="drone_attitude_stream")
+        try:
+            magic, write_index, sample_count = struct.unpack_from("<4sII", shm.buf, 0)
+            if magic == b"ATT " and sample_count > 0:
+                latest_index = (write_index - 1) % 120
+                offset = struct.calcsize("<4sII") + (latest_index * struct.calcsize("<7d"))
+                timestamp, roll_deg, pitch_deg, yaw_deg, gx, gy, gz = struct.unpack_from("<7d", shm.buf, offset)
+                if (time.time() - timestamp) <= 1.0:
+                    return roll_deg, pitch_deg, "shared_memory"
+        finally:
+            shm.close()
+    except Exception:
+        pass
+
+    if bus is not None:
+        try:
+            high_x = bus.read_byte_data(0x68, 0x3B)
+            low_x = bus.read_byte_data(0x68, 0x3C)
+            ax_raw = (high_x << 8) | low_x
+            if ax_raw >= 0x8000:
+                ax_raw -= 65536
+
+            high_y = bus.read_byte_data(0x68, 0x3D)
+            low_y = bus.read_byte_data(0x68, 0x3E)
+            ay_raw = (high_y << 8) | low_y
+            if ay_raw >= 0x8000:
+                ay_raw -= 65536
+
+            high_z = bus.read_byte_data(0x68, 0x3F)
+            low_z = bus.read_byte_data(0x68, 0x40)
+            az_raw = (high_z << 8) | low_z
+            if az_raw >= 0x8000:
+                az_raw -= 65536
+
+            ax = ax_raw / 16384.0
+            ay = ay_raw / 16384.0
+            az = az_raw / 16384.0
+            mag = math.sqrt(ax * ax + ay * ay + az * az)
+            if mag >= 0.1:
+                roll_deg = math.degrees(math.atan2(ay, az))
+                pitch_deg = math.degrees(math.atan2(-ax, math.sqrt(ay * ay + az * az)))
+                return roll_deg, pitch_deg, "mpu6050_accel"
+        except Exception:
+            pass
+
+    return 0.0, 0.0, "none"
+
+
+def compute_heading(x, y, z=0.0, roll_deg=0.0, pitch_deg=0.0):
+    """
+    Calculates 3D tilt-compensated magnetic heading in degrees using 3D magnetic (x, y, z)
+    coordinates and current pitch/roll attitude angles.
     Adjusts with DECLINATION_DEGREES and normalizes output to [0, 360).
     """
-    heading = math.degrees(math.atan2(y, x))
+    roll_rad = math.radians(roll_deg)
+    pitch_rad = math.radians(pitch_deg)
+
+    cos_roll = math.cos(roll_rad)
+    sin_roll = math.sin(roll_rad)
+    cos_pitch = math.cos(pitch_rad)
+    sin_pitch = math.sin(pitch_rad)
+
+    xh = (x * cos_pitch) + (y * sin_roll * sin_pitch) + (z * cos_roll * sin_pitch)
+    yh = (y * cos_roll) - (z * sin_roll)
+
+    heading = math.degrees(math.atan2(yh, xh))
     heading += DECLINATION_DEGREES
-    if heading < 0:
-        heading += 360
-    if heading >= 360:
-        heading -= 360
-    return heading
+    return normalize_heading(heading)
 
 
 def apply_zero_offset(heading):
@@ -272,7 +339,8 @@ def compass_thread_worker():
             filtered_y = low_pass_filter(filtered_y, y)
             filtered_z = low_pass_filter(filtered_z, z)
 
-            raw_heading = compute_heading(filtered_x, filtered_y)
+            roll_deg, pitch_deg, att_src = get_current_attitude(bus)
+            raw_heading = compute_heading(filtered_x, filtered_y, filtered_z, roll_deg, pitch_deg)
             heading = apply_zero_offset(raw_heading)
             cardinal = cardinal_from_heading(heading)
 
@@ -292,6 +360,9 @@ def compass_thread_worker():
                     "y": round(filtered_y, 2),
                     "z": round(filtered_z, 2),
                     "cardinal": cardinal,
+                    "roll_deg": round(roll_deg, 2),
+                    "pitch_deg": round(pitch_deg, 2),
+                    "attitude_source": att_src,
                     "zero_offset": round(heading_zero_offset, 2),
                     "error": None,
                 })

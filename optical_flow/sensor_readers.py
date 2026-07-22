@@ -5,8 +5,15 @@ import threading
 import numpy as np
 from multiprocessing import shared_memory
 from multiprocessing import resource_tracker
-from smbus2 import SMBus
-from pymavlink import mavutil
+try:
+    from smbus2 import SMBus
+except (ImportError, ModuleNotFoundError):
+    SMBus = None
+
+try:
+    from pymavlink import mavutil
+except (ImportError, ModuleNotFoundError):
+    mavutil = None
 
 MAVLINK_CONNECTION_STRING = "udp:127.0.0.1:14551"
 IMU_I2C_BUS = 1
@@ -443,20 +450,32 @@ def start_distance_sensor_reader():
                     if last_imu_ts is not None:
                         dt = now - last_imu_ts
                         if 0 < dt < 0.1:
+                            # 3D Angular Kinematics: Convert body gyro rates (p, q, r) to Euler angle rates (phi_dot, theta_dot, psi_dot)
+                            curr_roll_rad = math.radians(attitude_state["roll_deg"])
+                            curr_pitch_rad = math.radians(attitude_state["pitch_deg"])
+                            cos_phi = math.cos(curr_roll_rad)
+                            sin_phi = math.sin(curr_roll_rad)
+                            cos_theta = max(0.01, math.cos(curr_pitch_rad))
+                            tan_theta = math.tan(curr_pitch_rad)
+
+                            roll_rate_dps = xgyro_dps + ((ygyro_dps * sin_phi + zgyro_dps * cos_phi) * tan_theta)
+                            pitch_rate_dps = (ygyro_dps * cos_phi) - (zgyro_dps * sin_phi)
+                            yaw_rate_dps = (ygyro_dps * sin_phi + zgyro_dps * cos_phi) / cos_theta
+
                             with gyro_integrated_lock:
                                 gyro_integrated_state["roll_deg"] = normalize_angle_deg(
-                                    gyro_integrated_state["roll_deg"] + (xgyro_dps * dt)
+                                    gyro_integrated_state["roll_deg"] + (roll_rate_dps * dt)
                                 )
                                 gyro_integrated_state["pitch_deg"] = normalize_angle_deg(
-                                    gyro_integrated_state["pitch_deg"] + (ygyro_dps * dt)
+                                    gyro_integrated_state["pitch_deg"] + (pitch_rate_dps * dt)
                                 )
                                 gyro_integrated_state["yaw_deg"] = normalize_angle_deg(
-                                    gyro_integrated_state["yaw_deg"] + (zgyro_dps * dt)
+                                    gyro_integrated_state["yaw_deg"] + (yaw_rate_dps * dt)
                                 )
 
-                            roll_gyro_deg = attitude_state["roll_deg"] + (xgyro_dps * dt)
-                            pitch_gyro_deg = attitude_state["pitch_deg"] + (ygyro_dps * dt)
-                            yaw_gyro_deg = attitude_state["yaw_deg"] + (zgyro_dps * dt)
+                            roll_gyro_deg = attitude_state["roll_deg"] + (roll_rate_dps * dt)
+                            pitch_gyro_deg = attitude_state["pitch_deg"] + (pitch_rate_dps * dt)
+                            yaw_gyro_deg = attitude_state["yaw_deg"] + (yaw_rate_dps * dt)
 
                             compass_heading_deg = None
                             compass_age_s = None
