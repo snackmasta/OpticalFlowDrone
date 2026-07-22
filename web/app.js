@@ -12,7 +12,7 @@ let isDarkMode = true;
 // Origin offset for resetting zero-position
 let positionOffset = { x: 0, y: 0, z: 0 };
 let rawLatestPos = { x: 0, y: 0, z: 0 };
-let currentTargetPos = { x: 0, y: 0, z: 0 };
+let currentTargetPos = new THREE.Vector3(0, 0, 0);
 let currentTargetQuat = new THREE.Quaternion();
 
 
@@ -243,7 +243,7 @@ function updateTelemetry(data) {
   const posZ = rawPos.z - positionOffset.z;
 
   // Update target 3D transform
-  currentTargetPos.set ? currentTargetPos.set(posX, posY, posZ) : (currentTargetPos = { x: posX, y: posY, z: posZ });
+  currentTargetPos.set(posX, posY, posZ);
 
   // Apply custom axis mapping to 3D rotation quaternion if modified from default
   const isCustomMapping = axisSwapConfig.rollSource !== 'roll' ||
@@ -263,8 +263,8 @@ function updateTelemetry(data) {
     currentTargetQuat.set(rawQuat.x, rawQuat.y, rawQuat.z, rawQuat.w); // Three.js uses (x, y, z, w)
   }
 
-  // Add point to trajectory trail (disabled while only visualizing 3D rotation)
-  // addTrajectoryPoint(posX, posY, posZ);
+  // Add point to 3D trajectory trail
+  addTrajectoryPoint(posX, posY, posZ);
 
   // Update Dashboard Text Metrics
   elPosX.textContent = posX.toFixed(2);
@@ -374,9 +374,9 @@ let followMode = false;
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smoothly interpolate controller 3D transform (slerp rotation only, keep position at origin)
+  // Smoothly interpolate controller 3D position and orientation
   if (controllerGroup) {
-    controllerGroup.position.set(0, 0, 0);
+    controllerGroup.position.lerp(currentTargetPos, 0.3);
     controllerGroup.quaternion.slerp(currentTargetQuat, 0.3);
 
     // Smoothly track controller position with camera target if follow mode is active

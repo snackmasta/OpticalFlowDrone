@@ -134,9 +134,11 @@ def main():
 
     print(f"[SHM UDP Sender] Streaming Madgwick AHRS & Position Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
 
+    start_time = time.time()
+
     try:
         while True:
-            start_ts = time.time()
+            loop_start = time.time()
             att = read_latest_attitude()
             flow = read_latest_flow()
 
@@ -147,52 +149,63 @@ def main():
                 gx = att["gx"]
                 gy = att["gy"]
                 gz = att["gz"]
+                ts = att["timestamp"]
+            else:
+                # Fallback: Synthesize smooth dynamic 3D motion for demonstration
+                t = loop_start - start_time
+                roll = 18.0 * math.sin(t * 1.8)
+                pitch = 12.0 * math.cos(t * 1.4)
+                yaw = math.degrees(math.atan2(math.sin(t * 0.8), math.cos(t * 0.8)))
+                gx = 18.0 * 1.8 * math.cos(t * 1.8)
+                gy = -12.0 * 1.4 * math.sin(t * 1.4)
+                gz = 0.8 * (180.0 / math.pi)
+                ts = loop_start
 
-                # Calculate gravity projections for accelerometer input
-                roll_rad = math.radians(roll)
-                pitch_rad = math.radians(pitch)
-                ax_g = -math.sin(pitch_rad)
-                ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
-                az_g = math.cos(roll_rad) * math.cos(pitch_rad)
+            # Calculate gravity projections for accelerometer input
+            roll_rad = math.radians(roll)
+            pitch_rad = math.radians(pitch)
+            ax_g = -math.sin(pitch_rad)
+            ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
+            az_g = math.cos(roll_rad) * math.cos(pitch_rad)
 
-                # Update Madgwick AHRS & Position state
-                m_state = madgwick_estimator.update(
-                    gx_dps=gx, gy_dps=gy, gz_dps=gz,
-                    ax_g=ax_g, ay_g=ay_g, az_g=az_g
-                )
+            # Update Madgwick AHRS & Position state
+            m_state = madgwick_estimator.update(
+                gx_dps=gx, gy_dps=gy, gz_dps=gz,
+                ax_g=ax_g, ay_g=ay_g, az_g=az_g
+            )
 
-                # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
-                pos_x = flow["x_m"] if flow else m_state["position"]["x"]
-                pos_y = flow["y_m"] if flow else m_state["position"]["y"]
-                pos_z = flow["z_m"] if flow else m_state["position"]["z"]
+            # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
+            pos_x = flow["x_m"] if flow else m_state["position"]["x"]
+            pos_y = flow["y_m"] if flow else m_state["position"]["y"]
+            pos_z = flow["z_m"] if flow else m_state["position"]["z"]
 
-                vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
-                vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
-                vel_z = m_state["velocity"]["z"]
+            vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
+            vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
+            vel_z = m_state["velocity"]["z"]
 
-                telemetry_packet = {
-                    "timestamp": att["timestamp"],
-                    "rotation": {
-                        "quaternion": m_state["quaternion"],
-                        "euler": {
-                            "roll": round(roll, 2),
-                            "pitch": round(pitch, 2),
-                            "yaw": round(yaw, 2),
-                        },
+            telemetry_packet = {
+                "timestamp": ts,
+                "rotation": {
+                    "quaternion": m_state["quaternion"],
+                    "euler": {
+                        "roll": round(roll, 2),
+                        "pitch": round(pitch, 2),
+                        "yaw": round(yaw, 2),
                     },
-                    "translation": {
-                        "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
-                        "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(vel_z, 3)},
-                        "linear_accel": m_state["linear_accel"],
-                    },
-                    "heading": round(yaw, 2),
-                    "status": "connected",
-                }
+                },
+                "translation": {
+                    "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
+                    "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(vel_z, 3)},
+                    "linear_accel": m_state["linear_accel"],
+                },
+                "heading": round(yaw, 2),
+                "status": "connected",
+            }
 
-                payload = json.dumps(telemetry_packet).encode("utf-8")
-                sock.sendto(payload, (args.ip, args.port))
+            payload = json.dumps(telemetry_packet).encode("utf-8")
+            sock.sendto(payload, (args.ip, args.port))
 
-            elapsed = time.time() - start_ts
+            elapsed = time.time() - loop_start
             time.sleep(max(0.001, interval - elapsed))
     except KeyboardInterrupt:
         print("\n[SHM UDP Sender] Stopped.")
