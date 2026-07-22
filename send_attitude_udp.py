@@ -158,7 +158,7 @@ def main():
                         },
                     },
                     "translation": {
-                        "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
+                        "position": {"x": 0.0, "y": 0.0, "z": 0.0},
                         "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(0.0, 3)},
                         "linear_accel": {"x": 0.0, "y": 0.0, "z": 0.0},
                     },

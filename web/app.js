@@ -261,8 +261,8 @@ function updateTelemetry(data) {
     currentTargetQuat.set(rawQuat.x, rawQuat.y, rawQuat.z, rawQuat.w); // Three.js uses (x, y, z, w)
   }
 
-  // Add point to trajectory trail
-  addTrajectoryPoint(posX, posY, posZ);
+  // Add point to trajectory trail (disabled while only visualizing 3D rotation)
+  // addTrajectoryPoint(posX, posY, posZ);
 
   // Update Dashboard Text Metrics
   elPosX.textContent = posX.toFixed(2);
@@ -372,9 +372,9 @@ let followMode = false;
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smoothly interpolate controller 3D transform (slerp / lerp)
+  // Smoothly interpolate controller 3D transform (slerp rotation only, keep position at origin)
   if (controllerGroup) {
-    controllerGroup.position.lerp(new THREE.Vector3(currentTargetPos.x, currentTargetPos.y, currentTargetPos.z), 0.3);
+    controllerGroup.position.set(0, 0, 0);
     controllerGroup.quaternion.slerp(currentTargetQuat, 0.3);
 
     // Smoothly track controller position with camera target if follow mode is active
