@@ -175,10 +175,19 @@ def main():
                 ax_g=ax_g, ay_g=ay_g, az_g=az_g
             )
 
-            # Use optical flow displacement if non-zero, otherwise use Madgwick calculated 3D position
-            pos_x = flow["x_m"] if (flow and flow.get("x_m", 0) != 0) else m_state["position"]["x"]
-            pos_y = flow["y_m"] if (flow and flow.get("y_m", 0) != 0) else m_state["position"]["y"]
-            pos_z = flow["z_m"] if (flow and flow.get("z_m", 0) != 0) else m_state["position"]["z"]
+            # Priority: use Madgwick AHRS 3D position estimator for X, Y, Z translation
+            pos_x = m_state["position"]["x"]
+            pos_y = m_state["position"]["y"]
+            pos_z = m_state["position"]["z"]
+
+            # Fuse optical flow X/Y if available, and ignore static 1.5m altitude fallback for Z
+            if flow:
+                if flow.get("x_m", 0) != 0:
+                    pos_x = flow["x_m"]
+                if flow.get("y_m", 0) != 0:
+                    pos_y = flow["y_m"]
+                if flow.get("z_m") is not None and flow.get("z_m") != 1.5 and flow.get("z_m") != 0.0:
+                    pos_z = flow["z_m"]
 
             vel_x = flow["vx"] if (flow and flow.get("vx", 0) != 0) else m_state["velocity"]["x"]
             vel_y = flow["vy"] if (flow and flow.get("vy", 0) != 0) else m_state["velocity"]["y"]
