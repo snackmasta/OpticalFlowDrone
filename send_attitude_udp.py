@@ -63,7 +63,7 @@ def euler_to_quaternion(roll_deg, pitch_deg, yaw_deg):
 
 
 def read_latest_attitude():
-    """Reads the latest Roll, Pitch, Yaw record from drone_attitude_stream SHM."""
+    """Reads the latest Roll, Pitch, Yaw, Gyro, and Accel record from drone_attitude_stream SHM."""
     try:
         shm = shared_memory.SharedMemory(name=ATTITUDE_SHM_NAME)
         safe_unregister_shm(shm)
@@ -76,7 +76,14 @@ def read_latest_attitude():
 
         latest_index = (write_index - 1) % ATTITUDE_MAX_SAMPLES
         record_offset = ATTITUDE_SHM_HEADER_SIZE + (latest_index * ATTITUDE_SHM_RECORD_SIZE)
-        ts, roll, pitch, yaw, gx, gy, gz = struct.unpack_from(ATTITUDE_SHM_RECORD_FORMAT, buf, record_offset)
+
+        # Handle both 10d (with raw accel) and legacy 7d format
+        try:
+            ts, roll, pitch, yaw, gx, gy, gz, ax, ay, az = struct.unpack_from("<10d", buf, record_offset)
+        except Exception:
+            ts, roll, pitch, yaw, gx, gy, gz = struct.unpack_from("<7d", buf, record_offset)
+            ax, ay, az = None, None, None
+
         return {
             "timestamp": ts,
             "roll": roll,
@@ -85,6 +92,9 @@ def read_latest_attitude():
             "gx": gx,
             "gy": gy,
             "gz": gz,
+            "ax": ax,
+            "ay": ay,
+            "az": az,
         }
     except Exception:
         return None
@@ -151,25 +161,30 @@ def main():
                 gy = att["gy"]
                 gz = att["gz"]
                 ts = att["timestamp"]
+
+                # Use real accelerometer measurements from hardware sensor if available
+                roll_rad = math.radians(roll)
+                pitch_rad = math.radians(pitch)
+                ax_g = att["ax"] if att["ax"] is not None else -math.sin(pitch_rad)
+                ay_g = att["ay"] if att["ay"] is not None else (math.sin(roll_rad) * math.cos(pitch_rad))
+                az_g = att["az"] if att["az"] is not None else (math.cos(roll_rad) * math.cos(pitch_rad))
             else:
-                # Fallback: Synthesize smooth dynamic 3D motion for demonstration
-                roll = 18.0 * math.sin(t * 1.8)
-                pitch = 12.0 * math.cos(t * 1.4)
-                yaw = math.degrees(math.atan2(math.sin(t * 0.8), math.cos(t * 0.8)))
-                gx = 18.0 * 1.8 * math.cos(t * 1.8)
-                gy = -12.0 * 1.4 * math.sin(t * 1.4)
-                gz = 0.8 * (180.0 / math.pi)
+                # Fallback: Synthesize smooth physical flight movement when no hardware sensor is connected
+                roll = 15.0 * math.sin(t * 0.8)
+                pitch = 10.0 * math.cos(t * 0.6)
+                yaw = math.degrees(math.atan2(math.sin(t * 0.4), math.cos(t * 0.4)))
+                gx = 15.0 * 0.8 * math.cos(t * 0.8)
+                gy = -10.0 * 0.6 * math.sin(t * 0.6)
+                gz = 0.4 * (180.0 / math.pi)
                 ts = loop_start
 
-            # Calculate gravity projections + dynamic linear acceleration for 3D translation (including Z axis)
-            roll_rad = math.radians(roll)
-            pitch_rad = math.radians(pitch)
-            ax_g = -math.sin(pitch_rad) + 0.15 * math.cos(t * 2.0)
-            ay_g = math.sin(roll_rad) * math.cos(pitch_rad) + 0.15 * math.sin(t * 1.8)
-            # Dynamic Z acceleration (vertical heave/thrust variation)
-            az_g = math.cos(roll_rad) * math.cos(pitch_rad) + 0.25 * math.sin(t * 1.5)
+                roll_rad = math.radians(roll)
+                pitch_rad = math.radians(pitch)
+                ax_g = -math.sin(pitch_rad)
+                ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
+                az_g = math.cos(roll_rad) * math.cos(pitch_rad)
 
-            # Update Madgwick AHRS & Position state
+            # Update Madgwick AHRS & Position state with real sensor inputs
             m_state = madgwick_estimator.update(
                 gx_dps=gx, gy_dps=gy, gz_dps=gz,
                 ax_g=ax_g, ay_g=ay_g, az_g=az_g

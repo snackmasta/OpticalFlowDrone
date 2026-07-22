@@ -40,7 +40,7 @@ COMPASS_FRESHNESS_THRESHOLD_S = 0.75
 ATTITUDE_SHM_NAME = "drone_attitude_stream"
 ATTITUDE_SHM_MAGIC = b"ATT "
 ATTITUDE_SHM_HEADER_FORMAT = "<4sII"
-ATTITUDE_SHM_RECORD_FORMAT = "<7d"
+ATTITUDE_SHM_RECORD_FORMAT = "<10d"
 ATTITUDE_SHM_HEADER_SIZE = struct.calcsize(ATTITUDE_SHM_HEADER_FORMAT)
 ATTITUDE_SHM_RECORD_SIZE = struct.calcsize(ATTITUDE_SHM_RECORD_FORMAT)
 ATTITUDE_MAX_SAMPLES = 120
@@ -79,9 +79,9 @@ def attach_attitude_shm():
         return attitude_shm
 
 
-def write_attitude_sample(timestamp, roll_deg, pitch_deg, yaw_deg, xgyro_dps, ygyro_dps, zgyro_dps):
+def write_attitude_sample(timestamp, roll_deg, pitch_deg, yaw_deg, xgyro_dps, ygyro_dps, zgyro_dps, xaccel_g=0.0, yaccel_g=0.0, zaccel_g=1.0):
     """
-    Writes a single attitude sample (roll, pitch, yaw, gyro rates) into drone_attitude_stream SHM.
+    Writes a single attitude sample (roll, pitch, yaw, gyro rates, accel g) into drone_attitude_stream SHM.
     """
     try:
         shm = attach_attitude_shm()
@@ -99,6 +99,9 @@ def write_attitude_sample(timestamp, roll_deg, pitch_deg, yaw_deg, xgyro_dps, yg
                 float(xgyro_dps),
                 float(ygyro_dps),
                 float(zgyro_dps),
+                float(xaccel_g),
+                float(yaccel_g),
+                float(zaccel_g),
             )
             write_index = (write_index + 1) % ATTITUDE_MAX_SAMPLES
             sample_count = min(sample_count + 1, ATTITUDE_MAX_SAMPLES)
@@ -503,7 +506,7 @@ def start_distance_sensor_reader():
 
                     attitude_state["last_update"] = now
 
-                    # Stream live roll, pitch, yaw and rates to shared memory
+                    # Stream live roll, pitch, yaw, rates and raw accel to shared memory
                     write_attitude_sample(
                         now,
                         attitude_state["roll_deg"],
@@ -512,6 +515,9 @@ def start_distance_sensor_reader():
                         attitude_state["xgyro_dps"],
                         attitude_state["ygyro_dps"],
                         attitude_state["zgyro_dps"],
+                        xaccel_g,
+                        yaccel_g,
+                        zaccel_g,
                     )
 
                 last_imu_ts = now
