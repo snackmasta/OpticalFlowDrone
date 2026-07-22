@@ -66,6 +66,24 @@ class FileSink:
         print(f"Saved recording: {self.output_path}")
 
 
+def ensure_mediamtx_config():
+    """
+    Ensures that mediamtx.yml exists in the MediaMTX directory so dynamic stream paths (e.g. /drone) are accepted.
+    """
+    if MEDIAMTX_BIN.exists():
+        config_path = MEDIAMTX_BIN.parent / "mediamtx.yml"
+        if not config_path.exists():
+            config_content = (
+                "# MediaMTX configuration file\n"
+                "paths:\n"
+                "  all:\n"
+            )
+            try:
+                config_path.write_text(config_content)
+            except Exception as e:
+                print(f"Warning: Could not create {config_path}: {e}")
+
+
 class RtspServer:
     """
     Spawns and manages a local MediaMTX RTSP server subprocess if one is not already running.
@@ -73,6 +91,8 @@ class RtspServer:
     def __init__(self):
         if not MEDIAMTX_BIN.exists():
             raise RuntimeError(f"MediaMTX binary not found at {MEDIAMTX_BIN}")
+
+        ensure_mediamtx_config()
 
         self.spawned = False
         self.process = None
