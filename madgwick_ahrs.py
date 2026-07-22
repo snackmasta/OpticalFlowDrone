@@ -310,25 +310,30 @@ class MadgwickPositionEstimator:
         return self.get_state()
 
     def get_state(self):
-        """Returns current full telemetry state dictionary."""
+        """
+        Returns current full telemetry state dictionary mapped for 3D visualization:
+          - X: Left / Right Sway (pos[0])
+          - Y: Up / Down Vertical Heave (pos[2])
+          - Z: Forward / Backward Longitudinal Surge (pos[1])
+        """
         roll, pitch, yaw = self.ahrs.get_euler_deg()
         quat = self.ahrs.get_quaternion()
 
         return {
             "position": {
                 "x": round(self.pos[0], 4),
-                "y": round(self.pos[1], 4),
-                "z": round(self.pos[2], 4),
+                "y": round(self.pos[2], 4),
+                "z": round(self.pos[1], 4),
             },
             "velocity": {
                 "x": round(self.vel[0], 4),
-                "y": round(self.vel[1], 4),
-                "z": round(self.vel[2], 4),
+                "y": round(self.vel[2], 4),
+                "z": round(self.vel[1], 4),
             },
             "linear_accel": {
                 "x": round(self.lin_accel_earth[0], 4),
-                "y": round(self.lin_accel_earth[1], 4),
-                "z": round(self.lin_accel_earth[2], 4),
+                "y": round(self.lin_accel_earth[2], 4),
+                "z": round(self.lin_accel_earth[1], 4),
             },
             "quaternion": quat,
             "euler": {
