@@ -29,7 +29,7 @@ let robotBaseConfig = {
 };
 
 // Hardware IP & Live UDP Control State
-let robotIP = '192.168.137.78';
+let robotIP = '192.168.137.94';
 let hardwareSyncEnabled = true;
 let lastSentHardwareTime = 0;
 let lastSentServoValues = { a1: -1, a2: -1, a3: -1, a4: -1 };
@@ -651,26 +651,44 @@ function addTrajectoryPoint(x, y, z) {
 
 // Connect to Telemetry EventSource (SSE)
 function connectTelemetryStream() {
-  const evtSource = new EventSource('/stream');
+  if (!elStatusBadge || !elStatusText) return;
 
-  evtSource.onopen = () => {
-    elStatusBadge.className = 'status-badge connected';
-    elStatusText.textContent = 'Streaming Live 50Hz';
-  };
+  // Set initial status immediately so UI is never stuck on "Connecting..."
+  elStatusBadge.className = 'status-badge disconnected';
+  elStatusText.textContent = 'Manual Debug Mode';
 
-  evtSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      updateTelemetry(data);
-    } catch (e) {
-      console.error('JSON parse error:', e);
-    }
-  };
+  try {
+    const evtSource = new EventSource('/stream');
 
-  evtSource.onerror = () => {
+    evtSource.onopen = () => {
+      elStatusBadge.className = 'status-badge connected';
+      elStatusText.textContent = 'Streaming Live 50Hz';
+    };
+
+    evtSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.status === 'connected') {
+          elStatusBadge.className = 'status-badge connected';
+          elStatusText.textContent = 'Streaming Live 50Hz';
+        } else {
+          elStatusBadge.className = 'status-badge disconnected';
+          elStatusText.textContent = 'Manual Debug Mode';
+        }
+        updateTelemetry(data);
+      } catch (e) {
+        console.error('JSON parse error:', e);
+      }
+    };
+
+    evtSource.onerror = () => {
+      elStatusBadge.className = 'status-badge disconnected';
+      elStatusText.textContent = 'Manual Debug Mode';
+    };
+  } catch (e) {
     elStatusBadge.className = 'status-badge disconnected';
-    elStatusText.textContent = 'Waiting for main.py...';
-  };
+    elStatusText.textContent = 'Manual Debug Mode';
+  }
 }
 
 // ----------------------------------------------------
@@ -899,35 +917,35 @@ function toggleGraphDrawer() {
 if (elBtnToggleGraphs) elBtnToggleGraphs.addEventListener('click', toggleGraphDrawer);
 if (elBtnCloseDrawer) elBtnCloseDrawer.addEventListener('click', toggleGraphDrawer);
 
-document.getElementById('btnCalibrateDrift').addEventListener('click', () => {
+document.getElementById('btnCalibrateDrift')?.addEventListener('click', () => {
   positionOffset = { ...rawLatestPos };
   trajectoryPoints = [];
-  trajectoryLine.geometry.setDrawRange(0, 0);
+  if (trajectoryLine && trajectoryLine.geometry) trajectoryLine.geometry.setDrawRange(0, 0);
 });
 
-document.getElementById('btnToggleFollow').addEventListener('click', (e) => {
+document.getElementById('btnToggleFollow')?.addEventListener('click', (e) => {
   followMode = !followMode;
   e.currentTarget.classList.toggle('active', followMode);
 });
 
-document.getElementById('btnResetTrail').addEventListener('click', () => {
+document.getElementById('btnResetTrail')?.addEventListener('click', () => {
   trajectoryPoints = [];
-  trajectoryLine.geometry.setDrawRange(0, 0);
+  if (trajectoryLine && trajectoryLine.geometry) trajectoryLine.geometry.setDrawRange(0, 0);
 });
 
-document.getElementById('btnResetPos').addEventListener('click', () => {
+document.getElementById('btnResetPos')?.addEventListener('click', () => {
   positionOffset = { ...currentTargetPos };
   trajectoryPoints = [];
-  trajectoryLine.geometry.setDrawRange(0, 0);
+  if (trajectoryLine && trajectoryLine.geometry) trajectoryLine.geometry.setDrawRange(0, 0);
 });
 
-document.getElementById('btnRecenterCam').addEventListener('click', () => {
-  camera.position.set(1.6, 1.4, 2.2);
-  controls.target.set(0, 1.0, 0);
+document.getElementById('btnRecenterCam')?.addEventListener('click', () => {
+  if (camera) camera.position.set(1.6, 1.4, 2.2);
+  if (controls) controls.target.set(0, 1.0, 0);
 });
 
 let gridVisible = true;
-document.getElementById('btnToggleGrid').addEventListener('click', (e) => {
+document.getElementById('btnToggleGrid')?.addEventListener('click', (e) => {
   gridVisible = !gridVisible;
   if (gridHelper) gridHelper.visible = gridVisible;
   if (ceilingGrid) ceilingGrid.visible = gridVisible;
@@ -1330,8 +1348,7 @@ function updateChartThemes(isDark) {
 document.getElementById('btnToggleTheme')?.addEventListener('click', toggleTheme);
 document.getElementById('btnToggleThemeTool')?.addEventListener('click', toggleTheme);
 
-// Launch on page load
-window.addEventListener('DOMContentLoaded', () => {
+function startApp() {
   loadThemeConfig();
   loadAxisSwapConfig();
   loadRobotBaseConfig();
@@ -1343,6 +1360,12 @@ window.addEventListener('DOMContentLoaded', () => {
   initSensorCharts();
   applyTheme(isDarkMode);
   connectTelemetryStream();
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
 
 

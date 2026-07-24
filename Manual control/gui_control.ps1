@@ -60,7 +60,7 @@ $lblIP.Size = New-Object System.Drawing.Size(75, 25)
 $form.Controls.Add($lblIP)
 
 $txtIP = New-Object System.Windows.Forms.TextBox
-$txtIP.Text = "192.168.137.78"
+$txtIP.Text = "192.168.137.94"
 $txtIP.Location = New-Object System.Drawing.Point(95, 52)
 $txtIP.Size = New-Object System.Drawing.Size(160, 28)
 $txtIP.BackColor = [System.Drawing.Color]::FromArgb(49, 50, 68)

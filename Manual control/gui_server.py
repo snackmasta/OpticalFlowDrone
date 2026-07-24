@@ -10,7 +10,7 @@ import socketserver
 import urllib.parse
 import json
 
-UDP_IP = "192.168.137.78"  # Default Target ESP8266 IP
+UDP_IP = "192.168.137.94"  # Default Target ESP8266 IP
 UDP_PORT = 8888
 
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -151,7 +151,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         <div class="ip-group">
             <label for="ip">Target IP:</label>
-            <input type="text" id="ip" value="192.168.137.78" onchange="updateTargetIP()">
+            <input type="text" id="ip" value="192.168.137.94" onchange="updateTargetIP()">
         </div>
 
         <div class="slider-card">

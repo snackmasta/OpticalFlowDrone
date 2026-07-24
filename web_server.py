@@ -46,9 +46,9 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
             parsed_url = urllib.parse.urlparse(self.path)
             query_params = urllib.parse.parse_qs(parsed_url.query)
 
-            ip = query_params.get('ip', ['192.168.137.78'])[0].strip()
+            ip = query_params.get('ip', ['192.168.137.94'])[0].strip()
             if not ip:
-                ip = '192.168.137.78'
+                ip = '192.168.137.94'
 
             try:
                 a1 = int(query_params.get('a1', [90])[0])
@@ -129,7 +129,10 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                     if client_queue in connected_sse_clients:
                         connected_sse_clients.remove(client_queue)
         else:
-            super().do_GET()
+            try:
+                super().do_GET()
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                pass
 
     def end_headers(self):
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -173,6 +176,13 @@ def start_udp_listener():
             pass
 
 
+class QuietTCPServer(socketserver.TCPServer):
+    def handle_error(self, request, client_address):
+        _, exc, _ = sys.exc_info()
+        if exc and isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
 def main():
     print("=" * 60)
     print("      3D VR Controller Trajectory Web Server")
@@ -185,7 +195,7 @@ def main():
     # Start HTTP + SSE Server
     try:
         handler = TelemetryHTTPServer
-        httpd = socketserver.TCPServer(("", HTTP_PORT), handler)
+        httpd = QuietTCPServer(("", HTTP_PORT), handler)
         print(f"[HTTP + Stream Server] Running on http://localhost:{HTTP_PORT}")
         print(f"[Dashboard] Open http://localhost:{HTTP_PORT} in your web browser.\n")
         httpd.serve_forever()

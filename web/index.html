@@ -42,7 +42,7 @@
       <div class="ip-input-box" title="ESP8266 Hardware Robot IP Address">
         <i class="fa-solid fa-wifi ip-icon"></i>
         <span class="ip-label" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">IP:</span>
-        <input type="text" id="inputRobotIPHeader" value="192.168.137.78" placeholder="192.168.137.78" class="ip-input">
+        <input type="text" id="inputRobotIPHeader" value="192.168.137.94" placeholder="192.168.137.94" class="ip-input">
         <label class="swap-check-label" style="margin-left: 4px; font-size: 11px;" title="Sync servo commands live to real ESP8266 hardware robot arm over UDP:8888">
           <input type="checkbox" id="chkEnableHardwareSync" checked> Live UDP Sync
         </label>
@@ -53,7 +53,7 @@
       </button>
       <span class="status-badge disconnected" id="statusBadge">
         <span class="status-dot"></span>
-        <span id="statusText">Connecting...</span>
+        <span id="statusText">Manual Debug Mode</span>
       </span>
     </div>
   </header>
@@ -211,7 +211,7 @@
           </label>
         </div>
         <div class="swap-inputs">
-          <input type="text" id="inputRobotIPDrawer" value="192.168.137.78" placeholder="192.168.137.78" class="swap-input" style="text-align: left; padding: 6px 10px;">
+          <input type="text" id="inputRobotIPDrawer" value="192.168.137.94" placeholder="192.168.137.94" class="swap-input" style="text-align: left; padding: 6px 10px;">
           <button class="btn-preset" id="btnTestHardwarePing" style="white-space: nowrap;"><i class="fa-solid fa-paper-plane me-1"></i> Send Test</button>
         </div>
       </div>
@@ -512,7 +512,7 @@
     </button>
   </div>
 
-  <script src="app.js?v=no_oscillation_v10"></script>
+  <script src="app.js?v=instant_start_v13"></script>
 </body>
 </html>
 
