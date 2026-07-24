@@ -83,15 +83,15 @@ ARM_UDP_PORT = 8888
 
 def send_arm_angles(roll_deg, pitch_deg):
     """
-    Calculates arm joint angles (pitch + 90° for Shoulder J2, roll + 90° for Wrist J4 clamped 0..180)
+    Calculates arm joint angles (inverted: 90 - roll° for Shoulder J2, 90 - pitch° for Wrist J4 clamped 0..180)
     and streams to 4-DOF Robotic Arm via UDP.
     Payload format: "90,<shoulder_angle>,90,<wrist_angle>"
     """
     try:
-        shoulder_angle = int(round(pitch_deg + 90.0))
+        shoulder_angle = int(round(90.0 - roll_deg))
         shoulder_angle = max(0, min(180, shoulder_angle))
 
-        wrist_angle = int(round(roll_deg + 90.0))
+        wrist_angle = int(round(90.0 - pitch_deg))
         wrist_angle = max(0, min(180, wrist_angle))
 
         # Servo 1 (Elbow)=90, Servo 2 (Shoulder Pitch)=shoulder_angle, Servo 3 (Base Yaw)=90, Servo 4 (Wrist Pitch)=wrist_angle
