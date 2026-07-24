@@ -28,9 +28,113 @@ let robotBaseConfig = {
   yaw: 0
 };
 
+// Hardware IP & Live UDP Control State
+let robotIP = '192.168.137.78';
+let hardwareSyncEnabled = true;
+let lastSentHardwareTime = 0;
+let lastSentServoValues = { a1: -1, a2: -1, a3: -1, a4: -1 };
+
+function loadRobotIPConfig() {
+  try {
+    const savedIP = localStorage.getItem('robot_arm_ip');
+    if (savedIP) robotIP = savedIP;
+    const savedSync = localStorage.getItem('robot_hardware_sync');
+    if (savedSync !== null) hardwareSyncEnabled = savedSync === 'true';
+  } catch (e) {}
+}
+
+function saveRobotIPConfig() {
+  try {
+    localStorage.setItem('robot_arm_ip', robotIP);
+    localStorage.setItem('robot_hardware_sync', hardwareSyncEnabled ? 'true' : 'false');
+  } catch (e) {}
+}
+
+function syncIPUI() {
+  const elHeaderIP = document.getElementById('inputRobotIPHeader');
+  const elDrawerIP = document.getElementById('inputRobotIPDrawer');
+  const elHeaderSync = document.getElementById('chkEnableHardwareSync');
+  const elDrawerSync = document.getElementById('chkEnableHardwareSyncDrawer');
+
+  if (elHeaderIP) elHeaderIP.value = robotIP;
+  if (elDrawerIP) elDrawerIP.value = robotIP;
+  if (elHeaderSync) elHeaderSync.checked = hardwareSyncEnabled;
+  if (elDrawerSync) elDrawerSync.checked = hardwareSyncEnabled;
+}
+
+function updateIPFromUI(val) {
+  if (val && val.trim()) {
+    robotIP = val.trim();
+    syncIPUI();
+    saveRobotIPConfig();
+  }
+}
+
+function updateHardwareSyncFromUI(enabled) {
+  hardwareSyncEnabled = enabled;
+  syncIPUI();
+  saveRobotIPConfig();
+}
+
+let lastSendTime = 0;
+let pendingSendTimeout = null;
+let lastSentServoValues = { a1: -1, a2: -1, a3: -1, a4: -1 };
+
+function updateHardwareStatusText(txt) {
+  const el = document.getElementById('hardwareStatusText');
+  if (el) el.textContent = txt;
+}
+
+function sendHardwareArmCommand(a1, a2, a3, a4) {
+  if (!hardwareSyncEnabled) return;
+
+  const intA1 = Math.round(THREE.MathUtils.clamp(a1, 0, 180));
+  const intA2 = Math.round(THREE.MathUtils.clamp(a2, 0, 180));
+  const intA3 = Math.round(THREE.MathUtils.clamp(a3, 0, 180));
+  const intA4 = Math.round(THREE.MathUtils.clamp(a4, 0, 180));
+
+  // Skip sending duplicate commands if angles have not changed
+  if (
+    intA1 === lastSentServoValues.a1 &&
+    intA2 === lastSentServoValues.a2 &&
+    intA3 === lastSentServoValues.a3 &&
+    intA4 === lastSentServoValues.a4
+  ) {
+    return;
+  }
+
+  const executeSend = () => {
+    lastSentServoValues = { a1: intA1, a2: intA2, a3: intA3, a4: intA4 };
+    fetch(`/send?ip=${encodeURIComponent(robotIP)}&a1=${intA1}&a2=${intA2}&a3=${intA3}&a4=${intA4}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === 'ok') {
+          updateHardwareStatusText(`Sent -> IP: ${data.ip}:${data.port} | S1: ${data.a1}°, S2: ${data.a2}°, S3: ${data.a3}°, S4: ${data.a4}°`);
+        } else {
+          updateHardwareStatusText(`Error [${data.ip || robotIP}]: ${data.message || 'Transmission failed'}`);
+        }
+      })
+      .catch(err => {
+        updateHardwareStatusText(`Network error connecting to server`);
+      });
+  };
+
+  const now = Date.now();
+  if (now - lastSendTime > 25) { // 40Hz smooth realtime control (matching gui_server.py)
+    executeSend();
+    lastSendTime = now;
+  } else {
+    clearTimeout(pendingSendTimeout);
+    pendingSendTimeout = setTimeout(() => {
+      executeSend();
+      lastSendTime = Date.now();
+    }, 25);
+  }
+}
+
 // Control Mode & Manual Overrides State ('telemetry', 'manual_fk', 'manual_ik')
 let controlMode = 'telemetry';
-let manualFKState = { j1: 0, j2: 0, j3: 0, j5: 0 };
+let manualFKState = { s1: 90, s2: 90, s3: 90, s4: 90 };
 let manualIKState = { x: 0, y: RESTING_TIP_Y, z: 0, roll: 0, pitch: 0, yaw: 0 };
 
 // Origin offset for resetting zero-position
@@ -370,22 +474,31 @@ function updateRoboticArm() {
 
   if (controlMode === 'manual_fk') {
     // ------------------------------------------------
-    // Manual Forward Kinematics (Direct Joint Angles J1, J2, J3, J4)
+    // Manual Forward Kinematics (Servo Angles 0° - 180°, centered at 90°)
     // ------------------------------------------------
-    const theta1 = THREE.MathUtils.degToRad(manualFKState.j1 || 0);
-    const theta2 = THREE.MathUtils.degToRad(manualFKState.j2 || 0);
-    const theta3 = THREE.MathUtils.degToRad(manualFKState.j3 || 0);
-    const theta4 = THREE.MathUtils.degToRad(manualFKState.j4 || 0);
+    const s1 = manualFKState.s1 !== undefined ? manualFKState.s1 : 90; // Servo 1 (GPIO 1 / Elbow Pitch J3)
+    const s2 = manualFKState.s2 !== undefined ? manualFKState.s2 : 90; // Servo 2 (GPIO 3 / Shoulder Pitch J2)
+    const s3 = manualFKState.s3 !== undefined ? manualFKState.s3 : 90; // Servo 3 (GPIO 5 / Base Yaw J1)
+    const s4 = manualFKState.s4 !== undefined ? manualFKState.s4 : 90; // Servo 4 (GPIO 4 / Wrist Pitch J4)
+
+    // Convert Servo 0-180° into 3D rendering rotation angles relative to 90° center
+    const theta1 = THREE.MathUtils.degToRad(s3 - 90); // Base Yaw J1 = Servo 3
+    const theta2 = THREE.MathUtils.degToRad(s2 - 90); // Shoulder Pitch J2 = Servo 2
+    const theta3 = THREE.MathUtils.degToRad(s1 - 90); // Elbow Pitch J3 = Servo 1
+    const theta4 = THREE.MathUtils.degToRad(s4 - 90); // Wrist Pitch J4 = Servo 4
 
     j1Group.rotation.y = theta1;
     j2Group.rotation.z = -theta2;
     j3Group.rotation.z = -theta3;
     j4Group.rotation.x = theta4;
 
-    if (elJ1) elJ1.textContent = `${(manualFKState.j1 || 0).toFixed(1)}°`;
-    if (elJ2) elJ2.textContent = `${(manualFKState.j2 || 0).toFixed(1)}°`;
-    if (elJ3) elJ3.textContent = `${(manualFKState.j3 || 0).toFixed(1)}°`;
-    if (elJ4) elJ4.textContent = `${(manualFKState.j4 || 0).toFixed(1)}°`;
+    if (elJ1) elJ1.textContent = `${s3.toFixed(0)}°`;
+    if (elJ2) elJ2.textContent = `${s2.toFixed(0)}°`;
+    if (elJ3) elJ3.textContent = `${s1.toFixed(0)}°`;
+    if (elJ4) elJ4.textContent = `${s4.toFixed(0)}°`;
+
+    // Stream UDP packet: a1=Servo1, a2=Servo2, a3=Servo3, a4=Servo4
+    sendHardwareArmCommand(s1, s2, s3, s4);
 
   } else {
     // ------------------------------------------------
@@ -469,11 +582,20 @@ function updateRoboticArm() {
     const theta4 = eulerWrist.x;
     j4Group.rotation.x = theta4;
 
+    // Compute servo angles (0° - 180°, centered at 90°)
+    const s3 = Math.round(THREE.MathUtils.clamp(90 + THREE.MathUtils.radToDeg(theta1), 0, 180));
+    const s2 = Math.round(THREE.MathUtils.clamp(90 + THREE.MathUtils.radToDeg(theta2), 0, 180));
+    const s1 = Math.round(THREE.MathUtils.clamp(90 + THREE.MathUtils.radToDeg(theta3), 0, 180));
+    const s4 = Math.round(THREE.MathUtils.clamp(90 + THREE.MathUtils.radToDeg(theta4), 0, 180));
+
     // Update Telemetry HUD with angles in degrees
-    if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
-    if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
-    if (elJ3) elJ3.textContent = `${THREE.MathUtils.radToDeg(theta3).toFixed(1)}°`;
-    if (elJ4) elJ4.textContent = `${THREE.MathUtils.radToDeg(theta4).toFixed(1)}°`;
+    if (elJ1) elJ1.textContent = `${s3}°`;
+    if (elJ2) elJ2.textContent = `${s2}°`;
+    if (elJ3) elJ3.textContent = `${s1}°`;
+    if (elJ4) elJ4.textContent = `${s4}°`;
+
+    // Stream commands to physical ESP8266 robot arm over UDP
+    sendHardwareArmCommand(s1, s2, s3, s4);
   }
 
   // Force update matrix world to obtain accurate world position of tool endpoint
@@ -981,83 +1103,114 @@ function updateControlModeSections() {
   if (elSectionIK) elSectionIK.classList.toggle('hidden', controlMode !== 'manual_ik');
 }
 
-// Bind Sliders J1, J2, J3, J4 for Manual FK Mode
+// Bind Sliders S1, S2, S3, S4 for Manual Servo FK Mode
 [1, 2, 3, 4].forEach(num => {
-  const slider = document.getElementById(`sliderJ${num}`);
-  const valText = document.getElementById(`valJ${num}Slider`);
+  const slider = document.getElementById(`sliderS${num}`);
+  const valText = document.getElementById(`valS${num}Slider`);
   if (slider) {
     const handler = (e) => {
-      const val = parseFloat(e.target.value) || 0;
-      manualFKState[`j${num}`] = val;
+      const val = parseFloat(e.target.value) || 90;
+      manualFKState[`s${num}`] = val;
       if (valText) valText.textContent = `${val.toFixed(0)}°`;
+      if (controlMode === 'manual_fk') {
+        sendHardwareArmCommand(
+          manualFKState.s1 !== undefined ? manualFKState.s1 : 90,
+          manualFKState.s2 !== undefined ? manualFKState.s2 : 90,
+          manualFKState.s3 !== undefined ? manualFKState.s3 : 90,
+          manualFKState.s4 !== undefined ? manualFKState.s4 : 90
+        );
+      }
     };
     slider.addEventListener('input', handler);
     slider.addEventListener('change', handler);
   }
 });
 
-// Bind Inputs for Manual IK Mode
-['ManualX', 'ManualY', 'ManualZ', 'ManualRoll', 'ManualPitch', 'ManualYaw'].forEach(field => {
-  const el = document.getElementById(`input${field}`);
+// Bind Robot IP input fields
+['inputRobotIPHeader', 'inputRobotIPDrawer'].forEach(id => {
+  const el = document.getElementById(id);
   if (el) {
-    const key = field.replace('Manual', '').toLowerCase();
-    const handler = (e) => {
-      manualIKState[key] = parseFloat(e.target.value) || 0;
-    };
-    el.addEventListener('input', handler);
-    el.addEventListener('change', handler);
+    el.addEventListener('input', (e) => updateIPFromUI(e.target.value));
+    el.addEventListener('change', (e) => updateIPFromUI(e.target.value));
   }
 });
 
-// Debug Test Presets
+// Bind Hardware Sync checkboxes
+['chkEnableHardwareSync', 'chkEnableHardwareSyncDrawer'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('change', (e) => updateHardwareSyncFromUI(e.target.checked));
+  }
+});
+
+// Test Send button handler
+document.getElementById('btnTestHardwarePing')?.addEventListener('click', () => {
+  const s1 = manualFKState.s1 !== undefined ? manualFKState.s1 : 90;
+  const s2 = manualFKState.s2 !== undefined ? manualFKState.s2 : 90;
+  const s3 = manualFKState.s3 !== undefined ? manualFKState.s3 : 90;
+  const s4 = manualFKState.s4 !== undefined ? manualFKState.s4 : 90;
+  
+  // Force bypass throttling for manual test send button
+  lastSendTime = 0;
+  clearTimeout(pendingSendTimeout);
+  sendHardwareArmCommand(s1, s2, s3, s4);
+});
+
+// Hardware Servo Angle Presets (Matching gui_server.py / gui_control.ps1)
 function syncFKSlidersUI() {
   [1, 2, 3, 4].forEach(num => {
-    const slider = document.getElementById(`sliderJ${num}`);
-    const valText = document.getElementById(`valJ${num}Slider`);
-    const val = manualFKState[`j${num}`] || 0;
+    const slider = document.getElementById(`sliderS${num}`);
+    const valText = document.getElementById(`valS${num}Slider`);
+    const val = manualFKState[`s${num}`] !== undefined ? manualFKState[`s${num}`] : 90;
     if (slider) slider.value = val;
     if (valText) valText.textContent = `${val.toFixed(0)}°`;
   });
 }
 
-document.getElementById('presetRobotZero')?.addEventListener('click', () => {
+function setServoPresets(a1, a2, a3, a4) {
   if (controlMode !== 'manual_fk') {
     controlMode = 'manual_fk';
     if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
     updateControlModeSections();
   }
-  manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0 };
+  manualFKState = { s1: a1, s2: a2, s3: a3, s4: a4 };
   syncFKSlidersUI();
-});
+  sendHardwareArmCommand(a1, a2, a3, a4);
+}
 
-document.getElementById('presetRobotReachOut')?.addEventListener('click', () => {
-  if (controlMode !== 'manual_fk') {
-    controlMode = 'manual_fk';
-    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
-    updateControlModeSections();
-  }
-  manualFKState = { j1: 0, j2: 45, j3: 45, j4: 0 };
-  syncFKSlidersUI();
-});
+document.getElementById('presetMin0')?.addEventListener('click', () => setServoPresets(0, 0, 0, 0));
+document.getElementById('presetNeutral90')?.addEventListener('click', () => setServoPresets(90, 90, 90, 90));
+document.getElementById('presetMax180')?.addEventListener('click', () => setServoPresets(180, 180, 180, 180));
 
-document.getElementById('presetRobotHigh')?.addEventListener('click', () => {
-  if (controlMode !== 'manual_fk') {
-    controlMode = 'manual_fk';
-    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
-    updateControlModeSections();
-  }
-  manualFKState = { j1: 0, j2: 90, j3: 0, j4: 0 };
-  syncFKSlidersUI();
-});
+// Auto-Sweep Test
+let isSweeping = false;
+let sweepTimer = null;
 
-document.getElementById('presetRobotSweep')?.addEventListener('click', () => {
-  if (controlMode !== 'manual_fk') {
-    controlMode = 'manual_fk';
-    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
-    updateControlModeSections();
+document.getElementById('presetSweep')?.addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (isSweeping) {
+    clearInterval(sweepTimer);
+    isSweeping = false;
+    btn.textContent = 'Sweep Test';
+    btn.classList.remove('active');
+  } else {
+    if (controlMode !== 'manual_fk') {
+      controlMode = 'manual_fk';
+      if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
+      updateControlModeSections();
+    }
+    isSweeping = true;
+    btn.textContent = 'Stop Sweep';
+    btn.classList.add('active');
+    let sweepAngle = 0;
+    let sweepDir = 5;
+    sweepTimer = setInterval(() => {
+      sweepAngle += sweepDir;
+      if (sweepAngle >= 180) { sweepAngle = 180; sweepDir = -5; }
+      if (sweepAngle <= 0) { sweepAngle = 0; sweepDir = 5; }
+      setServoPresets(sweepAngle, sweepAngle, sweepAngle, sweepAngle);
+    }, 30);
   }
-  manualFKState = { j1: 0, j2: 0, j3: 90, j4: 45 };
-  syncFKSlidersUI();
 });
 
 // ----------------------------------------------------
@@ -1182,8 +1335,10 @@ window.addEventListener('DOMContentLoaded', () => {
   loadThemeConfig();
   loadAxisSwapConfig();
   loadRobotBaseConfig();
+  loadRobotIPConfig();
   syncAxisSwapUI();
   syncRobotBaseUI();
+  syncIPUI();
   initScene();
   initSensorCharts();
   applyTheme(isDarkMode);

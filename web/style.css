@@ -101,6 +101,43 @@ body {
   gap: 12px;
 }
 
+.ip-input-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.ip-input-box:hover, .ip-input-box:focus-within {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.25);
+}
+
+.ip-icon {
+  color: var(--accent-cyan);
+  font-size: 13px;
+}
+
+.ip-input {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-family: 'Outfit', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  width: 115px;
+  outline: none;
+}
+
+.ip-input:focus {
+  color: var(--accent-cyan);
+}
+
 .btn-theme-toggle {
   display: inline-flex;
   align-items: center;

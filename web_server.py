@@ -6,6 +6,7 @@ import threading
 import time
 import os
 import sys
+import urllib.parse
 
 # Server configuration
 HTTP_PORT = 8000
@@ -24,6 +25,10 @@ latest_telemetry = {
 connected_sse_clients = []
 clients_lock = threading.Lock()
 
+# Global UDP socket for ESP8266 4-DOF Servo Arm (Port 8888)
+udp_arm_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp_arm_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
 class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         # Serve files from the ./web directory
@@ -31,6 +36,66 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=web_dir, **kwargs)
 
     def do_GET(self):
+        if self.path == '/favicon.ico':
+            self.send_response(204)
+            self.end_headers()
+            return
+
+        if self.path.startswith('/send'):
+            # REST API Gateway Endpoint to send UDP packets to ESP8266 Robot Arm (Port 8888)
+            parsed_url = urllib.parse.urlparse(self.path)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+
+            ip = query_params.get('ip', ['192.168.137.78'])[0].strip()
+            if not ip:
+                ip = '192.168.137.78'
+
+            try:
+                a1 = int(query_params.get('a1', [90])[0])
+                a2 = int(query_params.get('a2', [90])[0])
+                a3 = int(query_params.get('a3', [90])[0])
+                a4 = int(query_params.get('a4', [90])[0])
+            except (ValueError, TypeError, IndexError):
+                a1, a2, a3, a4 = 90, 90, 90, 90
+
+            # Constrain angles to valid Servo range [0, 180]
+            a1 = max(0, min(180, a1))
+            a2 = max(0, min(180, a2))
+            a3 = max(0, min(180, a3))
+            a4 = max(0, min(180, a4))
+
+            # Send ASCII UDP packet: "a1,a2,a3,a4" to target IP on port 8888 using persistent socket
+            payload_str = f"{a1},{a2},{a3},{a4}"
+            try:
+                udp_arm_socket.sendto(payload_str.encode('ascii'), (ip, 8888))
+                response_data = {
+                    "status": "ok",
+                    "ip": ip,
+                    "port": 8888,
+                    "a1": a1,
+                    "a2": a2,
+                    "a3": a3,
+                    "a4": a4
+                }
+            except Exception as e:
+                response_data = {
+                    "status": "error",
+                    "message": str(e),
+                    "ip": ip,
+                    "port": 8888,
+                    "a1": a1,
+                    "a2": a2,
+                    "a3": a3,
+                    "a4": a4
+                }
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response_data).encode('utf-8'))
+            return
+
         if self.path == '/stream':
             # Server-Sent Events (SSE) streaming endpoint
             self.send_response(200)

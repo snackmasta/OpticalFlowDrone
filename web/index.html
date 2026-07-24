@@ -39,6 +39,14 @@
     </div>
     
     <div class="status-container">
+      <div class="ip-input-box" title="ESP8266 Hardware Robot IP Address">
+        <i class="fa-solid fa-wifi ip-icon"></i>
+        <span class="ip-label" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">IP:</span>
+        <input type="text" id="inputRobotIPHeader" value="192.168.137.78" placeholder="192.168.137.78" class="ip-input">
+        <label class="swap-check-label" style="margin-left: 4px; font-size: 11px;" title="Sync servo commands live to real ESP8266 hardware robot arm over UDP:8888">
+          <input type="checkbox" id="chkEnableHardwareSync" checked> Live UDP Sync
+        </label>
+      </div>
       <button class="btn-theme-toggle" id="btnToggleTheme" title="Toggle Light/Dark Theme">
         <i class="fa-solid fa-sun" id="themeIcon"></i>
         <span>Theme</span>
@@ -194,39 +202,53 @@
     <div class="swap-body">
       <p class="swap-info"><i class="fa-solid fa-circle-info me-1"></i> Override live telemetry to manually move joints (FK) or set target end-effector 3D pose (IK) for troubleshooting.</p>
 
+      <!-- ESP8266 Hardware IP & UDP Control -->
+      <div class="swap-row">
+        <div class="flex-between">
+          <label class="swap-label"><i class="fa-solid fa-wifi me-1"></i> ESP8266 Robot IP (UDP:8888)</label>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkEnableHardwareSyncDrawer" checked> Hardware Sync
+          </label>
+        </div>
+        <div class="swap-inputs">
+          <input type="text" id="inputRobotIPDrawer" value="192.168.137.78" placeholder="192.168.137.78" class="swap-input" style="text-align: left; padding: 6px 10px;">
+          <button class="btn-preset" id="btnTestHardwarePing" style="white-space: nowrap;"><i class="fa-solid fa-paper-plane me-1"></i> Send Test</button>
+        </div>
+      </div>
+
       <!-- Control Mode Selector -->
       <div class="swap-row">
         <label class="swap-label"><i class="fa-solid fa-sliders me-1"></i> Control Mode</label>
         <select id="selectControlMode" class="swap-select" style="font-weight: 600;">
           <option value="telemetry">📡 Live Telemetry IK (UDP Stream)</option>
-          <option value="manual_fk">🕹️ Manual FK (Direct Joint Angles J1, J2, J3, J4)</option>
+          <option value="manual_fk">🕹️ Manual FK (Direct Servo Angles J1-J4)</option>
           <option value="manual_ik">🎯 Manual IK (Target End-Effector 3D Pose)</option>
         </select>
       </div>
 
-      <!-- Direct Joint Control (FK Mode) -->
+      <!-- Direct Joint Servo Control (FK Mode) -->
       <div id="sectionManualFK" class="swap-row hidden">
-        <label class="swap-label"><i class="fa-solid fa-robot me-1"></i> Forward Kinematics (Joint Angles °)</label>
+        <label class="swap-label"><i class="fa-solid fa-robot me-1"></i> Forward Kinematics Servo Control (0° - 180°)</label>
         <div class="joint-control-grid">
-          <!-- J1 -->
+          <!-- Servo 1 (GPIO 1 / Elbow Pitch J3) -->
           <div class="joint-slider-row">
-            <div class="joint-label"><span>J1 (Base Yaw)</span><span id="valJ1Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ1" min="-180" max="180" value="0" class="range-slider">
+            <div class="joint-label"><span>Servo 1 (GPIO 1 / Elbow Pitch - J3)</span><span id="valS1Slider" class="angle-val">90°</span></div>
+            <input type="range" id="sliderS1" min="0" max="180" value="90" class="range-slider">
           </div>
-          <!-- J2 -->
+          <!-- Servo 2 (GPIO 3 / Shoulder Pitch J2) -->
           <div class="joint-slider-row">
-            <div class="joint-label"><span>J2 (Shoulder Pitch)</span><span id="valJ2Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ2" min="-180" max="180" value="0" class="range-slider">
+            <div class="joint-label"><span>Servo 2 (GPIO 3 / Shoulder Pitch - J2)</span><span id="valS2Slider" class="angle-val">90°</span></div>
+            <input type="range" id="sliderS2" min="0" max="180" value="90" class="range-slider">
           </div>
-          <!-- J3 -->
+          <!-- Servo 3 (GPIO 5 / Base Yaw J1) -->
           <div class="joint-slider-row">
-            <div class="joint-label"><span>J3 (Elbow Pitch)</span><span id="valJ3Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ3" min="-180" max="180" value="0" class="range-slider">
+            <div class="joint-label"><span>Servo 3 (GPIO 5 / Base Yaw - J1)</span><span id="valS3Slider" class="angle-val">90°</span></div>
+            <input type="range" id="sliderS3" min="0" max="180" value="90" class="range-slider">
           </div>
-          <!-- J4 -->
+          <!-- Servo 4 (GPIO 4 / Wrist Pitch J4) -->
           <div class="joint-slider-row">
-            <div class="joint-label"><span>J4 (Wrist Pitch)</span><span id="valJ4Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ4" min="-180" max="180" value="0" class="range-slider">
+            <div class="joint-label"><span>Servo 4 (GPIO 4 / Wrist Pitch - J4)</span><span id="valS4Slider" class="angle-val">90°</span></div>
+            <input type="range" id="sliderS4" min="0" max="180" value="90" class="range-slider">
           </div>
         </div>
       </div>
@@ -268,15 +290,20 @@
         </div>
       </div>
 
-      <!-- Debug Test Presets -->
+      <!-- Servo Presets (Matching gui_server.py / gui_control.ps1) -->
       <div class="preset-section">
-        <span class="preset-title">Troubleshooting Test Presets:</span>
-        <div class="preset-grid">
-          <button class="btn-preset" id="presetRobotZero">Zero All Joints (Home)</button>
-          <button class="btn-preset" id="presetRobotReachOut">Reach Forward Test</button>
-          <button class="btn-preset" id="presetRobotHigh">Reach High Test</button>
-          <button class="btn-preset" id="presetRobotSweep">90° Elbow Bend</button>
+        <span class="preset-title">Hardware Servo Angle Presets:</span>
+        <div class="preset-grid" style="grid-template-columns: repeat(4, 1fr);">
+          <button class="btn-preset" id="presetMin0">0° (Min)</button>
+          <button class="btn-preset" id="presetNeutral90">90° (Neutral)</button>
+          <button class="btn-preset" id="presetMax180">180° (Max)</button>
+          <button class="btn-preset" id="presetSweep">Sweep Test</button>
         </div>
+      </div>
+
+      <!-- Transmission Status Readout -->
+      <div class="swap-row" style="margin-top: 12px; margin-bottom: 0;">
+        <div class="swap-info" id="hardwareStatusText" style="text-align: center; font-family: monospace; font-size: 11px;">Ready</div>
       </div>
     </div>
   </aside>
@@ -485,7 +512,7 @@
     </button>
   </div>
 
-  <script src="app.js?v=rename_j4_v6"></script>
+  <script src="app.js?v=no_oscillation_v10"></script>
 </body>
 </html>
 
