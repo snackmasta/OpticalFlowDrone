@@ -259,23 +259,12 @@ function updateTelemetry(data) {
   // Update target 3D transform
   currentTargetPos.copy(targetPosSmooth);
 
-  // Apply custom axis mapping to 3D rotation quaternion if modified from default
-  const isCustomMapping = axisSwapConfig.rollSource !== 'roll' ||
-                          axisSwapConfig.pitchSource !== 'pitch' ||
-                          axisSwapConfig.yawSource !== 'yaw' ||
-                          axisSwapConfig.invertRoll ||
-                          axisSwapConfig.invertPitch ||
-                          axisSwapConfig.invertYaw;
-
-  if (isCustomMapping) {
-    const rollRad = THREE.MathUtils.degToRad(mappedRoll);
-    const pitchRad = THREE.MathUtils.degToRad(mappedPitch);
-    const yawRad = THREE.MathUtils.degToRad(mappedYaw);
-    const mappedEulerObj = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
-    currentTargetQuat.setFromEuler(mappedEulerObj);
-  } else {
-    currentTargetQuat.set(rawQuat.x, rawQuat.y, rawQuat.z, rawQuat.w); // Three.js uses (x, y, z, w)
-  }
+  // Construct 3D orientation quaternion directly from remapped Roll, Pitch, and Yaw angles
+  const rollRad = THREE.MathUtils.degToRad(mappedRoll);
+  const pitchRad = THREE.MathUtils.degToRad(mappedPitch);
+  const yawRad = THREE.MathUtils.degToRad(mappedYaw);
+  const mappedEulerObj = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
+  currentTargetQuat.setFromEuler(mappedEulerObj);
 
   // Only add point to 3D trajectory trail when translation is active (not anchored) and movement > 1cm
   if (!isAnchorActive) {
