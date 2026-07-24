@@ -4,7 +4,7 @@
 
 let scene, camera, renderer, controls;
 let controllerGroup, trajectoryLine, gridHelper, ceilingGrid;
-let handleMat, ringMat, stickMat;
+let cubeMat;
 let trajectoryPoints = [];
 const MAX_TRAJECTORY_POINTS = 1000;
 let isDarkMode = true;
@@ -116,37 +116,26 @@ function initScene() {
 function createControllerMesh() {
   controllerGroup = new THREE.Group();
 
-  // Handle (Cylinder) - theme-inverted for high visibility
-  const handleGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.22, 16);
-  handleMat = new THREE.MeshStandardMaterial({
-    color: isDarkMode ? 0xe2e8f0 : 0x0f172a,
-    roughness: isDarkMode ? 0.2 : 0.3,
-    metalness: isDarkMode ? 0.5 : 0.8
-  });
-  const handleMesh = new THREE.Mesh(handleGeo, handleMat);
-  handleMesh.rotation.x = Math.PI / 6;
-  handleMesh.position.set(0, -0.05, 0);
-  controllerGroup.add(handleMesh);
-
-  // Tracking Ring (Torus)
-  const ringGeo = new THREE.TorusGeometry(0.08, 0.012, 16, 32);
-  ringMat = new THREE.MeshStandardMaterial({
+  // Simple Cube Mesh (replaces VR Controller Model)
+  const cubeGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+  const cubeMat = new THREE.MeshStandardMaterial({
     color: isDarkMode ? 0x06b6d4 : 0x0284c7,
-    emissive: isDarkMode ? 0x06b6d4 : 0x0284c7,
-    emissiveIntensity: isDarkMode ? 0.5 : 0.3,
-    roughness: 0.2
+    roughness: 0.3,
+    metalness: 0.5
   });
-  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-  ringMesh.rotation.x = Math.PI / 3;
-  ringMesh.position.set(0, 0.06, 0.04);
-  controllerGroup.add(ringMesh);
+  const cubeMesh = new THREE.Mesh(cubeGeo, cubeMat);
+  cubeMesh.castShadow = true;
+  cubeMesh.receiveShadow = true;
+  controllerGroup.add(cubeMesh);
 
-  // Joystick (Sphere + Shaft)
-  const stickGeo = new THREE.SphereGeometry(0.015, 16, 16);
-  stickMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0xec4899 : 0xdb2777 });
-  const stickMesh = new THREE.Mesh(stickGeo, stickMat);
-  stickMesh.position.set(0, 0.04, 0);
-  controllerGroup.add(stickMesh);
+  // Add subtle edge outlines to highlight cube orientation
+  const edgesGeo = new THREE.EdgesGeometry(cubeGeo);
+  const edgesMat = new THREE.LineBasicMaterial({
+    color: isDarkMode ? 0x38bdf8 : 0x0369a1,
+    linewidth: 1.5
+  });
+  const edgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
+  controllerGroup.add(edgesMesh);
 
   scene.add(controllerGroup);
   
