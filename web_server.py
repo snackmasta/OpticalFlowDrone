@@ -77,6 +77,27 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
 
 
 
+# Arm destination UDP settings
+ARM_UDP_IP = "192.168.137.94"
+ARM_UDP_PORT = 8888
+
+def send_arm_wrist_angle(roll_deg):
+    """
+    Calculates wrist joint angle (roll + 90 deg clamped between 0 and 180)
+    and streams to 4-DOF Robotic Arm (Servo 4 / J4) via UDP.
+    Payload format: "90,90,90,<wrist_angle>"
+    """
+    try:
+        wrist_angle = int(round(roll_deg + 90.0))
+        wrist_angle = max(0, min(180, wrist_angle))
+        # Keep Servo 1, 2, 3 default at 90 (or current values) and set Servo 4 (Wrist) to calculated angle
+        payload = f"90,90,90,{wrist_angle}".encode('ascii')
+        arm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        arm_sock.sendto(payload, (ARM_UDP_IP, ARM_UDP_PORT))
+        arm_sock.close()
+    except Exception as e:
+        pass
+
 def start_udp_listener():
     """
     Listens for incoming UDP telemetry packets from main.py
@@ -98,6 +119,10 @@ def start_udp_listener():
             payload["status"] = "connected"
             with clients_lock:
                 latest_telemetry = payload
+
+            # Extract roll angle and stream (roll + 90°) to 4-DOF Arm wrist joint (Servo 4)
+            roll_val = payload.get("rotation", {}).get("euler", {}).get("roll", 0.0)
+            send_arm_wrist_angle(roll_val)
         except Exception:
             pass
 
