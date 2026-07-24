@@ -162,12 +162,15 @@ function connectTelemetryStream() {
   const evtSource = new EventSource('/stream');
 
   evtSource.onopen = () => {
-    elStatusBadge.className = 'status-badge connected';
-    elStatusText.textContent = 'Streaming Live 50Hz';
+    if (!isReplayMode) {
+      elStatusBadge.className = 'status-badge connected';
+      elStatusText.textContent = 'Streaming Live 50Hz';
+    }
   };
 
   evtSource.onmessage = (event) => {
     try {
+      if (isReplayMode) return; // Suppress live updates while in Replay Mode
       const data = JSON.parse(event.data);
       updateTelemetry(data);
     } catch (e) {
@@ -176,8 +179,10 @@ function connectTelemetryStream() {
   };
 
   evtSource.onerror = () => {
-    elStatusBadge.className = 'status-badge disconnected';
-    elStatusText.textContent = 'Waiting for main.py...';
+    if (!isReplayMode) {
+      elStatusBadge.className = 'status-badge disconnected';
+      elStatusText.textContent = 'Waiting for main.py...';
+    }
   };
 }
 
@@ -349,13 +354,11 @@ function initSensorCharts() {
 function pushChartData(chart, xVal, yVal, zVal) {
   if (!chart) return;
   const labels = chart.data.labels;
+  const d0 = chart.data.datasets[0].data;
+  const d1 = chart.data.datasets[1].data;
+  const d2 = chart.data.datasets[2].data;
+
   labels.push('');
-  if (labels.length > MAX_CHART_SAMPLES) labels.shift();
-
-  chart.data.datasets[0].data.push(xVal);
-  if (chart.data.datasets[0].data.length > MAX_CHART_SAMPLES) chart.data.datasets[0].data.shift();
-
-  chart.data.datasets[1].data.push(yVal);
   if (chart.data.datasets[1].data.length > MAX_CHART_SAMPLES) chart.data.datasets[1].data.shift();
 
   chart.data.datasets[2].data.push(zVal);
@@ -639,6 +642,417 @@ function updateChartThemes(isDark) {
 document.getElementById('btnToggleTheme')?.addEventListener('click', toggleTheme);
 document.getElementById('btnToggleThemeTool')?.addEventListener('click', toggleTheme);
 
+// ----------------------------------------------------
+// Recorded Session Logs Reader Handler
+// ----------------------------------------------------
+const logsDrawer = document.getElementById('logsDrawer');
+const btnToggleLogs = document.getElementById('btnToggleLogs');
+const btnCloseLogsDrawer = document.getElementById('btnCloseLogsDrawer');
+const logSelect = document.getElementById('logSelect');
+const btnRefreshLogs = document.getElementById('btnRefreshLogs');
+const btnLoadSelectedLog = document.getElementById('btnLoadSelectedLog');
+const logSummaryPanel = document.getElementById('logSummaryPanel');
+const logMetricsGrid = document.getElementById('logMetricsGrid');
+const logTableHeader = document.getElementById('logTableHeader');
+const logTableBody = document.getElementById('logTableBody');
+
+function toggleLogsDrawer() {
+  if (!logsDrawer) return;
+  const isHidden = logsDrawer.classList.contains('hidden');
+  if (isHidden) {
+    logsDrawer.classList.remove('hidden');
+    btnToggleLogs?.classList.add('active');
+    fetchAvailableSessionLogs();
+  } else {
+    logsDrawer.classList.add('hidden');
+    btnToggleLogs?.classList.remove('active');
+  }
+}
+
+async function fetchAvailableSessionLogs() {
+  if (!logSelect) return;
+  try {
+    logSelect.innerHTML = '<option value="">Loading logs list...</option>';
+    const resp = await fetch('/api/logs');
+    const data = await resp.json();
+    if (data.status === 'success' && Array.isArray(data.logs)) {
+      if (data.logs.length === 0) {
+        logSelect.innerHTML = '<option value="">No logs found</option>';
+        return;
+      }
+      logSelect.innerHTML = '<option value="">-- Select a Session Log CSV (' + data.logs.length + ' found) --</option>';
+      data.logs.forEach(log => {
+        const opt = document.createElement('option');
+        opt.value = log.relative_path || log.filename;
+        opt.textContent = `${log.filename} (${log.sample_count} samples, ${log.modified_time})`;
+        logSelect.appendChild(opt);
+      });
+      // Auto select and load the first (newest) log
+      logSelect.selectedIndex = 1;
+      loadSelectedSessionLog();
+    } else {
+      logSelect.innerHTML = '<option value="">No logs found</option>';
+    }
+  } catch (err) {
+    console.error('Failed to fetch session logs:', err);
+    logSelect.innerHTML = '<option value="">Error loading logs list</option>';
+  }
+}
+
+async function loadSelectedSessionLog() {
+  const selectedPath = logSelect?.value;
+  if (!selectedPath) {
+    return;
+  }
+
+  try {
+    if (btnLoadSelectedLog) {
+      btnLoadSelectedLog.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Loading...';
+    }
+    const resp = await fetch(`/api/log?file=${encodeURIComponent(selectedPath)}`);
+    const result = await resp.json();
+    if (btnLoadSelectedLog) {
+      btnLoadSelectedLog.innerHTML = '<i class="fa-solid fa-folder-open me-1"></i> Load Log Data';
+    }
+
+    if (result.status === 'success' && result.log) {
+      loadedLogData = result.log;
+      renderSessionLogData(result.log);
+    } else {
+      alert('Error loading log data: ' + (result.message || 'Unknown error'));
+    }
+  } catch (err) {
+    if (btnLoadSelectedLog) {
+      btnLoadSelectedLog.innerHTML = '<i class="fa-solid fa-folder-open me-1"></i> Load Log Data';
+    }
+    console.error('Error loading selected log:', err);
+    alert('Failed to load session log data.');
+  }
+}
+
+function renderSessionLogData(logData) {
+  // 1. Render Summary Metrics
+  if (logSummaryPanel && logMetricsGrid) {
+    logSummaryPanel.style.display = 'block';
+    logMetricsGrid.innerHTML = '';
+    const summary = logData.summary || {};
+    const metrics = [
+      { label: 'Filename', val: logData.filename },
+      { label: 'Samples', val: logData.total_samples },
+      { label: 'Duration', val: summary.duration_s != null ? `${summary.duration_s} s` : '-' },
+      { label: 'Max Altitude', val: summary.max_altitude_m != null ? `${summary.max_altitude_m} m` : '-' },
+      { label: 'Max Speed', val: summary.max_speed_mps != null ? `${summary.max_speed_mps} m/s` : '-' },
+      { label: 'Avg Speed', val: summary.avg_speed_mps != null ? `${summary.avg_speed_mps} m/s` : '-' },
+      { label: 'Modified', val: logData.modified_time }
+    ];
+
+    metrics.forEach(m => {
+      const item = document.createElement('div');
+      item.style.background = 'rgba(15, 23, 42, 0.6)';
+      item.style.padding = '6px 10px';
+      item.style.borderRadius = '6px';
+      item.style.border = '1px solid rgba(255,255,255,0.05)';
+      item.innerHTML = `<div style="color: #94a3b8; font-size: 11px;">${m.label}</div><div style="color: #38bdf8; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${m.val}</div>`;
+      logMetricsGrid.appendChild(item);
+    });
+  }
+
+  // 2. Render Header
+  if (logTableHeader && Array.isArray(logData.headers)) {
+    logTableHeader.innerHTML = '';
+    logData.headers.forEach(h => {
+      const th = document.createElement('th');
+      th.style.padding = '6px 10px';
+      th.style.whiteSpace = 'nowrap';
+      th.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+      th.textContent = h;
+      logTableHeader.appendChild(th);
+    });
+  }
+
+  // 3. Render Sample Rows (Limit to first 500 rows for display performance)
+  if (logTableBody && Array.isArray(logData.records)) {
+    logTableBody.innerHTML = '';
+    const recordsToDisplay = logData.records.slice(0, 500);
+    recordsToDisplay.forEach((rec, idx) => {
+      const tr = document.createElement('tr');
+      tr.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)';
+      logData.headers.forEach(h => {
+        const td = document.createElement('td');
+        td.style.padding = '4px 10px';
+        td.style.whiteSpace = 'nowrap';
+        td.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+        td.textContent = rec[h] !== undefined ? rec[h] : '';
+        tr.appendChild(td);
+      });
+      logTableBody.appendChild(tr);
+    });
+  }
+}
+
+// Bind Log Drawer UI Events
+btnToggleLogs?.addEventListener('click', toggleLogsDrawer);
+btnCloseLogsDrawer?.addEventListener('click', () => {
+  logsDrawer?.classList.add('hidden');
+  btnToggleLogs?.classList.remove('active');
+});
+btnRefreshLogs?.addEventListener('click', fetchAvailableSessionLogs);
+btnLoadSelectedLog?.addEventListener('click', loadSelectedSessionLog);
+logSelect?.addEventListener('change', loadSelectedSessionLog);
+
+// ----------------------------------------------------
+// 3D Trajectory Replay Engine
+// ----------------------------------------------------
+let isReplayMode = false;
+let replayRecords = [];
+let replayIndex = 0;
+let isReplayPlaying = false;
+let replaySpeed = 1.0;
+let isReplayLoop = false;
+let replayAnimFrameId = null;
+let lastReplayTime = 0;
+
+const btnStartReplay = document.getElementById('btnStartReplay');
+const replayBar = document.getElementById('replayBar');
+const elReplayFilename = document.getElementById('replayFilename');
+const btnReplayPlayPause = document.getElementById('btnReplayPlayPause');
+const iconReplayPlayPause = document.getElementById('iconReplayPlayPause');
+const btnReplayStop = document.getElementById('btnReplayStop');
+const replayTimeCurrent = document.getElementById('replayTimeCurrent');
+const replayTimeTotal = document.getElementById('replayTimeTotal');
+const replaySlider = document.getElementById('replaySlider');
+const replaySpeedSelect = document.getElementById('replaySpeedSelect');
+const btnReplayLoop = document.getElementById('btnReplayLoop');
+const btnReplayExit = document.getElementById('btnReplayExit');
+
+// Helper to convert CSV record into standard Telemetry object
+function recordToTelemetry(rec) {
+  if (!rec) return null;
+  const x_m = (rec["X Position (cm)"] !== undefined) ? rec["X Position (cm)"] / 100.0 : (rec["x"] || 0);
+  const y_m = (rec["Y Position (cm)"] !== undefined) ? rec["Y Position (cm)"] / 100.0 : (rec["z"] || 0);
+  const alt_m = (rec["Altitude (m)"] !== undefined) ? rec["Altitude (m)"] : (rec["y"] || 0);
+
+  const vx = rec["VX (m/s)"] || 0;
+  const vy = rec["VY (m/s)"] || 0;
+  const vz = rec["VZ (m/s)"] || 0;
+
+  const roll = rec["Roll (deg)"] || 0;
+  const pitch = rec["Pitch (deg)"] || 0;
+  const yaw = rec["Yaw (deg)"] || 0;
+  const heading = rec["Heading (deg)"] || 0;
+
+  const accelX = rec["Accel X (g)"] || 0;
+  const accelY = rec["Accel Y (g)"] || 0;
+  const gyroZ = rec["Gyro Z (dps)"] || 0;
+
+  return {
+    timestamp: rec["Timestamp (s)"] || Date.now() / 1000,
+    translation: {
+      position: { x: x_m, y: alt_m, z: y_m },
+      velocity: { x: vx, y: vz, z: vy }
+    },
+    rotation: {
+      euler: { roll: roll, pitch: pitch, yaw: yaw }
+    },
+    heading: heading,
+    raw_imu: {
+      accel: { x: accelX, y: accelY, z: 1.0 },
+      gyro: { x: 0, y: 0, z: gyroZ },
+      mag: { x: 0, y: 0, z: 0 }
+    }
+  };
+}
+
+function formatTimeSec(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  return `${m.toString().padStart(2, '0')}:${remS.toString().padStart(2, '0')}`;
+}
+
+function start3DReplay() {
+  if (!loadedLogData || !Array.isArray(loadedLogData.records) || loadedLogData.records.length === 0) {
+    alert('Please select and load a session log CSV first before replaying.');
+    return;
+  }
+
+  isReplayMode = true;
+  replayRecords = loadedLogData.records;
+  replayIndex = 0;
+  isReplayPlaying = true;
+  lastReplayTime = performance.now();
+
+  // Reset 3D trajectory path for replay
+  trajectoryPoints = [];
+  if (trajectoryLine && trajectoryLine.geometry) {
+    trajectoryLine.geometry.setDrawRange(0, 0);
+  }
+
+  // Update UI Elements
+  if (elReplayFilename) elReplayFilename.textContent = loadedLogData.filename || 'session.csv';
+  if (replayBar) replayBar.classList.remove('hidden');
+  if (logsDrawer) logsDrawer.classList.add('hidden');
+  if (btnToggleLogs) btnToggleLogs.classList.remove('active');
+
+  // Update status badge
+  if (elStatusBadge && elStatusText) {
+    elStatusBadge.className = 'status-badge connected';
+    elStatusBadge.style.background = 'rgba(236, 72, 153, 0.2)';
+    elStatusBadge.style.borderColor = '#ec4899';
+    elStatusText.textContent = `Replaying: ${loadedLogData.filename}`;
+  }
+
+  // Set total duration display
+  const summary = loadedLogData.summary || {};
+  const totalDuration = summary.duration_s || (replayRecords.length / 50.0);
+  if (replayTimeTotal) replayTimeTotal.textContent = formatTimeSec(totalDuration);
+
+  updateReplayPlayPauseIcon();
+  requestAnimationFrame(replayLoopStep);
+}
+
+function replayLoopStep(timestamp) {
+  if (!isReplayMode) return;
+
+  if (isReplayPlaying && replayRecords.length > 0) {
+    const elapsedMs = timestamp - lastReplayTime;
+
+    // Determine target step interval (assume ~20ms per frame at 1x speed = 50Hz)
+    let t0 = replayRecords[Math.max(0, replayIndex - 1)]?.["Timestamp (s)"];
+    let t1 = replayRecords[replayIndex]?.["Timestamp (s)"];
+    let dt_sec = 0.02;
+    if (typeof t0 === 'number' && typeof t1 === 'number' && t1 > t0) {
+      dt_sec = t1 - t0;
+    }
+
+    const stepThresholdMs = (dt_sec * 1000.0) / replaySpeed;
+
+    if (elapsedMs >= stepThresholdMs) {
+      lastReplayTime = timestamp;
+
+      // Process current frame telemetry
+      const rec = replayRecords[replayIndex];
+      const telemData = recordToTelemetry(rec);
+      if (telemData) {
+        updateTelemetry(telemData);
+      }
+
+      // Update progress slider & time text
+      const progress = (replayIndex / (replayRecords.length - 1)) * 100;
+      if (replaySlider) replaySlider.value = progress;
+
+      const currentRecordTime = rec["Timestamp (s)"];
+      const startRecordTime = replayRecords[0]["Timestamp (s)"];
+      let relSec = replayIndex * dt_sec;
+      if (typeof currentRecordTime === 'number' && typeof startRecordTime === 'number') {
+        relSec = Math.max(0, currentRecordTime - startRecordTime);
+      }
+      if (replayTimeCurrent) replayTimeCurrent.textContent = formatTimeSec(relSec);
+
+      replayIndex++;
+
+      if (replayIndex >= replayRecords.length) {
+        if (isReplayLoop) {
+          replayIndex = 0;
+          trajectoryPoints = [];
+        } else {
+          isReplayPlaying = false;
+          updateReplayPlayPauseIcon();
+        }
+      }
+    }
+  }
+
+  if (isReplayMode) {
+    replayAnimFrameId = requestAnimationFrame(replayLoopStep);
+  }
+}
+
+function updateReplayPlayPauseIcon() {
+  if (!iconReplayPlayPause) return;
+  if (isReplayPlaying) {
+    iconReplayPlayPause.className = 'fa-solid fa-pause';
+    btnReplayPlayPause?.classList.add('active');
+  } else {
+    iconReplayPlayPause.className = 'fa-solid fa-play';
+    btnReplayPlayPause?.classList.remove('active');
+  }
+}
+
+function toggleReplayPlayPause() {
+  isReplayPlaying = !isReplayPlaying;
+  lastReplayTime = performance.now();
+  updateReplayPlayPauseIcon();
+}
+
+function stopReplay() {
+  isReplayPlaying = false;
+  replayIndex = 0;
+  trajectoryPoints = [];
+  if (trajectoryLine && trajectoryLine.geometry) {
+    trajectoryLine.geometry.setDrawRange(0, 0);
+  }
+  if (replaySlider) replaySlider.value = 0;
+  if (replayTimeCurrent) replayTimeCurrent.textContent = '00:00';
+  updateReplayPlayPauseIcon();
+
+  if (replayRecords.length > 0) {
+    updateTelemetry(recordToTelemetry(replayRecords[0]));
+  }
+}
+
+function exitReplayMode() {
+  isReplayMode = false;
+  isReplayPlaying = false;
+  if (replayAnimFrameId) {
+    cancelAnimationFrame(replayAnimFrameId);
+  }
+  if (replayBar) replayBar.classList.add('hidden');
+
+  // Restore live stream status badge
+  if (elStatusBadge && elStatusText) {
+    elStatusBadge.className = 'status-badge disconnected';
+    elStatusBadge.style.background = '';
+    elStatusBadge.style.borderColor = '';
+    elStatusText.textContent = 'Waiting for main.py...';
+  }
+
+  // Clear trajectory trail
+  trajectoryPoints = [];
+  if (trajectoryLine && trajectoryLine.geometry) {
+    trajectoryLine.geometry.setDrawRange(0, 0);
+  }
+}
+
+// Bind Replay Bar Controls
+btnStartReplay?.addEventListener('click', start3DReplay);
+btnReplayPlayPause?.addEventListener('click', toggleReplayPlayPause);
+btnReplayStop?.addEventListener('click', stopReplay);
+btnReplayExit?.addEventListener('click', exitReplayMode);
+
+btnReplayLoop?.addEventListener('click', () => {
+  isReplayLoop = !isReplayLoop;
+  btnReplayLoop.classList.toggle('active', isReplayLoop);
+});
+
+replaySpeedSelect?.addEventListener('change', (e) => {
+  replaySpeed = parseFloat(e.target.value) || 1.0;
+});
+
+replaySlider?.addEventListener('input', (e) => {
+  if (!replayRecords || replayRecords.length === 0) return;
+  const val = parseFloat(e.target.value);
+  replayIndex = Math.min(
+    replayRecords.length - 1,
+    Math.max(0, Math.floor((val / 100.0) * (replayRecords.length - 1)))
+  );
+
+  const rec = replayRecords[replayIndex];
+  if (rec) {
+    updateTelemetry(recordToTelemetry(rec));
+  }
+});
+
 // Launch on page load
 window.addEventListener('DOMContentLoaded', () => {
   loadThemeConfig();
@@ -649,5 +1063,6 @@ window.addEventListener('DOMContentLoaded', () => {
   applyTheme(isDarkMode);
   connectTelemetryStream();
 });
+
 
 
