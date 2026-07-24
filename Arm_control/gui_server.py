@@ -208,6 +208,11 @@ HTML_CONTENT = """<!DOCTYPE html>
             <button onclick="setPresets(180, 180, 180, 180)">180° (Max)</button>
         </div>
 
+        <div style="margin-top: 15px; display: flex; gap: 10px;">
+            <button style="flex: 1; border-color: #a6e3a1;" onclick="loadJSONConfig()">📁 Load JSON</button>
+            <button style="flex: 1; border-color: #f9e2af;" onclick="saveJSONConfig()">💾 Save JSON</button>
+        </div>
+
         <div class="status" id="status">Ready</div>
     </div>
 
@@ -295,6 +300,69 @@ HTML_CONTENT = """<!DOCTYPE html>
                     document.getElementById('status').innerText = 'Transmission error';
                 });
         }
+
+        function loadJSONConfig() {
+            fetch('/config?file=slider_config.json')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.config) {
+                        const c = data.config;
+                        if (c.ip) { document.getElementById('ip').value = c.ip; updateTargetIP(); }
+                        if (c.servo1 !== undefined) document.getElementById('s1').value = c.servo1;
+                        if (c.servo2 !== undefined) document.getElementById('s2').value = c.servo2;
+                        if (c.servo3 !== undefined) document.getElementById('s3').value = c.servo3;
+                        if (c.servo4 !== undefined) document.getElementById('s4').value = c.servo4;
+                        if (c.lateral_reach !== undefined) {
+                            document.getElementById('sLat').value = c.lateral_reach;
+                            document.getElementById('valLat').innerText = c.lateral_reach > 0 ? `+${c.lateral_reach}` : c.lateral_reach;
+                        }
+                        if (c.synchronized_pitch !== undefined) {
+                            document.getElementById('sSync').value = c.synchronized_pitch;
+                            document.getElementById('valSync').innerText = c.synchronized_pitch > 0 ? `+${c.synchronized_pitch}` : c.synchronized_pitch;
+                        }
+                        sendAngles();
+                        document.getElementById('status').innerText = 'Loaded configuration from slider_config.json';
+                    } else {
+                        document.getElementById('status').innerText = 'Failed to load JSON config: ' + (data.message || 'unknown');
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('status').innerText = 'Error loading JSON file';
+                });
+        }
+
+        function saveJSONConfig() {
+            const config = {
+                ip: document.getElementById('ip').value,
+                servo1: parseInt(document.getElementById('s1').value, 10),
+                servo2: parseInt(document.getElementById('s2').value, 10),
+                servo3: parseInt(document.getElementById('s3').value, 10),
+                servo4: parseInt(document.getElementById('s4').value, 10),
+                lateral_reach: parseInt(document.getElementById('sLat').value, 10),
+                synchronized_pitch: parseInt(document.getElementById('sSync').value, 10)
+            };
+
+            fetch('/save_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file: 'slider_config.json', config: config })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    document.getElementById('status').innerText = 'Saved config to slider_config.json';
+                } else {
+                    document.getElementById('status').innerText = 'Failed to save JSON config';
+                }
+            })
+            .catch(err => {
+                document.getElementById('status').innerText = 'Error saving JSON file';
+            });
+        }
+
+        window.onload = function() {
+            loadJSONConfig();
+        };
     </script>
 </body>
 </html>
@@ -327,6 +395,58 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
             response = {"status": "ok", "ip": ip, "port": UDP_PORT, "a1": a1, "a2": a2, "a3": a3, "a4": a4}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
+        elif parsed.path == "/config":
+            # Load config json file
+            params = urllib.parse.parse_qs(parsed.query)
+            filename = params.get("file", ["slider_config.json"])[0]
+            try:
+                with open(filename, "r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+                response = {"status": "ok", "config": config_data}
+            except Exception as e:
+                response = {"status": "error", "message": str(e)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
+        elif parsed.path == "/save_config":
+            # Save config json file
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                req_json = json.loads(post_data.decode('utf-8'))
+                filename = req_json.get("file", "slider_config.json")
+                config_data = req_json.get("config", {})
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(config_data, f, indent=4)
+                response = {"status": "ok", "message": f"Saved to {filename}"}
+            except Exception as e:
+                response = {"status": "error", "message": str(e)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/save_config":
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                req_json = json.loads(post_data.decode('utf-8'))
+                filename = req_json.get("file", "slider_config.json")
+                config_data = req_json.get("config", {})
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(config_data, f, indent=4)
+                response = {"status": "ok", "message": f"Saved to {filename}"}
+            except Exception as e:
+                response = {"status": "error", "message": str(e)}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

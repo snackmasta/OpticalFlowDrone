@@ -1,0 +1,10 @@
+﻿{
+    "synchronized_pitch": 0,
+    "servo2": 90,
+    "servo3": 90,
+    "servo4": 90,
+    "lateral_reach": 0,
+    "port": 8888,
+    "servo1": 90,
+    "ip": "192.168.137.94"
+}

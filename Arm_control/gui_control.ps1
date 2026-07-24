@@ -207,6 +207,79 @@ Create-Button -Text "180${deg} (Max)" -X 246 -Width 108 -Action {
     & $updateAngles
 }
 
+# --- JSON File Integration Functions ---
+$configPath = Join-Path -Path $PSScriptRoot -ChildPath "slider_config.json"
+
+function Load-JsonConfig {
+    if (Test-Path $configPath) {
+        try {
+            $json = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($json.ip) { $txtIP.Text = $json.ip }
+            if ($null -ne $json.servo1) { $group1.Track.Value = [Math]::Max(0, [Math]::Min(180, $json.servo1)) }
+            if ($null -ne $json.servo2) { $group2.Track.Value = [Math]::Max(0, [Math]::Min(180, $json.servo2)) }
+            if ($null -ne $json.servo3) { $group3.Track.Value = [Math]::Max(0, [Math]::Min(180, $json.servo3)) }
+            if ($null -ne $json.servo4) { $group4.Track.Value = [Math]::Max(0, [Math]::Min(180, $json.servo4)) }
+            if ($null -ne $json.lateral_reach) { $groupLat.Track.Value = [Math]::Max(-45, [Math]::Min(45, $json.lateral_reach)) }
+            if ($null -ne $json.synchronized_pitch) { $groupSync.Track.Value = [Math]::Max(-45, [Math]::Min(45, $json.synchronized_pitch)) }
+            & $updateAngles
+            $lblStatus.Text = "Loaded configuration from slider_config.json"
+            $lblStatus.ForeColor = [System.Drawing.Color]::LimeGreen
+        } catch {
+            $lblStatus.Text = "Failed to parse JSON: $_"
+            $lblStatus.ForeColor = [System.Drawing.Color]::Crimson
+        }
+    }
+}
+
+function Save-JsonConfig {
+    try {
+        $configObj = @{
+            ip = $txtIP.Text.Trim()
+            port = $global:port
+            servo1 = $group1.Track.Value
+            servo2 = $group2.Track.Value
+            servo3 = $group3.Track.Value
+            servo4 = $group4.Track.Value
+            lateral_reach = $groupLat.Track.Value
+            synchronized_pitch = $groupSync.Track.Value
+        }
+        $configObj | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
+        $lblStatus.Text = "Saved config to slider_config.json"
+        $lblStatus.ForeColor = [System.Drawing.Color]::LimeGreen
+    } catch {
+        $lblStatus.Text = "Error saving JSON: $_"
+        $lblStatus.ForeColor = [System.Drawing.Color]::Crimson
+    }
+}
+
+# Load/Save Config Buttons Panel
+$panelJson = New-Object System.Windows.Forms.Panel
+$panelJson.Location = New-Object System.Drawing.Point(20, 600)
+$panelJson.Size = New-Object System.Drawing.Size(480, 45)
+$form.Controls.Add($panelJson)
+
+$btnLoad = New-Object System.Windows.Forms.Button
+$btnLoad.Text = "Load JSON"
+$btnLoad.Location = New-Object System.Drawing.Point(0, 0)
+$btnLoad.Size = New-Object System.Drawing.Size(230, 36)
+$btnLoad.FlatStyle = "Flat"
+$btnLoad.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(166, 227, 161)
+$btnLoad.BackColor = [System.Drawing.Color]::FromArgb(49, 50, 68)
+$btnLoad.ForeColor = [System.Drawing.Color]::White
+$btnLoad.Add_Click({ Load-JsonConfig })
+$panelJson.Controls.Add($btnLoad)
+
+$btnSave = New-Object System.Windows.Forms.Button
+$btnSave.Text = "Save JSON"
+$btnSave.Location = New-Object System.Drawing.Point(240, 0)
+$btnSave.Size = New-Object System.Drawing.Size(230, 36)
+$btnSave.FlatStyle = "Flat"
+$btnSave.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(249, 226, 175)
+$btnSave.BackColor = [System.Drawing.Color]::FromArgb(49, 50, 68)
+$btnSave.ForeColor = [System.Drawing.Color]::White
+$btnSave.Add_Click({ Save-JsonConfig })
+$panelJson.Controls.Add($btnSave)
+
 # Auto-Sweep Toggle Button
 $script:isSweeping = $false
 $timer = New-Object System.Windows.Forms.Timer
@@ -245,9 +318,14 @@ $lblStatus = New-Object System.Windows.Forms.Label
 $lblStatus.Text = "Ready. Drag sliders to control 4 servos."
 $lblStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(166, 173, 200)
-$lblStatus.Location = New-Object System.Drawing.Point(20, 625)
+$lblStatus.Location = New-Object System.Drawing.Point(20, 650)
 $lblStatus.Size = New-Object System.Drawing.Size(470, 40)
 $form.Controls.Add($lblStatus)
+
+# Auto Load Config on Startup
+$form.Add_Load({
+    Load-JsonConfig
+})
 
 # On Form Closing - Clean up socket
 $form.Add_FormClosing({
