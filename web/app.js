@@ -186,8 +186,8 @@ function connectTelemetryStream() {
 // ----------------------------------------------------
 let axisSwapConfig = {
   rollSource: 'roll',
-  pitchSource: 'yaw',
-  yawSource: 'pitch',
+  pitchSource: 'pitch',
+  yawSource: 'yaw',
   invertRoll: false,
   invertPitch: false,
   invertYaw: false
@@ -197,12 +197,7 @@ function loadAxisSwapConfig() {
   try {
     const saved = localStorage.getItem('slimevr_axis_swap_config');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.pitchSource === 'pitch' && parsed.yawSource === 'yaw') {
-        parsed.pitchSource = 'yaw';
-        parsed.yawSource = 'pitch';
-      }
-      axisSwapConfig = { ...axisSwapConfig, ...parsed };
+      axisSwapConfig = { ...axisSwapConfig, ...JSON.parse(saved) };
     }
   } catch (e) {
     console.warn('Could not load saved axis config', e);
@@ -524,25 +519,31 @@ function updateAxisSwapFromUI() {
 
 // Quick Presets
 document.getElementById('presetDefault')?.addEventListener('click', () => {
-  axisSwapConfig = { rollSource: 'roll', pitchSource: 'yaw', yawSource: 'pitch', invertRoll: false, invertPitch: false, invertYaw: false };
+  axisSwapConfig = { rollSource: 'roll', pitchSource: 'pitch', yawSource: 'yaw', invertRoll: false, invertPitch: false, invertYaw: false };
   syncAxisSwapUI();
   saveAxisSwapConfig();
 });
 
 document.getElementById('presetSwapRP')?.addEventListener('click', () => {
-  axisSwapConfig = { ...axisSwapConfig, rollSource: 'pitch', pitchSource: 'roll' };
+  const oldRoll = axisSwapConfig.rollSource;
+  axisSwapConfig.rollSource = axisSwapConfig.pitchSource;
+  axisSwapConfig.pitchSource = oldRoll;
   syncAxisSwapUI();
   saveAxisSwapConfig();
 });
 
 document.getElementById('presetSwapPY')?.addEventListener('click', () => {
-  axisSwapConfig = { ...axisSwapConfig, pitchSource: 'yaw', yawSource: 'pitch' };
+  const oldPitch = axisSwapConfig.pitchSource;
+  axisSwapConfig.pitchSource = axisSwapConfig.yawSource;
+  axisSwapConfig.yawSource = oldPitch;
   syncAxisSwapUI();
   saveAxisSwapConfig();
 });
 
 document.getElementById('presetSwapRY')?.addEventListener('click', () => {
-  axisSwapConfig = { ...axisSwapConfig, rollSource: 'yaw', yawSource: 'roll' };
+  const oldRoll = axisSwapConfig.rollSource;
+  axisSwapConfig.rollSource = axisSwapConfig.yawSource;
+  axisSwapConfig.yawSource = oldRoll;
   syncAxisSwapUI();
   saveAxisSwapConfig();
 });
