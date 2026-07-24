@@ -186,8 +186,8 @@ function connectTelemetryStream() {
 // ----------------------------------------------------
 let axisSwapConfig = {
   rollSource: 'roll',
-  pitchSource: 'pitch',
-  yawSource: 'yaw',
+  pitchSource: 'yaw',
+  yawSource: 'pitch',
   invertRoll: false,
   invertPitch: false,
   invertYaw: false
@@ -197,7 +197,12 @@ function loadAxisSwapConfig() {
   try {
     const saved = localStorage.getItem('slimevr_axis_swap_config');
     if (saved) {
-      axisSwapConfig = { ...axisSwapConfig, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved);
+      if (parsed.pitchSource === 'pitch' && parsed.yawSource === 'yaw') {
+        parsed.pitchSource = 'yaw';
+        parsed.yawSource = 'pitch';
+      }
+      axisSwapConfig = { ...axisSwapConfig, ...parsed };
     }
   } catch (e) {
     console.warn('Could not load saved axis config', e);
@@ -530,7 +535,7 @@ function updateAxisSwapFromUI() {
 
 // Quick Presets
 document.getElementById('presetDefault')?.addEventListener('click', () => {
-  axisSwapConfig = { rollSource: 'roll', pitchSource: 'pitch', yawSource: 'yaw', invertRoll: false, invertPitch: false, invertYaw: false };
+  axisSwapConfig = { rollSource: 'roll', pitchSource: 'yaw', yawSource: 'pitch', invertRoll: false, invertPitch: false, invertYaw: false };
   syncAxisSwapUI();
   saveAxisSwapConfig();
 });
