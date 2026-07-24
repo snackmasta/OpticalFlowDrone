@@ -148,9 +148,14 @@
 
     <!-- 6-DOF Manipulator Joint Telemetry (IK) Card -->
     <div class="hud-card">
-      <div class="card-header">
-        <i class="fa-solid fa-robot"></i>
-        <span>6-DOF Arm Joint IK Angles (Base 0,0)</span>
+      <div class="card-header flex-between">
+        <div>
+          <i class="fa-solid fa-robot"></i>
+          <span>6-DOF Arm Joint IK Angles</span>
+        </div>
+        <button class="btn-card-action" id="btnQuickRobotBase" title="Configure Robot Base Pose">
+          <i class="fa-solid fa-sliders"></i> Base Pose
+        </button>
       </div>
       <div class="card-body grid-3">
         <div class="metric-mini">
@@ -181,6 +186,67 @@
     </div>
 
   </main>
+
+  <!-- Collapsible Robot Base Position & Orientation Config Drawer -->
+  <aside class="axis-swap-drawer hidden" id="baseConfigDrawer">
+    <div class="drawer-header flex-between">
+      <h3><i class="fa-solid fa-robot me-2"></i> Robot Base Pose Configuration</h3>
+      <button class="btn-close-drawer" id="btnCloseBaseDrawer" title="Close Base Config Panel"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="swap-body">
+      <p class="swap-info"><i class="fa-solid fa-circle-info me-1"></i> Adjust the 3D position (X, Y, Z meters) and orientation (Roll, Pitch, Yaw degrees) of the robot base.</p>
+
+      <!-- Position Controls (X, Y, Z) -->
+      <div class="swap-row">
+        <label class="swap-label"><i class="fa-solid fa-location-dot me-1"></i> Base Position (m)</label>
+        <div class="card-body grid-3" style="padding: 0;">
+          <div class="metric" style="padding: 4px;">
+            <span class="label">X (m)</span>
+            <input type="number" id="inputBaseX" step="0.05" value="0.00" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label">Y (m)</span>
+            <input type="number" id="inputBaseY" step="0.05" value="1.80" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label">Z (m)</span>
+            <input type="number" id="inputBaseZ" step="0.05" value="0.00" class="swap-input">
+          </div>
+        </div>
+      </div>
+
+      <!-- Orientation Controls (Roll, Pitch, Yaw) -->
+      <div class="swap-row">
+        <label class="swap-label"><i class="fa-solid fa-rotate me-1"></i> Base Orientation (°)</label>
+        <div class="card-body grid-3" style="padding: 0;">
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-roll">Roll (X)</span>
+            <input type="number" id="inputBaseRoll" step="1" value="0" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-pitch">Pitch (Y)</span>
+            <input type="number" id="inputBasePitch" step="1" value="0" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-yaw">Yaw (Z)</span>
+            <input type="number" id="inputBaseYaw" step="1" value="0" class="swap-input">
+          </div>
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="preset-section">
+        <span class="preset-title">Base Mount Presets:</span>
+        <div class="preset-grid">
+          <button class="btn-preset" id="presetBaseRoof">Roof Ceiling (Y=1.8m)</button>
+          <button class="btn-preset" id="presetBaseFloor">Floor Pedestal (Y=0.25m, R=180°)</button>
+          <button class="btn-preset" id="presetBaseSide">Wall Mount (X=0.5m, P=90°)</button>
+          <button class="btn-preset" id="presetBaseReset">Reset Default</button>
+        </div>
+      </div>
+    </div>
+  </aside>
 
   <!-- Collapsible Axis Remap / Swap Drawer -->
   <aside class="axis-swap-drawer hidden" id="axisSwapDrawer">
@@ -279,6 +345,10 @@
 
   <!-- Interactive Floating Toolbar -->
   <div class="hud-toolbar">
+    <button class="btn-tool" id="btnToggleBaseConfig" title="Configure Robot Base Position & Orientation">
+      <i class="fa-solid fa-robot"></i>
+      <span>Robot Base</span>
+    </button>
     <button class="btn-tool" id="btnToggleAxisSwap" title="Remap / Swap Roll, Pitch, Yaw Axes">
       <i class="fa-solid fa-sliders"></i>
       <span>Swap Axes</span>
@@ -317,7 +387,7 @@
     </button>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=robot_base_v3"></script>
 </body>
 </html>
 

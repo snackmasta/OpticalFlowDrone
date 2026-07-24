@@ -3,16 +3,35 @@
 // ----------------------------------------------------
 
 let scene, camera, renderer, controls;
-let controllerGroup, trajectoryLine, gridHelper;
+let controllerGroup, trajectoryLine, gridHelper, ceilingGrid;
 let handleMat, ringMat, stickMat;
 let trajectoryPoints = [];
 const MAX_TRAJECTORY_POINTS = 1000;
 let isDarkMode = true;
 
+// Base Roof Mount Constants (Hanging arm from ceiling)
+const ROOF_Y = 1.8; // Ceiling mounting height in meters
+const L1 = 0.25;    // Base column height (Roof down to Joint 2)
+const L2 = 0.40;    // Upper arm length (Joint 2 to Joint 3)
+const L3 = 0.35;    // Forearm length (Joint 3 to Wrist Center)
+const L4 = 0.12;    // Wrist offset (Wrist Center to Controller tip)
+const TOTAL_ARM_LENGTH = L1 + L2 + L3 + L4; // 1.12m
+const RESTING_TIP_Y = ROOF_Y - TOTAL_ARM_LENGTH; // 0.68m hanging straight down
+
+// Robot Base Pose Configuration State (Position X,Y,Z & Orientation Roll,Pitch,Yaw)
+let robotBaseConfig = {
+  x: 0,
+  y: ROOF_Y,
+  z: 0,
+  roll: 0,
+  pitch: 0,
+  yaw: 0
+};
+
 // Origin offset for resetting zero-position
 let positionOffset = { x: 0, y: 0, z: 0 };
 let rawLatestPos = { x: 0, y: 0, z: 0 };
-let currentTargetPos = new THREE.Vector3(0, 0, 0);
+let currentTargetPos = new THREE.Vector3(0, RESTING_TIP_Y, 0);
 let currentTargetQuat = new THREE.Quaternion();
 
 
@@ -42,7 +61,7 @@ function initScene() {
 
   // Camera (Far plane expanded to 100,000 to prevent clipping)
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100000);
-  camera.position.set(1.5, 1.2, 2.0);
+  camera.position.set(1.6, 1.4, 2.2);
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
@@ -54,7 +73,7 @@ function initScene() {
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.target.set(0, 0, 0);
+  controls.target.set(0, 1.0, 0);
 
   // Lighting
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -70,10 +89,15 @@ function initScene() {
   pointLight.position.set(-2, 2, -2);
   scene.add(pointLight);
 
-  // Grid
+  // Floor Grid
   gridHelper = new THREE.GridHelper(10, 20, isDarkMode ? 0x06b6d4 : 0x0284c7, isDarkMode ? 0x334155 : 0xcbd5e1);
-  gridHelper.position.y = -0.5;
+  gridHelper.position.y = 0;
   scene.add(gridHelper);
+
+  // Ceiling Grid Structure (Roof Surface)
+  ceilingGrid = new THREE.GridHelper(6, 12, isDarkMode ? 0xec4899 : 0xdb2777, isDarkMode ? 0x334155 : 0xcbd5e1);
+  ceilingGrid.position.y = ROOF_Y;
+  scene.add(ceilingGrid);
 
   // Build VR Controller 3D Mesh
   createControllerMesh();
@@ -126,94 +150,190 @@ function createControllerMesh() {
 
   scene.add(controllerGroup);
   
-  // Create 6DOF Robotic Linkage Arm connected from base (0,0,0)
+  // Create 6DOF Robotic Linkage Arm hanging from roof (0, ROOF_Y, 0)
   createRoboticArmLinkages();
 }
 
 // ----------------------------------------------------
-// 6DOF Robotic Manipulator Arm & IK Solver (Base at 0,0,0)
+// 6DOF Robotic Manipulator Arm & IK Solver (Configurable Base Pose)
 // ----------------------------------------------------
 let roboticArmGroup;
 let j1Group, j2Group, j3Group, j4Group, j5Group, j6Group;
 
-// Link lengths (meters)
-const L1 = 0.25; // Base height (Joint 1 to Joint 2)
-const L2 = 0.40; // Upper arm length (Joint 2 to Joint 3)
-const L3 = 0.35; // Forearm length (Joint 3 to Wrist Center)
-const L4 = 0.12; // Wrist offset (Wrist Center to Controller tip)
+function loadRobotBaseConfig() {
+  try {
+    const saved = localStorage.getItem('slimevr_robot_base_config');
+    if (saved) {
+      robotBaseConfig = { ...robotBaseConfig, ...JSON.parse(saved) };
+    }
+  } catch (e) {
+    console.warn('Could not load saved robot base config', e);
+  }
+}
+
+function saveRobotBaseConfig() {
+  try {
+    localStorage.setItem('slimevr_robot_base_config', JSON.stringify(robotBaseConfig));
+  } catch (e) {}
+}
+
+function syncRobotBaseUI() {
+  const elX = document.getElementById('inputBaseX');
+  const elY = document.getElementById('inputBaseY');
+  const elZ = document.getElementById('inputBaseZ');
+  const elRoll = document.getElementById('inputBaseRoll');
+  const elPitch = document.getElementById('inputBasePitch');
+  const elYaw = document.getElementById('inputBaseYaw');
+
+  if (elX) elX.value = robotBaseConfig.x.toFixed(2);
+  if (elY) elY.value = robotBaseConfig.y.toFixed(2);
+  if (elZ) elZ.value = robotBaseConfig.z.toFixed(2);
+  if (elRoll) elRoll.value = robotBaseConfig.roll.toFixed(0);
+  if (elPitch) elPitch.value = robotBaseConfig.pitch.toFixed(0);
+  if (elYaw) elYaw.value = robotBaseConfig.yaw.toFixed(0);
+}
+
+function updateRobotBaseFromUI() {
+  const elX = document.getElementById('inputBaseX');
+  const elY = document.getElementById('inputBaseY');
+  const elZ = document.getElementById('inputBaseZ');
+  const elRoll = document.getElementById('inputBaseRoll');
+  const elPitch = document.getElementById('inputBasePitch');
+  const elYaw = document.getElementById('inputBaseYaw');
+
+  if (elX) robotBaseConfig.x = parseFloat(elX.value) || 0;
+  if (elY) robotBaseConfig.y = parseFloat(elY.value) || 0;
+  if (elZ) robotBaseConfig.z = parseFloat(elZ.value) || 0;
+  if (elRoll) robotBaseConfig.roll = parseFloat(elRoll.value) || 0;
+  if (elPitch) robotBaseConfig.pitch = parseFloat(elPitch.value) || 0;
+  if (elYaw) robotBaseConfig.yaw = parseFloat(elYaw.value) || 0;
+
+  updateRobotBaseTransform();
+  saveRobotBaseConfig();
+}
+
+function updateRobotBaseTransform() {
+  if (!roboticArmGroup) return;
+
+  roboticArmGroup.position.set(robotBaseConfig.x, robotBaseConfig.y, robotBaseConfig.z);
+
+  const rollRad = THREE.MathUtils.degToRad(robotBaseConfig.roll);
+  const pitchRad = THREE.MathUtils.degToRad(robotBaseConfig.pitch);
+  const yawRad = THREE.MathUtils.degToRad(robotBaseConfig.yaw);
+
+  const euler = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
+  roboticArmGroup.rotation.copy(euler);
+
+  if (ceilingGrid) {
+    ceilingGrid.position.set(robotBaseConfig.x, robotBaseConfig.y, robotBaseConfig.z);
+    ceilingGrid.rotation.copy(euler);
+  }
+}
 
 function createRoboticArmLinkages() {
   roboticArmGroup = new THREE.Group();
   scene.add(roboticArmGroup);
+  updateRobotBaseTransform();
 
   // Materials
+  const roofPlateMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x0f172a : 0x334155, metalness: 0.9, roughness: 0.2 });
   const baseMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x1e293b : 0x475569, metalness: 0.8, roughness: 0.2 });
   const jointMat = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0xec4899 : 0xdb2777, metalness: 0.6, roughness: 0.3 });
   const linkMat1 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x06b6d4 : 0x0284c7, metalness: 0.7, roughness: 0.3 });
   const linkMat2 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x3b82f6 : 0x2563eb, metalness: 0.7, roughness: 0.3 });
 
-  // Base Pedestal at (0, 0, 0)
+  // Roof Ceiling Structural Slab (attached flush at roof height Y = ROOF_Y)
+  const roofSlabGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.03, 32);
+  const roofSlabMat = new THREE.MeshStandardMaterial({
+    color: isDarkMode ? 0x0f172a : 0x475569,
+    metalness: 0.8,
+    roughness: 0.3
+  });
+  const roofSlab = new THREE.Mesh(roofSlabGeo, roofSlabMat);
+  roofSlab.position.set(0, 0.015, 0);
+  roboticArmGroup.add(roofSlab);
+
+  // Inverted Roof Base Mounting Flange at local (0, -0.015, 0)
+  const roofPlate = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.32, 0.35, 0.03, 32),
+    roofPlateMat
+  );
+  roofPlate.position.set(0, -0.015, 0);
+  roboticArmGroup.add(roofPlate);
+
+  // Glowing Cyan LED Accent Ring on Ceiling Plate
+  const roofRingMat = new THREE.MeshStandardMaterial({
+    color: isDarkMode ? 0x06b6d4 : 0x0284c7,
+    emissive: isDarkMode ? 0x06b6d4 : 0x0284c7,
+    emissiveIntensity: 0.8
+  });
+  const roofRing = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.01, 16, 32), roofRingMat);
+  roofRing.rotation.x = Math.PI / 2;
+  roofRing.position.set(0, -0.03, 0);
+  roboticArmGroup.add(roofRing);
+
+  // Inverted Base Pedestal Mount (wider top at ceiling, tapering downwards towards Joint 1)
   const basePedestal = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.16, 0.05, 32),
+    new THREE.CylinderGeometry(0.20, 0.12, 0.06, 32),
     baseMat
   );
-  basePedestal.position.set(0, -0.025, 0);
+  basePedestal.position.set(0, -0.05, 0);
   roboticArmGroup.add(basePedestal);
 
-  // Joint 1 Group (Base Yaw - rot around Y at 0,0,0)
+  // Joint 1 Group (Base Yaw - rot around Y at local 0,0,0)
   j1Group = new THREE.Group();
   roboticArmGroup.add(j1Group);
 
-  // Link 1 (Base column height L1)
+  // Link 1 (Base column extending DOWNWARDS along -Y by L1)
   const link1Mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.045, 0.055, L1, 24),
+    new THREE.CylinderGeometry(0.055, 0.045, L1, 24),
     linkMat1
   );
-  link1Mesh.position.set(0, L1 / 2, 0);
+  link1Mesh.position.set(0, -L1 / 2, 0);
   j1Group.add(link1Mesh);
 
-  // Joint 1 housing / pivot sphere
+  // Joint 1 housing / pivot sphere at (0, -L1, 0)
   const j1Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 24), jointMat);
-  j1Sphere.position.set(0, L1, 0);
+  j1Sphere.position.set(0, -L1, 0);
   j1Group.add(j1Sphere);
 
-  // Joint 2 Group (Shoulder Pitch - pivot at 0, L1, 0)
+  // Joint 2 Group (Shoulder Pitch - pivot at 0, -L1, 0)
   j2Group = new THREE.Group();
-  j2Group.position.set(0, L1, 0);
+  j2Group.position.set(0, -L1, 0);
   j1Group.add(j2Group);
 
-  // Link 2 (Upper Arm length L2)
+  // Link 2 (Upper Arm length L2 extending DOWNWARDS along -Y)
   const link2Mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.038, 0.042, L2, 24),
+    new THREE.CylinderGeometry(0.042, 0.038, L2, 24),
     linkMat2
   );
-  link2Mesh.position.set(0, L2 / 2, 0);
+  link2Mesh.position.set(0, -L2 / 2, 0);
   j2Group.add(link2Mesh);
 
   const j2Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.045, 24, 24), jointMat);
-  j2Sphere.position.set(0, L2, 0);
+  j2Sphere.position.set(0, -L2, 0);
   j2Group.add(j2Sphere);
 
-  // Joint 3 Group (Elbow Pitch - pivot at 0, L2, 0)
+  // Joint 3 Group (Elbow Pitch - pivot at 0, -L2, 0)
   j3Group = new THREE.Group();
-  j3Group.position.set(0, L2, 0);
+  j3Group.position.set(0, -L2, 0);
   j2Group.add(j3Group);
 
-  // Link 3 (Forearm length L3)
+  // Link 3 (Forearm length L3 extending DOWNWARDS along -Y)
   const link3Mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.035, L3, 24),
+    new THREE.CylinderGeometry(0.035, 0.03, L3, 24),
     linkMat1
   );
-  link3Mesh.position.set(0, L3 / 2, 0);
+  link3Mesh.position.set(0, -L3 / 2, 0);
   j3Group.add(link3Mesh);
 
   const j3Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.038, 24, 24), jointMat);
-  j3Sphere.position.set(0, L3, 0);
+  j3Sphere.position.set(0, -L3, 0);
   j3Group.add(j3Sphere);
 
-  // Joint 4 Group (Forearm Roll - pivot at 0, L3, 0)
+  // Joint 4 Group (Forearm Roll - pivot at 0, -L3, 0)
   j4Group = new THREE.Group();
-  j4Group.position.set(0, L3, 0);
+  j4Group.position.set(0, -L3, 0);
   j3Group.add(j4Group);
 
   // Joint 5 Group (Wrist Pitch)
@@ -228,24 +348,24 @@ function createRoboticArmLinkages() {
   j5Group.add(j6Group);
 
   const flangeMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.025, 0.03, L4, 24),
+    new THREE.CylinderGeometry(0.03, 0.025, L4, 24),
     linkMat2
   );
-  flangeMesh.position.set(0, L4 / 2, 0);
+  flangeMesh.position.set(0, -L4 / 2, 0);
   j6Group.add(flangeMesh);
 
-  // Attach VR Controller mesh to the tip of Joint 6 flange (0, L4, 0)
+  // Attach VR Controller mesh hanging down at tip of Joint 6 flange (0, -L4, 0)
   if (controllerGroup) {
     scene.remove(controllerGroup);
-    controllerGroup.position.set(0, L4, 0);
+    controllerGroup.position.set(0, -L4, 0);
     controllerGroup.rotation.set(0, 0, 0);
     j6Group.add(controllerGroup);
   }
 }
 
-// Compute 6-DOF Inverse Kinematics for Manipulator Arm
+// Compute 6-DOF Inverse Kinematics for Manipulator Arm in Base Coordinate Frame
 function updateRoboticArm() {
-  if (!j1Group || !currentTargetPos) return;
+  if (!j1Group || !currentTargetPos || !roboticArmGroup) return;
 
   const elJ1 = document.getElementById('j1Angle');
   const elJ2 = document.getElementById('j2Angle');
@@ -254,55 +374,69 @@ function updateRoboticArm() {
   const elJ5 = document.getElementById('j5Angle');
   const elJ6 = document.getElementById('j6Angle');
 
-  // Target end-effector position and orientation
+  // Target end-effector position and orientation in World Space
   const targetPos = currentTargetPos;
   const targetQuat = currentTargetQuat;
 
-  // Tool direction vector (Y-axis of target end-effector)
-  const toolDir = new THREE.Vector3(0, 1, 0).applyQuaternion(targetQuat);
+  // Tool direction vector (in resting pose, points DOWN along -Y axis in local tool frame)
+  const toolDir = new THREE.Vector3(0, -1, 0).applyQuaternion(targetQuat);
 
-  // Wrist Center Position (P_wc = P_target - L4 * toolDir)
-  const pWC = new THREE.Vector3().copy(targetPos).sub(toolDir.clone().multiplyScalar(L4));
+  // Wrist Center Position in World Coordinates: P_wc_world = targetPos - L4 * toolDir
+  const pWCWorld = new THREE.Vector3().copy(targetPos).sub(toolDir.clone().multiplyScalar(L4));
 
-  // 1. Joint 1: Base Yaw (rotation around Y-axis at base)
-  const theta1 = Math.atan2(pWC.x, pWC.z);
+  // Transform Wrist Center & target quaternion into Robot Base Local Frame
+  const basePos = roboticArmGroup.position;
+  const baseQuat = roboticArmGroup.quaternion;
+  const baseQuatInv = baseQuat.clone().invert();
 
-  // 2. Joint 2 & 3: Planar Shoulder and Elbow Pitch
-  const r = Math.sqrt(pWC.x * pWC.x + pWC.z * pWC.z); // Horizontal radial distance
-  const yPrime = pWC.y - L1; // Height relative to Shoulder joint
+  // Wrist center position relative to base frame origin
+  const pWCLocal = pWCWorld.clone().sub(basePos).applyQuaternion(baseQuatInv);
 
-  let D = Math.sqrt(r * r + yPrime * yPrime);
-  // Clamp reach D to valid reach limits
+  // Target orientation relative to base frame orientation
+  const targetQuatLocal = baseQuatInv.clone().multiply(targetQuat);
+
+  // Shoulder Pivot position in Base Local Space is (0, -L1, 0)
+  const dx = pWCLocal.x;
+  const dz = pWCLocal.z;
+  const dy = pWCLocal.y - (-L1); // dy relative to shoulder pivot (0, -L1, 0)
+
+  // 1. Joint 1: Base Yaw (rotation around vertical local Y-axis)
+  const theta1 = Math.atan2(dx, dz);
+
+  // 2. Joint 2 & 3: Planar Shoulder and Elbow Pitch in local base frame
+  const r = Math.sqrt(dx * dx + dz * dz); // Horizontal radial distance
+  let D = Math.sqrt(r * r + dy * dy);    // Distance from Shoulder Pivot to Wrist Center
+
+  // Clamp reach D to valid kinematics limits
   const maxReach = L2 + L3 - 0.001;
   const minReach = Math.abs(L2 - L3) + 0.001;
   D = THREE.MathUtils.clamp(D, minReach, maxReach);
 
-  // Cosine law for elbow interior angle
+  // Cosine law for elbow interior angle (gamma)
   const cosGamma = (L2 * L2 + L3 * L3 - D * D) / (2 * L2 * L3);
   const gamma = Math.acos(THREE.MathUtils.clamp(cosGamma, -1, 1));
-  const theta3 = Math.PI - gamma; // Elbow bend angle
+  const theta3 = Math.PI - gamma; // Elbow bend angle (0 = fully extended straight down)
 
-  // Shoulder angle calculation
-  const phi1 = Math.atan2(yPrime, r);
-  const cosPhi2 = (L2 * L2 + D * D - L3 * L3) / (2 * L2 * D);
-  const phi2 = Math.acos(THREE.MathUtils.clamp(cosPhi2, -1, 1));
-  const theta2 = (Math.PI / 2) - (phi1 + phi2);
+  // Shoulder angle relative to straight down (-Y direction in local frame)
+  const alpha = Math.atan2(r, -dy);
+  const cosBeta = (L2 * L2 + D * D - L3 * L3) / (2 * L2 * D);
+  const beta = Math.acos(THREE.MathUtils.clamp(cosBeta, -1, 1));
+  const theta2 = alpha + beta; // Shoulder pitch angle
 
   // Apply positional joint angles (J1, J2, J3)
   j1Group.rotation.y = theta1;
   j2Group.rotation.z = -theta2;
   j3Group.rotation.z = -theta3;
 
-  // 3. Wrist Orientation (Joints 4, 5, 6)
-  // Compute forward orientation matrix of Frame 3 (up to Joint 3)
+  // 3. Wrist Orientation (Joints 4, 5, 6) in local frame
   const qJ1 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta1);
   const qJ2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta2);
   const qJ3 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta3);
 
   const qArm3 = new THREE.Quaternion().copy(qJ1).multiply(qJ2).multiply(qJ3);
-  
-  // Relative quaternion for Wrist R_36 = R_03^T * R_target
-  const qWrist = qArm3.clone().invert().multiply(targetQuat);
+
+  // Relative quaternion for Wrist R_36 = R_03^T * R_targetLocal
+  const qWrist = qArm3.clone().invert().multiply(targetQuatLocal);
   const eulerWrist = new THREE.Euler().setFromQuaternion(qWrist, 'YXZ');
 
   const theta4 = eulerWrist.y;
@@ -445,9 +579,9 @@ function updateTelemetry(data) {
   const mappedPitch = getMappedAxisValue(axisSwapConfig.pitchSource, axisSwapConfig.invertPitch, rawEuler);
   const mappedYaw = getMappedAxisValue(axisSwapConfig.yawSource, axisSwapConfig.invertYaw, rawEuler);
 
-  // Calculate position adjusted for origin reset (inverting Y and Z for intuitive 3D camera coordinate space)
+  // Calculate position adjusted for origin reset (hanging from ceiling with resting position tip at RESTING_TIP_Y)
   const posX = rawPos.x - positionOffset.x;
-  const posY = -(rawPos.y - positionOffset.y);
+  const posY = RESTING_TIP_Y - (rawPos.y - positionOffset.y);
   const posZ = -(rawPos.z - positionOffset.z);
 
   // Exponential moving average filter for buttery smooth position rendering (alpha = 0.2)
@@ -645,14 +779,15 @@ document.getElementById('btnResetPos').addEventListener('click', () => {
 });
 
 document.getElementById('btnRecenterCam').addEventListener('click', () => {
-  camera.position.set(1.5, 1.2, 2.0);
-  controls.target.set(0, 0, 0);
+  camera.position.set(1.6, 1.4, 2.2);
+  controls.target.set(0, 1.0, 0);
 });
 
 let gridVisible = true;
 document.getElementById('btnToggleGrid').addEventListener('click', (e) => {
   gridVisible = !gridVisible;
-  gridHelper.visible = gridVisible;
+  if (gridHelper) gridHelper.visible = gridVisible;
+  if (ceilingGrid) ceilingGrid.visible = gridVisible;
   e.currentTarget.classList.toggle('active', gridVisible);
 });
 
@@ -735,6 +870,62 @@ document.getElementById('presetSwapRY')?.addEventListener('click', () => {
 });
 
 // ----------------------------------------------------
+// Robot Base Config UI Binding & Handlers
+// ----------------------------------------------------
+const elBaseConfigDrawer = document.getElementById('baseConfigDrawer');
+const elBtnToggleBaseConfig = document.getElementById('btnToggleBaseConfig');
+const elBtnQuickRobotBase = document.getElementById('btnQuickRobotBase');
+const elBtnCloseBaseDrawer = document.getElementById('btnCloseBaseDrawer');
+
+function toggleBaseConfigDrawer() {
+  if (!elBaseConfigDrawer) return;
+  elBaseConfigDrawer.classList.toggle('hidden');
+  const isVisible = !elBaseConfigDrawer.classList.contains('hidden');
+  if (elBtnToggleBaseConfig) elBtnToggleBaseConfig.classList.toggle('active', isVisible);
+}
+
+if (elBtnToggleBaseConfig) elBtnToggleBaseConfig.addEventListener('click', toggleBaseConfigDrawer);
+if (elBtnQuickRobotBase) elBtnQuickRobotBase.addEventListener('click', toggleBaseConfigDrawer);
+if (elBtnCloseBaseDrawer) elBtnCloseBaseDrawer.addEventListener('click', toggleBaseConfigDrawer);
+
+['inputBaseX', 'inputBaseY', 'inputBaseZ', 'inputBaseRoll', 'inputBasePitch', 'inputBaseYaw'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', updateRobotBaseFromUI);
+    el.addEventListener('change', updateRobotBaseFromUI);
+  }
+});
+
+// Presets
+document.getElementById('presetBaseRoof')?.addEventListener('click', () => {
+  robotBaseConfig = { x: 0, y: ROOF_Y, z: 0, roll: 0, pitch: 0, yaw: 0 };
+  syncRobotBaseUI();
+  updateRobotBaseTransform();
+  saveRobotBaseConfig();
+});
+
+document.getElementById('presetBaseFloor')?.addEventListener('click', () => {
+  robotBaseConfig = { x: 0, y: 0.25, z: 0, roll: 180, pitch: 0, yaw: 0 };
+  syncRobotBaseUI();
+  updateRobotBaseTransform();
+  saveRobotBaseConfig();
+});
+
+document.getElementById('presetBaseSide')?.addEventListener('click', () => {
+  robotBaseConfig = { x: 0.5, y: 1.0, z: 0, roll: 0, pitch: 90, yaw: 0 };
+  syncRobotBaseUI();
+  updateRobotBaseTransform();
+  saveRobotBaseConfig();
+});
+
+document.getElementById('presetBaseReset')?.addEventListener('click', () => {
+  robotBaseConfig = { x: 0, y: ROOF_Y, z: 0, roll: 0, pitch: 0, yaw: 0 };
+  syncRobotBaseUI();
+  updateRobotBaseTransform();
+  saveRobotBaseConfig();
+});
+
+// ----------------------------------------------------
 // Dark / Light Theme Logic & Inverted Controller Mesh
 // ----------------------------------------------------
 function loadThemeConfig() {
@@ -799,16 +990,30 @@ function applyTheme(isDark) {
     trajectoryLine.material.color.setHex(isDark ? 0x06b6d4 : 0x0284c7);
   }
 
-  // Update 3D Grid Helper
+  // Update 3D Grid Helpers (Floor & Ceiling)
   if (gridHelper && scene) {
     scene.remove(gridHelper);
     if (gridHelper.geometry) gridHelper.geometry.dispose();
     const gridCenterColor = isDark ? 0x06b6d4 : 0x0284c7;
     const gridLineColor = isDark ? 0x334155 : 0xcbd5e1;
     gridHelper = new THREE.GridHelper(10, 20, gridCenterColor, gridLineColor);
-    gridHelper.position.y = -0.5;
+    gridHelper.position.y = 0;
     gridHelper.visible = typeof gridVisible !== 'undefined' ? gridVisible : true;
     scene.add(gridHelper);
+  }
+  if (ceilingGrid && scene) {
+    scene.remove(ceilingGrid);
+    if (ceilingGrid.geometry) ceilingGrid.geometry.dispose();
+    const ceilingCenterColor = isDark ? 0xec4899 : 0xdb2777;
+    const ceilingLineColor = isDark ? 0x334155 : 0xcbd5e1;
+    ceilingGrid = new THREE.GridHelper(6, 12, ceilingCenterColor, ceilingLineColor);
+    ceilingGrid.position.set(robotBaseConfig.x, robotBaseConfig.y, robotBaseConfig.z);
+    const rollRad = THREE.MathUtils.degToRad(robotBaseConfig.roll);
+    const pitchRad = THREE.MathUtils.degToRad(robotBaseConfig.pitch);
+    const yawRad = THREE.MathUtils.degToRad(robotBaseConfig.yaw);
+    ceilingGrid.rotation.copy(new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ'));
+    ceilingGrid.visible = typeof gridVisible !== 'undefined' ? gridVisible : true;
+    scene.add(ceilingGrid);
   }
 
   // Update Real-Time Sensor Graphs
@@ -841,7 +1046,9 @@ document.getElementById('btnToggleThemeTool')?.addEventListener('click', toggleT
 window.addEventListener('DOMContentLoaded', () => {
   loadThemeConfig();
   loadAxisSwapConfig();
+  loadRobotBaseConfig();
   syncAxisSwapUI();
+  syncRobotBaseUI();
   initScene();
   initSensorCharts();
   applyTheme(isDarkMode);

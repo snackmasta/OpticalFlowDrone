@@ -15,7 +15,7 @@ UDP_IP = "0.0.0.0"
 # Global state to store latest telemetry packet and connected client queues
 latest_telemetry = {
     "timestamp": time.time(),
-    "rotation": {"quaternion": {"w": 0.7071, "x": 0.7071, "y": 0, "z": 0}, "euler": {"roll": 90.0, "pitch": 0.0, "yaw": 0.0}},
+    "rotation": {"quaternion": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}, "euler": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}},
     "translation": {"position": {"x": 0, "y": 0, "z": 0}, "velocity": {"x": 0, "y": 0, "z": 0}, "linear_accel": {"x": 0, "y": 0, "z": 0}},
     "heading": 0.0,
     "status": "waiting"
@@ -65,6 +65,12 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                         connected_sse_clients.remove(client_queue)
         else:
             super().do_GET()
+
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        super().end_headers()
 
     def log_message(self, format, *args):
         # Suppress routine GET logging for clean console output
