@@ -153,9 +153,14 @@
           <i class="fa-solid fa-robot"></i>
           <span>6-DOF Arm Joint IK Angles</span>
         </div>
-        <button class="btn-card-action" id="btnQuickRobotBase" title="Configure Robot Base Pose">
-          <i class="fa-solid fa-sliders"></i> Base Pose
-        </button>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-card-action" id="btnQuickManualControl" title="Manual Control & Debug">
+            <i class="fa-solid fa-gamepad"></i> Debug
+          </button>
+          <button class="btn-card-action" id="btnQuickRobotBase" title="Configure Robot Base Pose">
+            <i class="fa-solid fa-sliders"></i> Base
+          </button>
+        </div>
       </div>
       <div class="card-body grid-3">
         <div class="metric-mini">
@@ -186,6 +191,113 @@
     </div>
 
   </main>
+
+  <!-- Collapsible Robot Manual Control & Debug Drawer -->
+  <aside class="axis-swap-drawer hidden" id="manualControlDrawer" style="width: 420px; max-height: calc(100vh - 120px); overflow-y: auto;">
+    <div class="drawer-header flex-between">
+      <h3><i class="fa-solid fa-gamepad me-2"></i> Manual Robot Control & Debug</h3>
+      <button class="btn-close-drawer" id="btnCloseManualDrawer" title="Close Manual Control Panel"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="swap-body">
+      <p class="swap-info"><i class="fa-solid fa-circle-info me-1"></i> Override live telemetry to manually move joints (FK) or set target end-effector 3D pose (IK) for troubleshooting.</p>
+
+      <!-- Control Mode Selector -->
+      <div class="swap-row">
+        <label class="swap-label"><i class="fa-solid fa-sliders me-1"></i> Control Mode</label>
+        <select id="selectControlMode" class="swap-select" style="font-weight: 600;">
+          <option value="telemetry">📡 Live Telemetry IK (UDP Stream)</option>
+          <option value="manual_fk">🕹️ Manual FK (Direct Joint Angles J1-J6)</option>
+          <option value="manual_ik">🎯 Manual IK (Target End-Effector 3D Pose)</option>
+        </select>
+      </div>
+
+      <!-- Direct Joint Control (FK Mode) -->
+      <div id="sectionManualFK" class="swap-row hidden">
+        <label class="swap-label"><i class="fa-solid fa-robot me-1"></i> Forward Kinematics (Joint Angles °)</label>
+        <div class="joint-control-grid">
+          <!-- J1 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J1 (Base Yaw)</span><span id="valJ1Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ1" min="-180" max="180" value="0" class="range-slider">
+          </div>
+          <!-- J2 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J2 (Shoulder Pitch)</span><span id="valJ2Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ2" min="-180" max="180" value="0" class="range-slider">
+          </div>
+          <!-- J3 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J3 (Elbow Pitch)</span><span id="valJ3Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ3" min="-180" max="180" value="0" class="range-slider">
+          </div>
+          <!-- J4 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J4 (Forearm Roll)</span><span id="valJ4Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ4" min="-180" max="180" value="0" class="range-slider">
+          </div>
+          <!-- J5 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J5 (Wrist Pitch)</span><span id="valJ5Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ5" min="-180" max="180" value="0" class="range-slider">
+          </div>
+          <!-- J6 -->
+          <div class="joint-slider-row">
+            <div class="joint-label"><span>J6 (Wrist Roll)</span><span id="valJ6Slider" class="val-sm">0°</span></div>
+            <input type="range" id="sliderJ6" min="-180" max="180" value="0" class="range-slider">
+          </div>
+        </div>
+      </div>
+
+      <!-- Target End-Effector Control (IK Mode) -->
+      <div id="sectionManualIK" class="swap-row hidden">
+        <label class="swap-label"><i class="fa-solid fa-bullseye me-1"></i> Inverse Kinematics Target Pose</label>
+        
+        <span class="preset-title" style="margin-top: 4px;">Position (m):</span>
+        <div class="card-body grid-3" style="padding: 0;">
+          <div class="metric" style="padding: 4px;">
+            <span class="label">X (m)</span>
+            <input type="number" id="inputManualX" step="0.02" value="0.00" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label">Y (m)</span>
+            <input type="number" id="inputManualY" step="0.02" value="0.68" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label">Z (m)</span>
+            <input type="number" id="inputManualZ" step="0.02" value="0.00" class="swap-input">
+          </div>
+        </div>
+
+        <span class="preset-title" style="margin-top: 8px;">Orientation (°):</span>
+        <div class="card-body grid-3" style="padding: 0;">
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-roll">Roll</span>
+            <input type="number" id="inputManualRoll" step="5" value="0" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-pitch">Pitch</span>
+            <input type="number" id="inputManualPitch" step="5" value="0" class="swap-input">
+          </div>
+          <div class="metric" style="padding: 4px;">
+            <span class="label highlight-yaw">Yaw</span>
+            <input type="number" id="inputManualYaw" step="5" value="0" class="swap-input">
+          </div>
+        </div>
+      </div>
+
+      <!-- Debug Test Presets -->
+      <div class="preset-section">
+        <span class="preset-title">Troubleshooting Test Presets:</span>
+        <div class="preset-grid">
+          <button class="btn-preset" id="presetRobotZero">Zero All Joints (Home)</button>
+          <button class="btn-preset" id="presetRobotReachOut">Reach Forward Test</button>
+          <button class="btn-preset" id="presetRobotHigh">Reach High Test</button>
+          <button class="btn-preset" id="presetRobotSweep">90° Elbow Bend</button>
+        </div>
+      </div>
+    </div>
+  </aside>
 
   <!-- Collapsible Robot Base Position & Orientation Config Drawer -->
   <aside class="axis-swap-drawer hidden" id="baseConfigDrawer">
@@ -345,6 +457,10 @@
 
   <!-- Interactive Floating Toolbar -->
   <div class="hud-toolbar">
+    <button class="btn-tool" id="btnToggleManualControl" title="Manual Robot Control & Troubleshooting Debug">
+      <i class="fa-solid fa-gamepad"></i>
+      <span>Manual Debug</span>
+    </button>
     <button class="btn-tool" id="btnToggleBaseConfig" title="Configure Robot Base Position & Orientation">
       <i class="fa-solid fa-robot"></i>
       <span>Robot Base</span>
@@ -387,7 +503,7 @@
     </button>
   </div>
 
-  <script src="app.js?v=robot_base_v3"></script>
+  <script src="app.js?v=manual_control_v4"></script>
 </body>
 </html>
 

@@ -28,6 +28,11 @@ let robotBaseConfig = {
   yaw: 0
 };
 
+// Control Mode & Manual Overrides State ('telemetry', 'manual_fk', 'manual_ik')
+let controlMode = 'telemetry';
+let manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0, j5: 0, j6: 0 };
+let manualIKState = { x: 0, y: RESTING_TIP_Y, z: 0, roll: 0, pitch: 0, yaw: 0 };
+
 // Origin offset for resetting zero-position
 let positionOffset = { x: 0, y: 0, z: 0 };
 let rawLatestPos = { x: 0, y: 0, z: 0 };
@@ -363,9 +368,9 @@ function createRoboticArmLinkages() {
   }
 }
 
-// Compute 6-DOF Inverse Kinematics for Manipulator Arm in Base Coordinate Frame
+// Compute 6-DOF Kinematics for Manipulator Arm (Supports Telemetry IK, Manual FK, Manual IK)
 function updateRoboticArm() {
-  if (!j1Group || !currentTargetPos || !roboticArmGroup) return;
+  if (!j1Group || !roboticArmGroup) return;
 
   const elJ1 = document.getElementById('j1Angle');
   const elJ2 = document.getElementById('j2Angle');
@@ -374,78 +379,126 @@ function updateRoboticArm() {
   const elJ5 = document.getElementById('j5Angle');
   const elJ6 = document.getElementById('j6Angle');
 
-  // Target end-effector position and orientation in World Space
-  const targetPos = currentTargetPos;
-  const targetQuat = currentTargetQuat;
+  if (controlMode === 'manual_fk') {
+    // ------------------------------------------------
+    // Manual Forward Kinematics (Direct Joint Angles)
+    // ------------------------------------------------
+    const theta1 = THREE.MathUtils.degToRad(manualFKState.j1);
+    const theta2 = THREE.MathUtils.degToRad(manualFKState.j2);
+    const theta3 = THREE.MathUtils.degToRad(manualFKState.j3);
+    const theta4 = THREE.MathUtils.degToRad(manualFKState.j4);
+    const theta5 = THREE.MathUtils.degToRad(manualFKState.j5);
+    const theta6 = THREE.MathUtils.degToRad(manualFKState.j6);
 
-  // Tool direction vector (in resting pose, points DOWN along -Y axis in local tool frame)
-  const toolDir = new THREE.Vector3(0, -1, 0).applyQuaternion(targetQuat);
+    j1Group.rotation.y = theta1;
+    j2Group.rotation.z = -theta2;
+    j3Group.rotation.z = -theta3;
+    j4Group.rotation.y = theta4;
+    j5Group.rotation.x = theta5;
+    j6Group.rotation.z = theta6;
 
-  // Wrist Center Position in World Coordinates: P_wc_world = targetPos - L4 * toolDir
-  const pWCWorld = new THREE.Vector3().copy(targetPos).sub(toolDir.clone().multiplyScalar(L4));
+    if (elJ1) elJ1.textContent = `${manualFKState.j1.toFixed(1)}°`;
+    if (elJ2) elJ2.textContent = `${manualFKState.j2.toFixed(1)}°`;
+    if (elJ3) elJ3.textContent = `${manualFKState.j3.toFixed(1)}°`;
+    if (elJ4) elJ4.textContent = `${manualFKState.j4.toFixed(1)}°`;
+    if (elJ5) elJ5.textContent = `${manualFKState.j5.toFixed(1)}°`;
+    if (elJ6) elJ6.textContent = `${manualFKState.j6.toFixed(1)}°`;
 
-  // Transform Wrist Center & target quaternion into Robot Base Local Frame
-  const basePos = roboticArmGroup.position;
-  const baseQuat = roboticArmGroup.quaternion;
-  const baseQuatInv = baseQuat.clone().invert();
+  } else {
+    // ------------------------------------------------
+    // Inverse Kinematics Mode (Telemetry or Manual IK)
+    // ------------------------------------------------
+    let targetPos, targetQuat;
 
-  // Wrist center position relative to base frame origin
-  const pWCLocal = pWCWorld.clone().sub(basePos).applyQuaternion(baseQuatInv);
+    if (controlMode === 'manual_ik') {
+      targetPos = new THREE.Vector3(manualIKState.x, manualIKState.y, manualIKState.z);
+      const rollRad = THREE.MathUtils.degToRad(manualIKState.roll);
+      const pitchRad = THREE.MathUtils.degToRad(manualIKState.pitch);
+      const yawRad = THREE.MathUtils.degToRad(manualIKState.yaw);
+      targetQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ'));
+    } else {
+      if (!currentTargetPos) return;
+      targetPos = currentTargetPos;
+      targetQuat = currentTargetQuat;
+    }
 
-  // Target orientation relative to base frame orientation
-  const targetQuatLocal = baseQuatInv.clone().multiply(targetQuat);
+    // Tool direction vector (in resting pose, points DOWN along -Y axis in local tool frame)
+    const toolDir = new THREE.Vector3(0, -1, 0).applyQuaternion(targetQuat);
 
-  // Shoulder Pivot position in Base Local Space is (0, -L1, 0)
-  const dx = pWCLocal.x;
-  const dz = pWCLocal.z;
-  const dy = pWCLocal.y - (-L1); // dy relative to shoulder pivot (0, -L1, 0)
+    // Wrist Center Position in World Coordinates: P_wc_world = targetPos - L4 * toolDir
+    const pWCWorld = new THREE.Vector3().copy(targetPos).sub(toolDir.clone().multiplyScalar(L4));
 
-  // 1. Joint 1: Base Yaw (rotation around vertical local Y-axis)
-  const theta1 = Math.atan2(dx, dz);
+    // Transform Wrist Center & target quaternion into Robot Base Local Frame
+    const basePos = roboticArmGroup.position;
+    const baseQuat = roboticArmGroup.quaternion;
+    const baseQuatInv = baseQuat.clone().invert();
 
-  // 2. Joint 2 & 3: Planar Shoulder and Elbow Pitch in local base frame
-  const r = Math.sqrt(dx * dx + dz * dz); // Horizontal radial distance
-  let D = Math.sqrt(r * r + dy * dy);    // Distance from Shoulder Pivot to Wrist Center
+    // Wrist center position relative to base frame origin
+    const pWCLocal = pWCWorld.clone().sub(basePos).applyQuaternion(baseQuatInv);
 
-  // Clamp reach D to valid kinematics limits
-  const maxReach = L2 + L3 - 0.001;
-  const minReach = Math.abs(L2 - L3) + 0.001;
-  D = THREE.MathUtils.clamp(D, minReach, maxReach);
+    // Target orientation relative to base frame orientation
+    const targetQuatLocal = baseQuatInv.clone().multiply(targetQuat);
 
-  // Cosine law for elbow interior angle (gamma)
-  const cosGamma = (L2 * L2 + L3 * L3 - D * D) / (2 * L2 * L3);
-  const gamma = Math.acos(THREE.MathUtils.clamp(cosGamma, -1, 1));
-  const theta3 = Math.PI - gamma; // Elbow bend angle (0 = fully extended straight down)
+    // Shoulder Pivot position in Base Local Space is (0, -L1, 0)
+    const dx = pWCLocal.x;
+    const dz = pWCLocal.z;
+    const dy = pWCLocal.y - (-L1); // dy relative to shoulder pivot (0, -L1, 0)
 
-  // Shoulder angle relative to straight down (-Y direction in local frame)
-  const alpha = Math.atan2(r, -dy);
-  const cosBeta = (L2 * L2 + D * D - L3 * L3) / (2 * L2 * D);
-  const beta = Math.acos(THREE.MathUtils.clamp(cosBeta, -1, 1));
-  const theta2 = alpha + beta; // Shoulder pitch angle
+    // 1. Joint 1: Base Yaw (rotation around vertical local Y-axis)
+    const theta1 = Math.atan2(dx, dz);
 
-  // Apply positional joint angles (J1, J2, J3)
-  j1Group.rotation.y = theta1;
-  j2Group.rotation.z = -theta2;
-  j3Group.rotation.z = -theta3;
+    // 2. Joint 2 & 3: Planar Shoulder and Elbow Pitch in local base frame
+    const r = Math.sqrt(dx * dx + dz * dz); // Horizontal radial distance
+    let D = Math.sqrt(r * r + dy * dy);    // Distance from Shoulder Pivot to Wrist Center
 
-  // 3. Wrist Orientation (Joints 4, 5, 6) in local frame
-  const qJ1 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta1);
-  const qJ2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta2);
-  const qJ3 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta3);
+    // Clamp reach D to valid kinematics limits
+    const maxReach = L2 + L3 - 0.001;
+    const minReach = Math.abs(L2 - L3) + 0.001;
+    D = THREE.MathUtils.clamp(D, minReach, maxReach);
 
-  const qArm3 = new THREE.Quaternion().copy(qJ1).multiply(qJ2).multiply(qJ3);
+    // Cosine law for elbow interior angle (gamma)
+    const cosGamma = (L2 * L2 + L3 * L3 - D * D) / (2 * L2 * L3);
+    const gamma = Math.acos(THREE.MathUtils.clamp(cosGamma, -1, 1));
+    const theta3 = Math.PI - gamma; // Elbow bend angle (0 = fully extended straight down)
 
-  // Relative quaternion for Wrist R_36 = R_03^T * R_targetLocal
-  const qWrist = qArm3.clone().invert().multiply(targetQuatLocal);
-  const eulerWrist = new THREE.Euler().setFromQuaternion(qWrist, 'YXZ');
+    // Shoulder angle relative to straight down (-Y direction in local frame)
+    const alpha = Math.atan2(r, -dy);
+    const cosBeta = (L2 * L2 + D * D - L3 * L3) / (2 * L2 * D);
+    const beta = Math.acos(THREE.MathUtils.clamp(cosBeta, -1, 1));
+    const theta2 = alpha + beta; // Shoulder pitch angle
 
-  const theta4 = eulerWrist.y;
-  const theta5 = eulerWrist.x;
-  const theta6 = eulerWrist.z;
+    // Apply positional joint angles (J1, J2, J3)
+    j1Group.rotation.y = theta1;
+    j2Group.rotation.z = -theta2;
+    j3Group.rotation.z = -theta3;
 
-  j4Group.rotation.y = theta4;
-  j5Group.rotation.x = theta5;
-  j6Group.rotation.z = theta6;
+    // 3. Wrist Orientation (Joints 4, 5, 6) in local frame
+    const qJ1 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta1);
+    const qJ2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta2);
+    const qJ3 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta3);
+
+    const qArm3 = new THREE.Quaternion().copy(qJ1).multiply(qJ2).multiply(qJ3);
+
+    // Relative quaternion for Wrist R_36 = R_03^T * R_targetLocal
+    const qWrist = qArm3.clone().invert().multiply(targetQuatLocal);
+    const eulerWrist = new THREE.Euler().setFromQuaternion(qWrist, 'YXZ');
+
+    const theta4 = eulerWrist.y;
+    const theta5 = eulerWrist.x;
+    const theta6 = eulerWrist.z;
+
+    j4Group.rotation.y = theta4;
+    j5Group.rotation.x = theta5;
+    j6Group.rotation.z = theta6;
+
+    // Update Telemetry HUD with angles in degrees
+    if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
+    if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
+    if (elJ3) elJ3.textContent = `${THREE.MathUtils.radToDeg(theta3).toFixed(1)}°`;
+    if (elJ4) elJ4.textContent = `${THREE.MathUtils.radToDeg(theta4).toFixed(1)}°`;
+    if (elJ5) elJ5.textContent = `${THREE.MathUtils.radToDeg(theta5).toFixed(1)}°`;
+    if (elJ6) elJ6.textContent = `${THREE.MathUtils.radToDeg(theta6).toFixed(1)}°`;
+  }
 
   // Force update matrix world to obtain accurate world position of tool endpoint
   roboticArmGroup.updateMatrixWorld(true);
@@ -459,14 +512,6 @@ function updateRoboticArm() {
       addTrajectoryPoint(toolEndpointPos.x, toolEndpointPos.y, toolEndpointPos.z);
     }
   }
-
-  // Update Telemetry HUD with angles in degrees
-  if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
-  if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
-  if (elJ3) elJ3.textContent = `${THREE.MathUtils.radToDeg(theta3).toFixed(1)}°`;
-  if (elJ4) elJ4.textContent = `${THREE.MathUtils.radToDeg(theta4).toFixed(1)}°`;
-  if (elJ5) elJ5.textContent = `${THREE.MathUtils.radToDeg(theta5).toFixed(1)}°`;
-  if (elJ6) elJ6.textContent = `${THREE.MathUtils.radToDeg(theta6).toFixed(1)}°`;
 }
 
 
@@ -923,6 +968,120 @@ document.getElementById('presetBaseReset')?.addEventListener('click', () => {
   syncRobotBaseUI();
   updateRobotBaseTransform();
   saveRobotBaseConfig();
+});
+
+// ----------------------------------------------------
+// Manual Robot Control & Debug Handlers
+// ----------------------------------------------------
+const elManualControlDrawer = document.getElementById('manualControlDrawer');
+const elBtnToggleManualControl = document.getElementById('btnToggleManualControl');
+const elBtnQuickManualControl = document.getElementById('btnQuickManualControl');
+const elBtnCloseManualDrawer = document.getElementById('btnCloseManualDrawer');
+const elSelectControlMode = document.getElementById('selectControlMode');
+
+const elSectionFK = document.getElementById('sectionManualFK');
+const elSectionIK = document.getElementById('sectionManualIK');
+
+function toggleManualControlDrawer() {
+  if (!elManualControlDrawer) return;
+  elManualControlDrawer.classList.toggle('hidden');
+  const isVisible = !elManualControlDrawer.classList.contains('hidden');
+  if (elBtnToggleManualControl) elBtnToggleManualControl.classList.toggle('active', isVisible);
+}
+
+if (elBtnToggleManualControl) elBtnToggleManualControl.addEventListener('click', toggleManualControlDrawer);
+if (elBtnQuickManualControl) elBtnQuickManualControl.addEventListener('click', toggleManualControlDrawer);
+if (elBtnCloseManualDrawer) elBtnCloseManualDrawer.addEventListener('click', toggleManualControlDrawer);
+
+if (elSelectControlMode) {
+  elSelectControlMode.addEventListener('change', (e) => {
+    controlMode = e.target.value;
+    updateControlModeSections();
+  });
+}
+
+function updateControlModeSections() {
+  if (elSectionFK) elSectionFK.classList.toggle('hidden', controlMode !== 'manual_fk');
+  if (elSectionIK) elSectionIK.classList.toggle('hidden', controlMode !== 'manual_ik');
+}
+
+// Bind Sliders J1-J6 for Manual FK Mode
+[1, 2, 3, 4, 5, 6].forEach(num => {
+  const slider = document.getElementById(`sliderJ${num}`);
+  const valText = document.getElementById(`valJ${num}Slider`);
+  if (slider) {
+    const handler = (e) => {
+      const val = parseFloat(e.target.value) || 0;
+      manualFKState[`j${num}`] = val;
+      if (valText) valText.textContent = `${val.toFixed(0)}°`;
+    };
+    slider.addEventListener('input', handler);
+    slider.addEventListener('change', handler);
+  }
+});
+
+// Bind Inputs for Manual IK Mode
+['ManualX', 'ManualY', 'ManualZ', 'ManualRoll', 'ManualPitch', 'ManualYaw'].forEach(field => {
+  const el = document.getElementById(`input${field}`);
+  if (el) {
+    const key = field.replace('Manual', '').toLowerCase();
+    const handler = (e) => {
+      manualIKState[key] = parseFloat(e.target.value) || 0;
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  }
+});
+
+// Debug Test Presets
+function syncFKSlidersUI() {
+  [1, 2, 3, 4, 5, 6].forEach(num => {
+    const slider = document.getElementById(`sliderJ${num}`);
+    const valText = document.getElementById(`valJ${num}Slider`);
+    const val = manualFKState[`j${num}`];
+    if (slider) slider.value = val;
+    if (valText) valText.textContent = `${val.toFixed(0)}°`;
+  });
+}
+
+document.getElementById('presetRobotZero')?.addEventListener('click', () => {
+  if (controlMode !== 'manual_fk') {
+    controlMode = 'manual_fk';
+    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
+    updateControlModeSections();
+  }
+  manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0, j5: 0, j6: 0 };
+  syncFKSlidersUI();
+});
+
+document.getElementById('presetRobotReachOut')?.addEventListener('click', () => {
+  if (controlMode !== 'manual_fk') {
+    controlMode = 'manual_fk';
+    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
+    updateControlModeSections();
+  }
+  manualFKState = { j1: 0, j2: 45, j3: 45, j4: 0, j5: 0, j6: 0 };
+  syncFKSlidersUI();
+});
+
+document.getElementById('presetRobotHigh')?.addEventListener('click', () => {
+  if (controlMode !== 'manual_fk') {
+    controlMode = 'manual_fk';
+    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
+    updateControlModeSections();
+  }
+  manualFKState = { j1: 0, j2: 90, j3: 0, j4: 0, j5: 0, j6: 0 };
+  syncFKSlidersUI();
+});
+
+document.getElementById('presetRobotSweep')?.addEventListener('click', () => {
+  if (controlMode !== 'manual_fk') {
+    controlMode = 'manual_fk';
+    if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
+    updateControlModeSections();
+  }
+  manualFKState = { j1: 0, j2: 0, j3: 90, j4: 0, j5: 0, j6: 0 };
+  syncFKSlidersUI();
 });
 
 // ----------------------------------------------------

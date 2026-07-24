@@ -541,6 +541,59 @@ body {
   box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
 }
 
+.joint-control-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.joint-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card-bg);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+}
+
+.joint-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-dark);
+  outline: none;
+  border: 1px solid var(--panel-border);
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--accent-cyan);
+  transition: transform 0.1s ease;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
 .swap-check-label {
   display: flex;
   align-items: center;
