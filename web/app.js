@@ -30,7 +30,7 @@ let robotBaseConfig = {
 
 // Control Mode & Manual Overrides State ('telemetry', 'manual_fk', 'manual_ik')
 let controlMode = 'telemetry';
-let manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0, j5: 0, j6: 0 };
+let manualFKState = { j1: 0, j2: 0, j3: 0, j5: 0 };
 let manualIKState = { x: 0, y: RESTING_TIP_Y, z: 0, roll: 0, pitch: 0, yaw: 0 };
 
 // Origin offset for resetting zero-position
@@ -160,10 +160,10 @@ function createControllerMesh() {
 }
 
 // ----------------------------------------------------
-// 6DOF Robotic Manipulator Arm & IK Solver (Configurable Base Pose)
+// 4-DOF Robotic Manipulator Arm & Kinematics (J1, J2, J3, J4)
 // ----------------------------------------------------
 let roboticArmGroup;
-let j1Group, j2Group, j3Group, j4Group, j5Group, j6Group;
+let j1Group, j2Group, j3Group, j4Group;
 
 function loadRobotBaseConfig() {
   try {
@@ -247,7 +247,7 @@ function createRoboticArmLinkages() {
   const linkMat1 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x06b6d4 : 0x0284c7, metalness: 0.7, roughness: 0.3 });
   const linkMat2 = new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x3b82f6 : 0x2563eb, metalness: 0.7, roughness: 0.3 });
 
-  // Roof Ceiling Structural Slab (attached flush at roof height Y = ROOF_Y)
+  // Roof Ceiling Structural Slab
   const roofSlabGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.03, 32);
   const roofSlabMat = new THREE.MeshStandardMaterial({
     color: isDarkMode ? 0x0f172a : 0x475569,
@@ -258,7 +258,7 @@ function createRoboticArmLinkages() {
   roofSlab.position.set(0, 0.015, 0);
   roboticArmGroup.add(roofSlab);
 
-  // Inverted Roof Base Mounting Flange at local (0, -0.015, 0)
+  // Inverted Base Mounting Flange
   const roofPlate = new THREE.Mesh(
     new THREE.CylinderGeometry(0.32, 0.35, 0.03, 32),
     roofPlateMat
@@ -266,7 +266,7 @@ function createRoboticArmLinkages() {
   roofPlate.position.set(0, -0.015, 0);
   roboticArmGroup.add(roofPlate);
 
-  // Glowing Cyan LED Accent Ring on Ceiling Plate
+  // Glowing Cyan LED Accent Ring
   const roofRingMat = new THREE.MeshStandardMaterial({
     color: isDarkMode ? 0x06b6d4 : 0x0284c7,
     emissive: isDarkMode ? 0x06b6d4 : 0x0284c7,
@@ -277,7 +277,7 @@ function createRoboticArmLinkages() {
   roofRing.position.set(0, -0.03, 0);
   roboticArmGroup.add(roofRing);
 
-  // Inverted Base Pedestal Mount (wider top at ceiling, tapering downwards towards Joint 1)
+  // Base Pedestal Mount
   const basePedestal = new THREE.Mesh(
     new THREE.CylinderGeometry(0.20, 0.12, 0.06, 32),
     baseMat
@@ -285,11 +285,11 @@ function createRoboticArmLinkages() {
   basePedestal.position.set(0, -0.05, 0);
   roboticArmGroup.add(basePedestal);
 
-  // Joint 1 Group (Base Yaw - rot around Y at local 0,0,0)
+  // Joint 1 Group (Base Yaw)
   j1Group = new THREE.Group();
   roboticArmGroup.add(j1Group);
 
-  // Link 1 (Base column extending DOWNWARDS along -Y by L1)
+  // Link 1 (Base column along -Y by L1)
   const link1Mesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.055, 0.045, L1, 24),
     linkMat1
@@ -297,7 +297,6 @@ function createRoboticArmLinkages() {
   link1Mesh.position.set(0, -L1 / 2, 0);
   j1Group.add(link1Mesh);
 
-  // Joint 1 housing / pivot sphere at (0, -L1, 0)
   const j1Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 24), jointMat);
   j1Sphere.position.set(0, -L1, 0);
   j1Group.add(j1Sphere);
@@ -307,7 +306,7 @@ function createRoboticArmLinkages() {
   j2Group.position.set(0, -L1, 0);
   j1Group.add(j2Group);
 
-  // Link 2 (Upper Arm length L2 extending DOWNWARDS along -Y)
+  // Link 2 (Upper Arm length L2)
   const link2Mesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.042, 0.038, L2, 24),
     linkMat2
@@ -324,7 +323,7 @@ function createRoboticArmLinkages() {
   j3Group.position.set(0, -L2, 0);
   j2Group.add(j3Group);
 
-  // Link 3 (Forearm length L3 extending DOWNWARDS along -Y)
+  // Link 3 (Forearm length L3)
   const link3Mesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.03, L3, 24),
     linkMat1
@@ -336,39 +335,31 @@ function createRoboticArmLinkages() {
   j3Sphere.position.set(0, -L3, 0);
   j3Group.add(j3Sphere);
 
-  // Joint 4 Group (Forearm Roll - pivot at 0, -L3, 0)
+  // Joint 4 Group (Wrist Pitch - attached directly to Joint 3 at 0, -L3, 0)
   j4Group = new THREE.Group();
   j4Group.position.set(0, -L3, 0);
   j3Group.add(j4Group);
 
-  // Joint 5 Group (Wrist Pitch)
-  j5Group = new THREE.Group();
-  j4Group.add(j5Group);
-
-  const j5Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.032, 24, 24), jointMat);
-  j5Group.add(j5Sphere);
-
-  // Joint 6 Group (Wrist Roll / Flange)
-  j6Group = new THREE.Group();
-  j5Group.add(j6Group);
+  const j4Sphere = new THREE.Mesh(new THREE.SphereGeometry(0.032, 24, 24), jointMat);
+  j4Group.add(j4Sphere);
 
   const flangeMesh = new THREE.Mesh(
     new THREE.CylinderGeometry(0.03, 0.025, L4, 24),
     linkMat2
   );
   flangeMesh.position.set(0, -L4 / 2, 0);
-  j6Group.add(flangeMesh);
+  j4Group.add(flangeMesh);
 
-  // Attach VR Controller mesh hanging down at tip of Joint 6 flange (0, -L4, 0)
+  // Attach VR Controller mesh directly to Joint 4 flange tip (0, -L4, 0)
   if (controllerGroup) {
     scene.remove(controllerGroup);
     controllerGroup.position.set(0, -L4, 0);
     controllerGroup.rotation.set(0, 0, 0);
-    j6Group.add(controllerGroup);
+    j4Group.add(controllerGroup);
   }
 }
 
-// Compute 6-DOF Kinematics for Manipulator Arm (Supports Telemetry IK, Manual FK, Manual IK)
+// Compute 4-DOF Kinematics for Manipulator Arm (J1, J2, J3, J4)
 function updateRoboticArm() {
   if (!j1Group || !roboticArmGroup) return;
 
@@ -376,33 +367,25 @@ function updateRoboticArm() {
   const elJ2 = document.getElementById('j2Angle');
   const elJ3 = document.getElementById('j3Angle');
   const elJ4 = document.getElementById('j4Angle');
-  const elJ5 = document.getElementById('j5Angle');
-  const elJ6 = document.getElementById('j6Angle');
 
   if (controlMode === 'manual_fk') {
     // ------------------------------------------------
-    // Manual Forward Kinematics (Direct Joint Angles)
+    // Manual Forward Kinematics (Direct Joint Angles J1, J2, J3, J4)
     // ------------------------------------------------
-    const theta1 = THREE.MathUtils.degToRad(manualFKState.j1);
-    const theta2 = THREE.MathUtils.degToRad(manualFKState.j2);
-    const theta3 = THREE.MathUtils.degToRad(manualFKState.j3);
-    const theta4 = THREE.MathUtils.degToRad(manualFKState.j4);
-    const theta5 = THREE.MathUtils.degToRad(manualFKState.j5);
-    const theta6 = THREE.MathUtils.degToRad(manualFKState.j6);
+    const theta1 = THREE.MathUtils.degToRad(manualFKState.j1 || 0);
+    const theta2 = THREE.MathUtils.degToRad(manualFKState.j2 || 0);
+    const theta3 = THREE.MathUtils.degToRad(manualFKState.j3 || 0);
+    const theta4 = THREE.MathUtils.degToRad(manualFKState.j4 || 0);
 
     j1Group.rotation.y = theta1;
     j2Group.rotation.z = -theta2;
     j3Group.rotation.z = -theta3;
-    j4Group.rotation.y = theta4;
-    j5Group.rotation.x = theta5;
-    j6Group.rotation.z = theta6;
+    j4Group.rotation.x = theta4;
 
-    if (elJ1) elJ1.textContent = `${manualFKState.j1.toFixed(1)}°`;
-    if (elJ2) elJ2.textContent = `${manualFKState.j2.toFixed(1)}°`;
-    if (elJ3) elJ3.textContent = `${manualFKState.j3.toFixed(1)}°`;
-    if (elJ4) elJ4.textContent = `${manualFKState.j4.toFixed(1)}°`;
-    if (elJ5) elJ5.textContent = `${manualFKState.j5.toFixed(1)}°`;
-    if (elJ6) elJ6.textContent = `${manualFKState.j6.toFixed(1)}°`;
+    if (elJ1) elJ1.textContent = `${(manualFKState.j1 || 0).toFixed(1)}°`;
+    if (elJ2) elJ2.textContent = `${(manualFKState.j2 || 0).toFixed(1)}°`;
+    if (elJ3) elJ3.textContent = `${(manualFKState.j3 || 0).toFixed(1)}°`;
+    if (elJ4) elJ4.textContent = `${(manualFKState.j4 || 0).toFixed(1)}°`;
 
   } else {
     // ------------------------------------------------
@@ -472,32 +455,25 @@ function updateRoboticArm() {
     j2Group.rotation.z = -theta2;
     j3Group.rotation.z = -theta3;
 
-    // 3. Wrist Orientation (Joints 4, 5, 6) in local frame
+    // 3. Wrist Pitch (Joint 4) in local frame
     const qJ1 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta1);
     const qJ2 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta2);
     const qJ3 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -theta3);
 
     const qArm3 = new THREE.Quaternion().copy(qJ1).multiply(qJ2).multiply(qJ3);
 
-    // Relative quaternion for Wrist R_36 = R_03^T * R_targetLocal
+    // Relative quaternion for Wrist Pitch: R_wrist = R_03^T * R_targetLocal
     const qWrist = qArm3.clone().invert().multiply(targetQuatLocal);
     const eulerWrist = new THREE.Euler().setFromQuaternion(qWrist, 'YXZ');
 
-    const theta4 = eulerWrist.y;
-    const theta5 = eulerWrist.x;
-    const theta6 = eulerWrist.z;
-
-    j4Group.rotation.y = theta4;
-    j5Group.rotation.x = theta5;
-    j6Group.rotation.z = theta6;
+    const theta4 = eulerWrist.x;
+    j4Group.rotation.x = theta4;
 
     // Update Telemetry HUD with angles in degrees
     if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
     if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
     if (elJ3) elJ3.textContent = `${THREE.MathUtils.radToDeg(theta3).toFixed(1)}°`;
     if (elJ4) elJ4.textContent = `${THREE.MathUtils.radToDeg(theta4).toFixed(1)}°`;
-    if (elJ5) elJ5.textContent = `${THREE.MathUtils.radToDeg(theta5).toFixed(1)}°`;
-    if (elJ6) elJ6.textContent = `${THREE.MathUtils.radToDeg(theta6).toFixed(1)}°`;
   }
 
   // Force update matrix world to obtain accurate world position of tool endpoint
@@ -1005,8 +981,8 @@ function updateControlModeSections() {
   if (elSectionIK) elSectionIK.classList.toggle('hidden', controlMode !== 'manual_ik');
 }
 
-// Bind Sliders J1-J6 for Manual FK Mode
-[1, 2, 3, 4, 5, 6].forEach(num => {
+// Bind Sliders J1, J2, J3, J4 for Manual FK Mode
+[1, 2, 3, 4].forEach(num => {
   const slider = document.getElementById(`sliderJ${num}`);
   const valText = document.getElementById(`valJ${num}Slider`);
   if (slider) {
@@ -1035,10 +1011,10 @@ function updateControlModeSections() {
 
 // Debug Test Presets
 function syncFKSlidersUI() {
-  [1, 2, 3, 4, 5, 6].forEach(num => {
+  [1, 2, 3, 4].forEach(num => {
     const slider = document.getElementById(`sliderJ${num}`);
     const valText = document.getElementById(`valJ${num}Slider`);
-    const val = manualFKState[`j${num}`];
+    const val = manualFKState[`j${num}`] || 0;
     if (slider) slider.value = val;
     if (valText) valText.textContent = `${val.toFixed(0)}°`;
   });
@@ -1050,7 +1026,7 @@ document.getElementById('presetRobotZero')?.addEventListener('click', () => {
     if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
     updateControlModeSections();
   }
-  manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0, j5: 0, j6: 0 };
+  manualFKState = { j1: 0, j2: 0, j3: 0, j4: 0 };
   syncFKSlidersUI();
 });
 
@@ -1060,7 +1036,7 @@ document.getElementById('presetRobotReachOut')?.addEventListener('click', () => 
     if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
     updateControlModeSections();
   }
-  manualFKState = { j1: 0, j2: 45, j3: 45, j4: 0, j5: 0, j6: 0 };
+  manualFKState = { j1: 0, j2: 45, j3: 45, j4: 0 };
   syncFKSlidersUI();
 });
 
@@ -1070,7 +1046,7 @@ document.getElementById('presetRobotHigh')?.addEventListener('click', () => {
     if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
     updateControlModeSections();
   }
-  manualFKState = { j1: 0, j2: 90, j3: 0, j4: 0, j5: 0, j6: 0 };
+  manualFKState = { j1: 0, j2: 90, j3: 0, j4: 0 };
   syncFKSlidersUI();
 });
 
@@ -1080,7 +1056,7 @@ document.getElementById('presetRobotSweep')?.addEventListener('click', () => {
     if (elSelectControlMode) elSelectControlMode.value = 'manual_fk';
     updateControlModeSections();
   }
-  manualFKState = { j1: 0, j2: 0, j3: 90, j4: 0, j5: 0, j6: 0 };
+  manualFKState = { j1: 0, j2: 0, j3: 90, j4: 45 };
   syncFKSlidersUI();
 });
 

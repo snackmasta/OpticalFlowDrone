@@ -146,12 +146,12 @@
       </div>
     </div>
 
-    <!-- 6-DOF Manipulator Joint Telemetry (IK) Card -->
+    <!-- 4-DOF Manipulator Joint Telemetry Card -->
     <div class="hud-card">
       <div class="card-header flex-between">
         <div>
           <i class="fa-solid fa-robot"></i>
-          <span>6-DOF Arm Joint IK Angles</span>
+          <span>4-DOF Arm Joint Angles</span>
         </div>
         <div style="display: flex; gap: 6px;">
           <button class="btn-card-action" id="btnQuickManualControl" title="Manual Control & Debug">
@@ -162,7 +162,7 @@
           </button>
         </div>
       </div>
-      <div class="card-body grid-3">
+      <div class="card-body grid-4">
         <div class="metric-mini">
           <span class="label">J1 (Base)</span>
           <span class="val-sm" id="j1Angle">0.0°</span>
@@ -176,16 +176,8 @@
           <span class="val-sm" id="j3Angle">0.0°</span>
         </div>
         <div class="metric-mini">
-          <span class="label">J4 (Forearm)</span>
+          <span class="label">J4 (Wrist Pitch)</span>
           <span class="val-sm" id="j4Angle">0.0°</span>
-        </div>
-        <div class="metric-mini">
-          <span class="label">J5 (Wrist Pitch)</span>
-          <span class="val-sm" id="j5Angle">0.0°</span>
-        </div>
-        <div class="metric-mini">
-          <span class="label">J6 (Wrist Roll)</span>
-          <span class="val-sm" id="j6Angle">0.0°</span>
         </div>
       </div>
     </div>
@@ -207,7 +199,7 @@
         <label class="swap-label"><i class="fa-solid fa-sliders me-1"></i> Control Mode</label>
         <select id="selectControlMode" class="swap-select" style="font-weight: 600;">
           <option value="telemetry">📡 Live Telemetry IK (UDP Stream)</option>
-          <option value="manual_fk">🕹️ Manual FK (Direct Joint Angles J1-J6)</option>
+          <option value="manual_fk">🕹️ Manual FK (Direct Joint Angles J1, J2, J3, J4)</option>
           <option value="manual_ik">🎯 Manual IK (Target End-Effector 3D Pose)</option>
         </select>
       </div>
@@ -233,18 +225,8 @@
           </div>
           <!-- J4 -->
           <div class="joint-slider-row">
-            <div class="joint-label"><span>J4 (Forearm Roll)</span><span id="valJ4Slider" class="val-sm">0°</span></div>
+            <div class="joint-label"><span>J4 (Wrist Pitch)</span><span id="valJ4Slider" class="val-sm">0°</span></div>
             <input type="range" id="sliderJ4" min="-180" max="180" value="0" class="range-slider">
-          </div>
-          <!-- J5 -->
-          <div class="joint-slider-row">
-            <div class="joint-label"><span>J5 (Wrist Pitch)</span><span id="valJ5Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ5" min="-180" max="180" value="0" class="range-slider">
-          </div>
-          <!-- J6 -->
-          <div class="joint-slider-row">
-            <div class="joint-label"><span>J6 (Wrist Roll)</span><span id="valJ6Slider" class="val-sm">0°</span></div>
-            <input type="range" id="sliderJ6" min="-180" max="180" value="0" class="range-slider">
           </div>
         </div>
       </div>
@@ -503,7 +485,7 @@
     </button>
   </div>
 
-  <script src="app.js?v=manual_control_v4"></script>
+  <script src="app.js?v=rename_j4_v6"></script>
 </body>
 </html>
 
