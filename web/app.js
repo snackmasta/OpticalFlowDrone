@@ -313,6 +313,19 @@ function updateRoboticArm() {
   j5Group.rotation.x = theta5;
   j6Group.rotation.z = theta6;
 
+  // Force update matrix world to obtain accurate world position of tool endpoint
+  roboticArmGroup.updateMatrixWorld(true);
+
+  if (controllerGroup) {
+    const toolEndpointPos = new THREE.Vector3();
+    controllerGroup.getWorldPosition(toolEndpointPos);
+
+    const lastPoint = trajectoryPoints[trajectoryPoints.length - 1];
+    if (!lastPoint || lastPoint.distanceTo(toolEndpointPos) > 0.01) {
+      addTrajectoryPoint(toolEndpointPos.x, toolEndpointPos.y, toolEndpointPos.z);
+    }
+  }
+
   // Update Telemetry HUD with angles in degrees
   if (elJ1) elJ1.textContent = `${THREE.MathUtils.radToDeg(theta1).toFixed(1)}°`;
   if (elJ2) elJ2.textContent = `${THREE.MathUtils.radToDeg(theta2).toFixed(1)}°`;
@@ -465,12 +478,6 @@ function updateTelemetry(data) {
     currentTargetQuat.setFromEuler(mappedEulerObj);
   } else {
     currentTargetQuat.set(rawQuat.x, rawQuat.y, rawQuat.z, rawQuat.w); // Three.js uses (x, y, z, w)
-  }
-
-  // Only add point to 3D trajectory trail when movement > 1cm to prevent stationary trail jitter
-  const lastPoint = trajectoryPoints[trajectoryPoints.length - 1];
-  if (!lastPoint || lastPoint.distanceTo(targetPosSmooth) > 0.01) {
-    addTrajectoryPoint(targetPosSmooth.x, targetPosSmooth.y, targetPosSmooth.z);
   }
 
   // Update Dashboard Text Metrics
