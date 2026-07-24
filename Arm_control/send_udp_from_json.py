@@ -8,7 +8,7 @@ config_path = os.path.join(os.path.dirname(__file__), "slider_config.json")
 with open(config_path, "r", encoding="utf-8-sig") as f:
     cfg = json.load(f)
 
-ip = cfg.get("ip", "192.168.137.94")
+ip = cfg.get("ip", "192.168.137.229")
 port = cfg.get("port", 8888)
 s1, s2, s3, s4 = cfg["servo1"], cfg["servo2"], cfg["servo3"], cfg["servo4"]
 
