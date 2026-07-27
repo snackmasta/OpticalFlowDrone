@@ -338,6 +338,23 @@ def record_optical_flow():
     # Start the UDP command listener thread
     threading.Thread(target=udp_command_listener, daemon=True).start()
     
+    # Immediately trigger zero-drift position reset on startup
+    x_raw_cm = 0.0
+    y_raw_cm = 0.0
+    vx_raw_prev = 0.0
+    vy_raw_prev = 0.0
+    accel_vx_mps = 0.0
+    accel_vy_mps = 0.0
+    with position_lock:
+        position_state["x_cm"] = 0.0
+        position_state["y_cm"] = 0.0
+        position_state["path"] = [(0.0, 0.0)]
+    velocity_state["vx_mps"] = 0.0
+    velocity_state["vy_mps"] = 0.0
+    velocity_state["vz_mps"] = 0.0
+    velocity_state["speed_mps"] = 0.0
+    print("[OpticalFlow] Immediate zero-drift position reset performed on startup.")
+    
     # Determine CSV output path if enabled or in record mode
     csv_path = None
     if args.csv is not None:
@@ -536,7 +553,7 @@ def record_optical_flow():
                     altitude_cm = distance_state["current_distance"]
 
                 # Calculate physical velocity using compensated translations (body frame)
-                altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 0.0
+                altitude_m = (altitude_cm / 100.0) if (altitude_cm is not None and altitude_cm > 0) else 1.5
                 vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
                 vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
@@ -665,7 +682,7 @@ def record_optical_flow():
             current_vy = velocity_state["vy_mps"]
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
-            current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 0.0
+            current_alt = (altitude_cm / 100.0) if (altitude_cm is not None and altitude_cm > 0) else 1.5
             write_flow_stream_sample(
                 frame_ts,
                 current_x_cm,
