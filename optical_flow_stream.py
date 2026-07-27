@@ -536,7 +536,7 @@ def record_optical_flow():
                     altitude_cm = distance_state["current_distance"]
 
                 # Calculate physical velocity using compensated translations (body frame)
-                altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+                altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 0.0
                 vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
                 vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
@@ -665,7 +665,7 @@ def record_optical_flow():
             current_vy = velocity_state["vy_mps"]
             with distance_lock:
                 altitude_cm = distance_state["current_distance"]
-            current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+            current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 0.0
             write_flow_stream_sample(
                 frame_ts,
                 current_x_cm,
