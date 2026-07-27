@@ -639,6 +639,29 @@ def start_udp_listener():
             roll_val = euler.get("roll", 0.0)
             pitch_val = euler.get("pitch", 0.0)
             send_arm_angles(roll_val, pitch_val)
+
+            # --- Server-side Geofence Monitoring (Runs regardless of connected web clients) ---
+            # Cube size: 0.12m (half=0.06m), Geofence centered at y=1.5m, size 1.5m (half=0.75m)
+            pos = payload.get("position", {})
+            px = pos.get("x", 0.0)
+            py = pos.get("y", 0.0)
+            pz = pos.get("z", 0.0)
+
+            CUBE_HALF_WIDTH_M = 0.06
+            FENCE_HALF_WIDTH_M = 0.75
+            GEOFENCE_CENTER = {"x": 0.0, "y": 1.5, "z": 0.0}
+
+            dx = px - GEOFENCE_CENTER["x"]
+            dy = py - GEOFENCE_CENTER["y"]
+            dz = pz - GEOFENCE_CENTER["z"]
+
+            is_geofence_breached = (
+                (abs(dx) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) or
+                (abs(dy) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) or
+                (abs(dz) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M)
+            )
+
+            send_geofence_buzzer_udp(is_geofence_breached)
         except Exception:
             pass
 
