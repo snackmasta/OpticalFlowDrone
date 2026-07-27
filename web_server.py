@@ -645,7 +645,7 @@ def start_udp_listener():
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = os.name != 'nt'  # Prevent socket hijacking on Windows by zombie background processes
 
     def handle_error(self, request, client_address):
         """Silently ignore routine client connection aborts/resets during browser refresh/close."""
