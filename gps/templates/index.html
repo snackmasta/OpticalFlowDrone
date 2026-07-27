@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Live GPS Tracker</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        #map { height: 100vh; width: 100vw; }
+        .dashboard {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            min-width: 220px;
+        }
+        .dashboard h3 { margin: 0 0 10px 0; font-size: 16px; color: #00e676; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .stat { margin: 6px 0; font-size: 13px; }
+        .stat span { font-weight: bold; color: #00e676; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div class="dashboard">
+        <h3>GY-GPS6MV2 Tracker</h3>
+        <div class="stat">Status: <span id="status">Connecting...</span></div>
+        <div class="stat">Fix Type: <span id="fix">No Fix</span></div>
+        <div class="stat">Satellites: <span id="sats">0</span></div>
+        <div class="stat">Latitude: <span id="lat">N/A</span></div>
+        <div class="stat">Longitude: <span id="lng">N/A</span></div>
+        <div class="stat">Altitude: <span id="alt">N/A</span></div>
+        <div class="stat">Speed: <span id="speed">0.0 km/h</span></div>
+    </div>
+
+    <!-- Leaflet & Socket.IO JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // Initialize OpenStreetMap centered on default coordinates
+        const map = L.map('map').setView([-6.864885, 107.573586], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let marker = null;
+        let polyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
+        const socket = io();
+
+        socket.on('gps_update', (data) => {
+            document.getElementById('status').innerText = data.status;
+            document.getElementById('fix').innerText = data.fix;
+            document.getElementById('sats').innerText = data.sats;
+            document.getElementById('alt').innerText = data.alt;
+            document.getElementById('speed').innerText = data.speed;
+
+            if (data.lat !== null && data.lng !== null) {
+                document.getElementById('lat').innerText = data.lat.toFixed(6);
+                document.getElementById('lng').innerText = data.lng.toFixed(6);
+
+                const newPos = [data.lat, data.lng];
+
+                if (!marker) {
+                    marker = L.marker(newPos).addTo(map).bindPopup("Current Position").openPopup();
+                    map.setView(newPos, 17);
+                } else {
+                    marker.setLatLng(newPos);
+                }
+
+                // Add point to track tail line
+                polyline.addLatLng(newPos);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -5,3 +5,6 @@ mavproxy
 pymavlink
 flask
 smbus2
+Flask-SocketIO
+pyserial
+pynmea2
