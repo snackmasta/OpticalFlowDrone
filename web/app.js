@@ -125,6 +125,11 @@ function createControllerMesh() {
 
 let geofenceMesh = null;
 let geofenceBoxWireframe = null;
+let geofenceCenter = { x: 0, y: 0, z: 0 };
+
+let breachCountdownTimer = null;
+let breachCountdownSec = 30;
+let isBreachCountdownActive = false;
 
 function createGeofence3D() {
   // 1x1m Active Geofence 3D Box Geometry (1m x 1m x 1m)
@@ -138,7 +143,7 @@ function createGeofence3D() {
     side: THREE.DoubleSide
   });
   geofenceMesh = new THREE.Mesh(boxGeo, fillMat);
-  geofenceMesh.position.set(0, 0, 0);
+  geofenceMesh.position.set(geofenceCenter.x, geofenceCenter.y, geofenceCenter.z);
 
   // Glowing Outline Wireframe
   const wireGeo = new THREE.EdgesGeometry(boxGeo);
@@ -149,8 +154,46 @@ function createGeofence3D() {
   scene.add(geofenceMesh);
 }
 
+function recenterGeofenceToCube() {
+  if (!controllerGroup || !geofenceMesh) return;
+
+  // Relocate geofence center to current 3D cube position
+  geofenceCenter = {
+    x: controllerGroup.position.x,
+    y: controllerGroup.position.y,
+    z: controllerGroup.position.z
+  };
+
+  geofenceMesh.position.set(geofenceCenter.x, geofenceCenter.y, geofenceCenter.z);
+
+  // Reset countdown
+  isBreachCountdownActive = false;
+  breachCountdownSec = 30;
+  if (breachCountdownTimer) {
+    clearInterval(breachCountdownTimer);
+    breachCountdownTimer = null;
+  }
+
+  // Re-evaluate breach check to clear breach status immediately
+  updateGeofenceHitboxCheck();
+}
+
+function resetGeofenceCenter() {
+  geofenceCenter = { x: 0, y: 0, z: 0 };
+  if (geofenceMesh) {
+    geofenceMesh.position.set(0, 0, 0);
+  }
+  isBreachCountdownActive = false;
+  breachCountdownSec = 30;
+  if (breachCountdownTimer) {
+    clearInterval(breachCountdownTimer);
+    breachCountdownTimer = null;
+  }
+  updateGeofenceHitboxCheck();
+}
+
 // ----------------------------------------------------
-// Simple 3D Hitbox-Based Geofence Breach Detection
+// 3D Hitbox-Based Geofence Breach & Auto-Recenter Detection
 // ----------------------------------------------------
 function updateGeofenceHitboxCheck() {
   if (!geofenceMesh || !controllerGroup) return;
@@ -160,20 +203,51 @@ function updateGeofenceHitboxCheck() {
   const CUBE_HALF_WIDTH_M = 0.06;
   const FENCE_HALF_WIDTH_M = 0.50;
 
-  const posX = controllerGroup.position.x;
-  const posY = controllerGroup.position.y;
-  const posZ = controllerGroup.position.z;
+  // Displacement relative to current geofence center
+  const dx = controllerGroup.position.x - geofenceCenter.x;
+  const dy = controllerGroup.position.y - geofenceCenter.y;
+  const dz = controllerGroup.position.z - geofenceCenter.z;
 
-  // Breach occurs if any face of the cube extends outside [-0.5m, +0.5m] on X, Z, or Y axis
-  const isBreached = (Math.abs(posX) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
-                     (Math.abs(posZ) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
-                     (Math.abs(posY) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M);
+  const isBreached = (Math.abs(dx) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
+                     (Math.abs(dz) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
+                     (Math.abs(dy) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M);
+
+  // Manage 30-second relocation countdown
+  if (isBreached) {
+    if (!isBreachCountdownActive) {
+      isBreachCountdownActive = true;
+      breachCountdownSec = 30;
+
+      if (breachCountdownTimer) clearInterval(breachCountdownTimer);
+      breachCountdownTimer = setInterval(() => {
+        breachCountdownSec -= 1;
+        if (breachCountdownSec <= 0) {
+          recenterGeofenceToCube();
+        } else {
+          const elBadge = document.getElementById('geofenceBadge');
+          if (elBadge) {
+            elBadge.className = 'geofence-badge breach';
+            elBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i> BREACH! RECENTERING IN ${breachCountdownSec}s`;
+          }
+        }
+      }, 1000);
+    }
+  } else {
+    if (isBreachCountdownActive) {
+      isBreachCountdownActive = false;
+      breachCountdownSec = 30;
+      if (breachCountdownTimer) {
+        clearInterval(breachCountdownTimer);
+        breachCountdownTimer = null;
+      }
+    }
+  }
 
   const elGeofenceBadge = document.getElementById('geofenceBadge');
   if (elGeofenceBadge) {
     if (isBreached) {
       elGeofenceBadge.className = 'geofence-badge breach';
-      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i> GEOFENCE: BREACH DETECTED!';
+      elGeofenceBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i> BREACH! RECENTERING IN ${breachCountdownSec}s`;
     } else {
       elGeofenceBadge.className = 'geofence-badge safe';
       elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)';
@@ -505,6 +579,7 @@ if (elBtnCloseDrawer) elBtnCloseDrawer.addEventListener('click', toggleGraphDraw
 
 document.getElementById('btnCalibrateDrift').addEventListener('click', () => {
   positionOffset = { ...rawLatestPos };
+  resetGeofenceCenter();
   trajectoryPoints = [];
   trajectoryLine.geometry.setDrawRange(0, 0);
 });
@@ -521,6 +596,7 @@ document.getElementById('btnResetTrail').addEventListener('click', () => {
 
 document.getElementById('btnResetPos').addEventListener('click', () => {
   positionOffset = { ...currentTargetPos };
+  resetGeofenceCenter();
   trajectoryPoints = [];
   trajectoryLine.geometry.setDrawRange(0, 0);
 });

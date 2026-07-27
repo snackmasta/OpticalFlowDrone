@@ -43,31 +43,41 @@ class BuzzerController:
                 self.native_pwm = PWMOutputDevice(self.pin, frequency=self.frequency)
                 print(f"[Buzzer] Native gpiozero PWM initialized on GPIO {self.pin} ({self.frequency}Hz)")
             except Exception as e:
-                print(f"[Buzzer] Native gpiozero init failed ({e}), falling back to subprocess.")
+                print(f"[Buzzer] Native gpiozero init failed ({e}), falling back to subprocess execution.")
                 self.native_pwm = None
 
-    def sound_beep(self, duration_sec=0.5):
-        """Sounds the PWM buzzer for the specified duration then turns off."""
+    def run_beep_cycle(self, on_duration=0.4, off_duration=0.1):
+        """Runs one beep pulse cycle for continuous alarm looping while breach persists."""
         if self.native_pwm is not None:
             try:
                 self.native_pwm.value = 0.5
-                time.sleep(duration_sec)
+                time.sleep(on_duration)
                 self.native_pwm.off()
+                time.sleep(off_duration)
             except Exception as e:
                 print(f"[Buzzer Error] Native PWM error: {e}")
         else:
-            # Fallback subprocess command execution as requested
+            # Command execution matching user requirement
             cmd = [
                 "python3", "-c",
-                f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep({duration_sec}); p.off()"
+                f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep({on_duration}); p.off()"
             ]
             try:
-                subprocess.run(cmd, timeout=duration_sec + 1.0, check=False)
+                subprocess.run(cmd, timeout=on_duration + 0.5, check=False)
+                time.sleep(off_duration)
             except Exception as e:
                 print(f"[Buzzer Error] Subprocess execution error: {e}")
 
-    def stop(self):
+    def turn_off(self):
         """Silences the buzzer immediately."""
+        if self.native_pwm is not None:
+            try:
+                self.native_pwm.off()
+            except Exception:
+                pass
+
+    def stop(self):
+        """Clean shutdown for buzzer hardware."""
         if self.native_pwm is not None:
             try:
                 self.native_pwm.off()
@@ -97,7 +107,7 @@ def main():
         print(f"[ERROR] Failed to bind socket on {args.ip}:{args.port}: {e}")
         sys.exit(1)
 
-    sock.settimeout(0.2)
+    sock.settimeout(0.1)
 
     print("=" * 65)
     print("      GEOFENCE BREACH BUZZER LISTENER SERVICE")
@@ -121,12 +131,13 @@ def main():
 
                 if "BREACH" in msg or '"STATUS": "BREACH"' in msg or msg == "1" or "TRUE" in msg:
                     if not is_breached:
-                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED from {addr[0]}! Sounding buzzer...")
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED from {addr[0]}! Sounding buzzer loop...")
                     is_breached = True
                 elif "SAFE" in msg or "INSIDE" in msg or msg == "0" or "FALSE" in msg:
                     if is_breached:
                         print(f"[{time.strftime('%H:%M:%S')}] >>> Geofence SAFE (Breach Cleared) from {addr[0]}. Silencing buzzer.")
                     is_breached = False
+                    buzzer.turn_off()
             except socket.timeout:
                 pass
             except Exception as e:
@@ -136,11 +147,13 @@ def main():
             if is_breached and (time.time() - last_packet_ts > 3.0):
                 print(f"[{time.strftime('%H:%M:%S')}] Telemetry timeout (>3s). Silencing buzzer.")
                 is_breached = False
+                buzzer.turn_off()
 
-            # Active breach execution loop
+            # Continuous buzzer loop while breach persists
             if is_breached:
-                buzzer.sound_beep(duration_sec=0.5)
+                buzzer.run_beep_cycle(on_duration=0.4, off_duration=0.1)
             else:
+                buzzer.turn_off()
                 time.sleep(0.05)
 
     except KeyboardInterrupt:
