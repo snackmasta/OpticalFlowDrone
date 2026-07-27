@@ -70,123 +70,96 @@ def convert_longitude(lon_str, lon_dir):
         return None
 
 def gps_hardware_thread():
-    """Reads GPS NMEA stream from /dev/ttyAMA2 on the Pi drone side with auto-reconnect & buffer recovery."""
+    """Reads GPS NMEA stream from /dev/ttyAMA2 on the Pi drone side continuously."""
     if not SERIAL_AVAILABLE:
         print("[GPS Thread] pyserial not installed. Hardware GPS disabled.")
         return
 
-    ser = None
-    last_valid_rx_ts = time.time()
-
     while True:
-        # Auto-reconnect if serial port is closed or uninitialized
-        if ser is None or not getattr(ser, 'is_open', False):
-            try:
-                if ser is not None:
+        ser = None
+        try:
+            ser = serial.Serial(GPS_SERIAL_PORT, GPS_BAUD_RATE, timeout=1)
+            print(f"[GPS Thread] Hardware GPS listener connected to {GPS_SERIAL_PORT} @ {GPS_BAUD_RATE} baud.")
+            
+            while True:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                if not line or not line.startswith('$'):
+                    continue
+
+                if PYNMEA2_AVAILABLE:
                     try:
-                        ser.close()
+                        msg = pynmea2.parse(line)
+                        stype = getattr(msg, 'sentence_type', '')
+                        if stype == 'GGA':
+                            sats = int(msg.num_sats) if (hasattr(msg, 'num_sats') and msg.num_sats) else 0
+                            fix_qual = int(msg.gps_qual) if (hasattr(msg, 'gps_qual') and msg.gps_qual) else 0
+                            fix_str = "3D FIX ACQUIRED" if fix_qual > 0 else "SEARCHING FOR SATELLITES..."
+                            alt = float(msg.altitude) if (hasattr(msg, 'altitude') and msg.altitude) else 0.0
+                            lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
+                            lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
+                            with gps_lock:
+                                if lat is not None: latest_gps_data["lat"] = lat
+                                if lon is not None: latest_gps_data["lon"] = lon
+                                latest_gps_data["alt_m"] = alt
+                                latest_gps_data["satellites"] = sats
+                                latest_gps_data["fix_status"] = fix_str
+                                latest_gps_data["fix_code"] = str(fix_qual)
+                                latest_gps_data["last_update"] = time.time()
+                        elif stype == 'RMC':
+                            status = getattr(msg, 'status', 'V')
+                            lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
+                            lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
+                            spd_kmh = float(msg.spd_over_grnd) * 1.852 if (hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None) else 0.0
+                            with gps_lock:
+                                if lat is not None: latest_gps_data["lat"] = lat
+                                if lon is not None: latest_gps_data["lon"] = lon
+                                latest_gps_data["speed_kmh"] = round(spd_kmh, 1)
+                                if status == 'A':
+                                    latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
+                                latest_gps_data["last_update"] = time.time()
                     except Exception:
                         pass
-                ser = serial.Serial(GPS_SERIAL_PORT, GPS_BAUD_RATE, timeout=1)
-                ser.flushInput()
-                print(f"[GPS Thread] Hardware GPS listener connected to {GPS_SERIAL_PORT} @ {GPS_BAUD_RATE} baud.")
-                last_valid_rx_ts = time.time()
-            except Exception as e:
-                ser = None
-                time.sleep(2.0)
-                continue
-
-        try:
-            # Watchdog check: If no valid NMEA data received for > 5 seconds, reset serial port
-            if time.time() - last_valid_rx_ts > 5.0:
-                print(f"[GPS Thread] No NMEA data received for 5s on {GPS_SERIAL_PORT}, reconnecting...")
-                try:
-                    ser.close()
-                except Exception:
-                    pass
-                ser = None
-                time.sleep(1.0)
-                continue
-
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if not line or not line.startswith('$'):
-                continue
-
-            last_valid_rx_ts = time.time()
-
-            if PYNMEA2_AVAILABLE:
-                try:
-                    msg = pynmea2.parse(line)
-                    stype = getattr(msg, 'sentence_type', '')
-                    if stype == 'GGA':
-                        sats = int(msg.num_sats) if (hasattr(msg, 'num_sats') and msg.num_sats) else 0
-                        fix_qual = int(msg.gps_qual) if (hasattr(msg, 'gps_qual') and msg.gps_qual) else 0
-                        fix_str = "3D FIX ACQUIRED" if fix_qual > 0 else "SEARCHING FOR SATELLITES..."
-                        alt = float(msg.altitude) if (hasattr(msg, 'altitude') and msg.altitude) else 0.0
-                        lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
-                        lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
+                else:
+                    parts = line.split(',')
+                    sentence = parts[0]
+                    if sentence.endswith('GGA') and len(parts) >= 10:
+                        raw_lat, lat_dir = parts[2], parts[3]
+                        raw_lon, lon_dir = parts[4], parts[5]
+                        fix_code = parts[6] if len(parts) > 6 and parts[6] else '0'
+                        sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
+                        alt = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
+                        lat = convert_latitude(raw_lat, lat_dir)
+                        lon = convert_longitude(raw_lon, lon_dir)
+                        fix_str = "3D FIX ACQUIRED" if fix_code in ['1', '2', '4', '5'] else "SEARCHING FOR SATELLITES..."
                         with gps_lock:
                             if lat is not None: latest_gps_data["lat"] = lat
                             if lon is not None: latest_gps_data["lon"] = lon
                             latest_gps_data["alt_m"] = alt
                             latest_gps_data["satellites"] = sats
                             latest_gps_data["fix_status"] = fix_str
-                            latest_gps_data["fix_code"] = str(fix_qual)
+                            latest_gps_data["fix_code"] = fix_code
                             latest_gps_data["last_update"] = time.time()
-                    elif stype == 'RMC':
-                        status = getattr(msg, 'status', 'V')
-                        lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
-                        lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
-                        spd_kmh = float(msg.spd_over_grnd) * 1.852 if (hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None) else 0.0
+                    elif sentence.endswith('RMC') and len(parts) >= 9:
+                        status = parts[2]
+                        lat = convert_latitude(parts[3], parts[4])
+                        lon = convert_longitude(parts[5], parts[6])
+                        spd_knots = float(parts[7]) if len(parts) > 7 and parts[7] else 0.0
                         with gps_lock:
                             if lat is not None: latest_gps_data["lat"] = lat
                             if lon is not None: latest_gps_data["lon"] = lon
-                            latest_gps_data["speed_kmh"] = round(spd_kmh, 1)
+                            latest_gps_data["speed_kmh"] = round(spd_knots * 1.852, 1)
                             if status == 'A':
                                 latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
                             latest_gps_data["last_update"] = time.time()
+
+        except Exception as e:
+            print(f"[GPS Thread] Serial port error on {GPS_SERIAL_PORT}: {e}. Retrying in 2s...")
+            if ser is not None:
+                try:
+                    ser.close()
                 except Exception:
                     pass
-            else:
-                parts = line.split(',')
-                sentence = parts[0]
-                if sentence.endswith('GGA') and len(parts) >= 10:
-                    raw_lat, lat_dir = parts[2], parts[3]
-                    raw_lon, lon_dir = parts[4], parts[5]
-                    fix_code = parts[6] if len(parts) > 6 and parts[6] else '0'
-                    sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
-                    alt = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
-                    lat = convert_latitude(raw_lat, lat_dir)
-                    lon = convert_longitude(raw_lon, lon_dir)
-                    fix_str = "3D FIX ACQUIRED" if fix_code in ['1', '2', '4', '5'] else "SEARCHING FOR SATELLITES..."
-                    with gps_lock:
-                        if lat is not None: latest_gps_data["lat"] = lat
-                        if lon is not None: latest_gps_data["lon"] = lon
-                        latest_gps_data["alt_m"] = alt
-                        latest_gps_data["satellites"] = sats
-                        latest_gps_data["fix_status"] = fix_str
-                        latest_gps_data["fix_code"] = fix_code
-                        latest_gps_data["last_update"] = time.time()
-                elif sentence.endswith('RMC') and len(parts) >= 9:
-                    status = parts[2]
-                    lat = convert_latitude(parts[3], parts[4])
-                    lon = convert_longitude(parts[5], parts[6])
-                    spd_knots = float(parts[7]) if len(parts) > 7 and parts[7] else 0.0
-                    with gps_lock:
-                        if lat is not None: latest_gps_data["lat"] = lat
-                        if lon is not None: latest_gps_data["lon"] = lon
-                        latest_gps_data["speed_kmh"] = round(spd_knots * 1.852, 1)
-                        if status == 'A':
-                            latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
-                        latest_gps_data["last_update"] = time.time()
-        except Exception as e:
-            try:
-                if ser is not None:
-                    ser.close()
-            except Exception:
-                pass
-            ser = None
-            time.sleep(1.0)
+            time.sleep(2.0)
 
 ATTITUDE_SHM_NAME = "drone_attitude_stream"
 ATTITUDE_SHM_MAGIC = b"ATT "
