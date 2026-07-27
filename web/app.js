@@ -149,6 +149,46 @@ function createGeofence3D() {
   scene.add(geofenceMesh);
 }
 
+// ----------------------------------------------------
+// Simple 3D Hitbox-Based Geofence Breach Detection
+// ----------------------------------------------------
+function updateGeofenceHitboxCheck() {
+  if (!geofenceMesh || !controllerGroup) return;
+
+  // Cube Box size: 0.12m x 0.12m x 0.12m (max rotated half-extent ~0.1039m)
+  // Fence Box size: 1.0m x 1.0m x 1.0m (half-width 0.50m)
+  const CUBE_RADIUS_M = 0.06 * Math.SQRT3; // ~0.1039m max rotated diagonal radius
+  const FENCE_LIMIT_M = 0.50;              // 0.50m fence wall limit
+
+  const posX = controllerGroup.position.x;
+  const posZ = controllerGroup.position.z;
+
+  // Breach occurs if any face or corner of the cube hitbox crosses outside the 1x1m fence hitbox
+  const isBreached = (Math.abs(posX) + CUBE_RADIUS_M > FENCE_LIMIT_M) ||
+                     (Math.abs(posZ) + CUBE_RADIUS_M > FENCE_LIMIT_M);
+
+  const elGeofenceBadge = document.getElementById('geofenceBadge');
+  if (elGeofenceBadge) {
+    if (isBreached) {
+      elGeofenceBadge.className = 'geofence-badge breach';
+      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i> GEOFENCE: BREACH DETECTED!';
+    } else {
+      elGeofenceBadge.className = 'geofence-badge safe';
+      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)';
+    }
+  }
+
+  if (geofenceBoxWireframe && geofenceMesh) {
+    if (isBreached) {
+      geofenceBoxWireframe.material.color.setHex(0xef4444);
+      geofenceMesh.material.color.setHex(0xef4444);
+    } else {
+      geofenceBoxWireframe.material.color.setHex(0x10b981);
+      geofenceMesh.material.color.setHex(0x10b981);
+    }
+  }
+}
+
 
 // Initialize Dynamic 3D Trajectory Ribbon Line
 function createTrajectoryLine() {
@@ -320,10 +360,8 @@ function updateTelemetry(data) {
     updateSensorCharts(data.raw_imu);
   }
 
-  // Update GPS and 2D Planar Projection
-  if (data.gps || data.fused_gps) {
-    updateGpsTelemetry(data.gps, data.fused_gps);
-  }
+  // Update GPS, 2D Planar Projection, and Geofence Breach Status
+  updateGpsTelemetry(data.gps, data.fused_gps, posX, posZ);
 }
 
 // ----------------------------------------------------
@@ -415,6 +453,9 @@ function animate() {
   if (controllerGroup) {
     controllerGroup.position.lerp(currentTargetPos, 0.3);
     controllerGroup.quaternion.slerp(currentTargetQuat, 0.3);
+
+    // Hitbox Bounding-Box Geofence Breach Check
+    updateGeofenceHitboxCheck();
 
     // Smoothly track controller position with camera target if follow mode is active
     if (followMode) {
@@ -1281,9 +1322,10 @@ function updateLeafletGeofenceRectangles(originLat, originLon) {
   }
 }
 
-function updateGpsTelemetry(gps, fusedGps) {
-  if (!gps && !fusedGps) return;
-  currentGpsState = { ...currentGpsState, ...gps, ...fusedGps };
+function updateGpsTelemetry(gps, fusedGps, active3dPosX, active3dPosZ) {
+  if (gps || fusedGps) {
+    currentGpsState = { ...currentGpsState, ...gps, ...fusedGps };
+  }
 
   const elFixBadge = document.getElementById('gpsFixBadge');
   const elSats = document.getElementById('gpsSats');
@@ -1315,35 +1357,15 @@ function updateGpsTelemetry(gps, fusedGps) {
   if (elLat) elLat.textContent = fusedLat != null ? fusedLat.toFixed(6) : '-';
   if (elLon) elLon.textContent = fusedLon != null ? fusedLon.toFixed(6) : '-';
 
-  const projX = fusedGps ? fusedGps.fused_x_m : (gps ? gps.projected_x_m : 0.0);
-  const projY = fusedGps ? fusedGps.fused_y_m : (gps ? gps.projected_y_m : 0.0);
+  // Projected X and Y meters (aligned with active zero-calibrated 3D cube coordinates)
+  const projX = (typeof controllerGroup !== 'undefined' && controllerGroup) ? controllerGroup.position.x : ((active3dPosX !== undefined) ? active3dPosX : (fusedGps ? fusedGps.fused_x_m : (gps ? gps.projected_x_m : 0.0)));
+  const projY = (typeof controllerGroup !== 'undefined' && controllerGroup) ? -controllerGroup.position.z : ((active3dPosZ !== undefined) ? -active3dPosZ : (fusedGps ? fusedGps.fused_y_m : (gps ? gps.projected_y_m : 0.0)));
 
   if (elProjX) elProjX.textContent = `${(projX || 0).toFixed(2)} m`;
   if (elProjY) elProjY.textContent = `${(projY || 0).toFixed(2)} m`;
 
-  // Geofence 1x1m Breach Detection (|X| > 0.5m or |Y| > 0.5m)
-  const isBreached = Math.abs(projX) > 0.5 || Math.abs(projY) > 0.5;
-  const elGeofenceBadge = document.getElementById('geofenceBadge');
-
-  if (elGeofenceBadge) {
-    if (isBreached) {
-      elGeofenceBadge.className = 'geofence-badge breach';
-      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i> GEOFENCE: BREACH DETECTED!';
-    } else {
-      elGeofenceBadge.className = 'geofence-badge safe';
-      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)';
-    }
-  }
-
-  if (geofenceBoxWireframe && geofenceMesh) {
-    if (isBreached) {
-      geofenceBoxWireframe.material.color.setHex(0xef4444);
-      geofenceMesh.material.color.setHex(0xef4444);
-    } else {
-      geofenceBoxWireframe.material.color.setHex(0x10b981);
-      geofenceMesh.material.color.setHex(0x10b981);
-    }
-  }
+  // Update Geofence 3D Hitbox Containment Status
+  updateGeofenceHitboxCheck();
 
   // Update Modal Overlay Panel
   const elOvlStatus = document.getElementById('overlayGpsStatus');
