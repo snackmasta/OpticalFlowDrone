@@ -106,15 +106,18 @@ def nmea_to_decimal(raw_val, direction, is_lon=False):
     except ValueError:
         return None
 
+origin_initialized = False
+
 def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=None, fix_status=None, fix_code=None, origin=None):
     """Updates global gps_data_state and recalculates 2D planar projection."""
-    global gps_data_state, latest_telemetry
+    global gps_data_state, latest_telemetry, origin_initialized
     with clients_lock:
         if origin is not None and isinstance(origin, dict):
             if "lat" in origin and origin["lat"] is not None:
                 gps_data_state["origin"]["lat"] = float(origin["lat"])
             if "lon" in origin and origin["lon"] is not None:
                 gps_data_state["origin"]["lon"] = float(origin["lon"])
+            origin_initialized = True
 
         if lat is not None: gps_data_state["lat"] = float(lat)
         if lon is not None: gps_data_state["lon"] = float(lon)
@@ -123,6 +126,12 @@ def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=
         if satellites is not None: gps_data_state["satellites"] = int(satellites)
         if fix_status is not None: gps_data_state["fix_status"] = str(fix_status)
         if fix_code is not None: gps_data_state["fix_code"] = str(fix_code)
+
+        # Set reference origin to first valid GPS fix coordinate automatically
+        if not origin_initialized and lat is not None and lon is not None:
+            gps_data_state["origin"]["lat"] = float(lat)
+            gps_data_state["origin"]["lon"] = float(lon)
+            origin_initialized = True
 
         orig_lat = gps_data_state["origin"]["lat"]
         orig_lon = gps_data_state["origin"]["lon"]

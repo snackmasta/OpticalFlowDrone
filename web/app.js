@@ -1172,8 +1172,9 @@ function updateGpsTelemetry(gps) {
   if (elOvlX) elOvlX.textContent = `${(gps.projected_x_m || 0).toFixed(2)} m`;
   if (elOvlY) elOvlY.textContent = `${(gps.projected_y_m || 0).toFixed(2)} m`;
 
-  if (elOvlOrigin && gps.origin) {
-    elOvlOrigin.textContent = `${gps.origin.lat.toFixed(6)}, ${gps.origin.lon.toFixed(6)}`;
+  const activeOrigin = gps.origin || currentGpsState.origin;
+  if (elOvlOrigin && activeOrigin && activeOrigin.lat != null && activeOrigin.lon != null) {
+    elOvlOrigin.textContent = `${activeOrigin.lat.toFixed(6)}, ${activeOrigin.lon.toFixed(6)}`;
   }
 
   // Update Leaflet map markers
