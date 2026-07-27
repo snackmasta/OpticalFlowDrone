@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Geofence Engine Module & Standalone Service
--------------------------------------------
+Geofence Engine Module & Autonomous Standalone Service
+------------------------------------------------------
 Handles 3D spatial boundary checking, geofence state management (SAFE vs BREACH),
+autonomous Shared Memory (`optical_flow_stream`) position tracking,
 UDP status broadcasting, and GPIO PWM buzzer alarm control.
+
+Can run completely independently without requiring `web_server.py` or a web browser.
 """
 
 import argparse
 import json
 import os
 import socket
+import struct
 import subprocess
 import sys
 import threading
 import time
+from multiprocessing import shared_memory
 
 DEFAULT_UDP_IP = "0.0.0.0"
 DEFAULT_UDP_PORT = 5006
@@ -22,12 +27,64 @@ DEFAULT_BUZZER_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
 GPIO_PIN = 12
 BUZZER_FREQ = 2300
 
+# Optical Flow Shared Memory Constants
+FLOW_SHM_NAME = "optical_flow_stream"
+FLOW_SHM_MAGIC = b"FLOW"
+FLOW_SHM_HEADER_FORMAT = "<4sII"
+FLOW_SHM_RECORD_FORMAT = "<11d"
+FLOW_SHM_HEADER_SIZE = struct.calcsize(FLOW_SHM_HEADER_FORMAT)
+FLOW_SHM_RECORD_SIZE = struct.calcsize(FLOW_SHM_RECORD_FORMAT)
+FLOW_MAX_SAMPLES = 120
+
+flow_shm_handle = None
+
 # Check for gpiozero library
 try:
     from gpiozero import PWMOutputDevice
     HAS_GPIOZERO = True
 except ImportError:
     HAS_GPIOZERO = False
+
+
+def get_latest_flow_telemetry():
+    """
+    Connects to the optical flow shared memory segment and reads the latest
+    displacement (X_m, Y_m) and altitude Z_m.
+    Returns (x_m, y_m, z_m) or None if SHM is not available.
+    """
+    global flow_shm_handle
+    if flow_shm_handle is None:
+        try:
+            flow_shm_handle = shared_memory.SharedMemory(name=FLOW_SHM_NAME)
+            try:
+                from multiprocessing import resource_tracker
+                resource_tracker.unregister(flow_shm_handle._name, "shared_memory")
+            except Exception:
+                pass
+        except FileNotFoundError:
+            return None
+
+    try:
+        magic, write_index, sample_count = struct.unpack_from(FLOW_SHM_HEADER_FORMAT, flow_shm_handle.buf, 0)
+        if magic != FLOW_SHM_MAGIC or sample_count == 0:
+            return None
+
+        latest_index = (write_index - 1) % FLOW_MAX_SAMPLES
+        offset = FLOW_SHM_HEADER_SIZE + (latest_index * FLOW_SHM_RECORD_SIZE)
+        # Fields: timestamp, x_cm, y_cm, x_raw_cm, y_raw_cm, vx, vy, vx_raw, vy_raw, alt, heading
+        values = struct.unpack_from(FLOW_SHM_RECORD_FORMAT, flow_shm_handle.buf, offset)
+        x_cm, y_cm = values[1], values[2]
+        alt = values[9]
+        # Fallback altitude to 1.5m center if alt is not positive
+        z_m = alt if alt > 0 else 1.5
+        return (x_cm / 100.0, y_cm / 100.0, z_m)
+    except Exception:
+        try:
+            flow_shm_handle.close()
+        except Exception:
+            pass
+        flow_shm_handle = None
+        return None
 
 
 class BuzzerController:
@@ -143,6 +200,7 @@ class GeofenceEngine:
         half_y = self.size_y / 2.0
         half_z = self.size_z / 2.0
 
+        was_breached = self.is_breached
         self.is_breached = (dx > half_x or dy > half_y or dz > half_z)
         self.last_update_ts = time.time()
         return self.is_breached
@@ -185,8 +243,39 @@ def send_geofence_status_udp(is_breached, target_ip=DEFAULT_BUZZER_IP, target_po
         print(f"[Geofence Engine UDP Error] {e}")
 
 
+def _shm_telemetry_loop(engine, buzzer, stop_event):
+    """
+    Autonomous background thread reading Optical Flow Shared Memory telemetry (20Hz).
+    Evaluates 3D position coordinates directly and actuates alarm on breach without web server.
+    """
+    print("[Geofence Engine] Autonomous SHM Telemetry Monitor Thread started.")
+    last_state = False
+
+    while not stop_event.is_set():
+        try:
+            telemetry = get_latest_flow_telemetry()
+            if telemetry is not None:
+                x, y, z = telemetry
+                is_breached = engine.check_position(x, y, z)
+
+                if is_breached != last_state:
+                    last_state = is_breached
+                    if is_breached:
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> AUTONOMOUS GEOFENCE BREACH DETECTED at ({x:.2f}m, {y:.2f}m, {z:.2f}m)! Sounding alarm...")
+                        buzzer.start_alarm()
+                    else:
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> Autonomous Geofence SAFE at ({x:.2f}m, {y:.2f}m, {z:.2f}m). Silencing alarm.")
+                        buzzer.stop_alarm()
+                elif is_breached:
+                    buzzer.start_alarm()
+        except Exception as e:
+            print(f"[Geofence SHM Loop Error] {e}")
+
+        time.sleep(0.05)
+
+
 def run_listener_service(ip=DEFAULT_UDP_IP, port=DEFAULT_UDP_PORT, pin=GPIO_PIN, freq=BUZZER_FREQ, force_subprocess=False):
-    """Runs the UDP listener service to trigger hardware buzzer on breach signals."""
+    """Runs the UDP listener service and autonomous SHM telemetry monitor."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -202,15 +291,21 @@ def run_listener_service(ip=DEFAULT_UDP_IP, port=DEFAULT_UDP_PORT, pin=GPIO_PIN,
     sock.settimeout(0.1)
 
     print("=" * 65)
-    print("      GEOFENCE ENGINE LISTENER SERVICE")
+    print("      GEOFENCE ENGINE AUTONOMOUS SERVICE")
     print("=" * 65)
     print(f"[UDP Listener] Listening on {ip}:{port}")
+    print(f"[SHM Monitor] Autonomous optical_flow_stream SHM active (no web server needed)")
     print(f"[Hardware] GPIO Pin: {pin} | PWM Frequency: {freq} Hz")
     print(f"[Mode] {'Subprocess python3 -c' if force_subprocess or not HAS_GPIOZERO else 'Native gpiozero PWM'}")
     print("Press Ctrl+C to stop.\n")
 
     buzzer = BuzzerController(pin=pin, frequency=freq, force_subprocess=force_subprocess)
     engine = GeofenceEngine()
+    
+    stop_event = threading.Event()
+    shm_thread = threading.Thread(target=_shm_telemetry_loop, args=(engine, buzzer, stop_event), daemon=True)
+    shm_thread.start()
+
     last_packet_ts = time.time()
 
     try:
@@ -222,12 +317,12 @@ def run_listener_service(ip=DEFAULT_UDP_IP, port=DEFAULT_UDP_PORT, pin=GPIO_PIN,
 
                 if "BREACH" in msg or '"STATUS": "BREACH"' in msg or msg == "1" or "TRUE" in msg:
                     if not engine.is_breached:
-                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED from {addr[0]}! Sounding alarm...")
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED via UDP from {addr[0]}! Sounding alarm...")
                     engine.update_breach_status(True)
                     buzzer.start_alarm()
                 elif "SAFE" in msg or "INSIDE" in msg or msg == "0" or "FALSE" in msg:
                     if engine.is_breached:
-                        print(f"[{time.strftime('%H:%M:%S')}] >>> Geofence SAFE (Breach Cleared) from {addr[0]}. Silencing alarm.")
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> Geofence SAFE via UDP from {addr[0]}. Silencing alarm.")
                     engine.update_breach_status(False)
                     buzzer.stop_alarm()
             except socket.timeout:
@@ -235,8 +330,8 @@ def run_listener_service(ip=DEFAULT_UDP_IP, port=DEFAULT_UDP_PORT, pin=GPIO_PIN,
             except Exception as e:
                 print(f"[Socket Error] {e}")
 
-            # Auto-timeout breach alert if no packets received for >3 seconds
-            if engine.is_breached and (time.time() - last_packet_ts > 3.0):
+            # Auto-timeout UDP breach override if no UDP packets received for >3 seconds
+            if engine.is_breached and (time.time() - last_packet_ts > 3.0) and (get_latest_flow_telemetry() is None):
                 print(f"[{time.strftime('%H:%M:%S')}] Telemetry timeout (>3s). Silencing alarm.")
                 engine.update_breach_status(False)
                 buzzer.stop_alarm()
@@ -244,13 +339,14 @@ def run_listener_service(ip=DEFAULT_UDP_IP, port=DEFAULT_UDP_PORT, pin=GPIO_PIN,
     except KeyboardInterrupt:
         print("\nStopping Geofence Engine Service...")
     finally:
+        stop_event.set()
         buzzer.stop()
         sock.close()
         print("Geofence Engine stopped cleanly.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Standalone Geofence Engine Service")
+    parser = argparse.ArgumentParser(description="Autonomous Standalone Geofence Engine Service")
     parser.add_argument("--ip", type=str, default=DEFAULT_UDP_IP, help="UDP bind IP address (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP bind port (default 5006)")
     parser.add_argument("--pin", type=int, default=GPIO_PIN, help="GPIO pin for buzzer (default 12)")
