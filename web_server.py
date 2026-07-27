@@ -519,10 +519,6 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
         super().log_message(format, *args)
 
 
-# Arm destination UDP settings
-ARM_UDP_IP = "192.168.137.54"
-ARM_UDP_PORT = 8888
-
 # Buzzer destination UDP settings
 BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
 BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
@@ -560,26 +556,6 @@ def send_geofence_buzzer_udp(is_breached):
         print(f"[Buzzer UDP] Transmitted status: {'BREACH' if is_breached else 'SAFE'} -> {BUZZER_UDP_IP}:{BUZZER_UDP_PORT}")
     except Exception as e:
         print(f"[Buzzer UDP Error] {e}")
-
-def send_arm_angles(roll_deg, pitch_deg):
-    """
-    Calculates arm joint angles (90 - roll° for Shoulder J2, 90 + pitch° for Wrist J4 clamped 0..180)
-    and streams to 4-DOF Robotic Arm via UDP.
-    Payload format: "90,<shoulder_angle>,90,<wrist_angle>"
-    """
-    try:
-        shoulder_angle = int(round(90.0 - roll_deg))
-        shoulder_angle = max(0, min(180, shoulder_angle))
-
-        wrist_angle = int(round(90.0 + pitch_deg))
-        wrist_angle = max(0, min(180, wrist_angle))
-
-        payload = f"90,{shoulder_angle},90,{wrist_angle}".encode('ascii')
-        arm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        arm_sock.sendto(payload, (ARM_UDP_IP, ARM_UDP_PORT))
-        arm_sock.close()
-    except Exception as e:
-        pass
 
 def start_udp_listener():
     """
@@ -634,11 +610,24 @@ def start_udp_listener():
             with clients_lock:
                 latest_telemetry = payload
 
-            # Extract roll & pitch angles and stream to 4-DOF Arm
-            euler = payload.get("rotation", {}).get("euler", {})
-            roll_val = euler.get("roll", 0.0)
-            pitch_val = euler.get("pitch", 0.0)
-            send_arm_angles(roll_val, pitch_val)
+            # Evaluate 3D Geofence Breach status (1.5m x 1.5m x 1.5m, half-size 0.75m + cube half-size 0.06m)
+            pos = payload.get("position", {})
+            px = pos.get("x", 0.0)
+            py = pos.get("y", 1.5)  # Default y centered at 1.5m
+            pz = pos.get("z", 0.0)
+
+            # Geofence center (0.0, 1.5, 0.0)
+            CUBE_HALF_WIDTH_M = 0.06
+            FENCE_HALF_WIDTH_M = 0.75
+            dx = px - 0.0
+            dy = py - 1.5
+            dz = pz - 0.0
+
+            is_breached = (abs(dx) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) or \
+                          (abs(dz) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) or \
+                          (abs(dy) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M)
+
+            send_geofence_buzzer_udp(is_breached)
         except Exception:
             pass
 
