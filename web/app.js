@@ -1069,6 +1069,11 @@ window.addEventListener('DOMContentLoaded', () => {
   connectTelemetryStream();
 });
 
+// Update GPS and 2D Planar Projection
+if (data.gps || data.fused_gps) {
+  updateGpsTelemetry(data.gps, data.fused_gps);
+}
+
 // ----------------------------------------------------
 // Real-World GPS & 2D Tangent Plane Projection Map
 // ----------------------------------------------------
@@ -1121,15 +1126,15 @@ function initLeafletMap() {
     iconAnchor: [9, 9]
   });
 
-  leafletMarker = L.marker([initialLat, initialLon], { icon: droneIcon }).addTo(leafletMap).bindPopup('Drone Current Position');
+  leafletMarker = L.marker([initialLat, initialLon], { icon: droneIcon }).addTo(leafletMap).bindPopup('Drone Current Position (Fused)');
 
   // Flight Path Polyline
   leafletPolyline = L.polyline([], { color: '#06b6d4', weight: 4, opacity: 0.8 }).addTo(leafletMap);
 }
 
-function updateGpsTelemetry(gps) {
-  if (!gps) return;
-  currentGpsState = { ...currentGpsState, ...gps };
+function updateGpsTelemetry(gps, fusedGps) {
+  if (!gps && !fusedGps) return;
+  currentGpsState = { ...currentGpsState, ...gps, ...fusedGps };
 
   const elFixBadge = document.getElementById('gpsFixBadge');
   const elSats = document.getElementById('gpsSats');
@@ -1138,19 +1143,30 @@ function updateGpsTelemetry(gps) {
   const elProjX = document.getElementById('gpsProjX');
   const elProjY = document.getElementById('gpsProjY');
 
+  const fixStatus = gps ? gps.fix_status : (fusedGps && fusedGps.raw_gps ? fusedGps.raw_gps.fix_status : 'SEARCHING...');
+  const satsCount = gps ? gps.satellites : (fusedGps && fusedGps.raw_gps ? fusedGps.raw_gps.satellites : 0);
+
   if (elFixBadge) {
-    elFixBadge.textContent = gps.fix_status || 'SEARCHING...';
-    if (gps.fix_status && (gps.fix_status.includes('FIX') || gps.fix_status.includes('3D'))) {
+    elFixBadge.textContent = fixStatus || 'SEARCHING...';
+    if (fixStatus && (fixStatus.includes('FIX') || fixStatus.includes('3D'))) {
       elFixBadge.className = 'status-badge-sm active';
     } else {
       elFixBadge.className = 'status-badge-sm';
     }
   }
-  if (elSats) elSats.textContent = gps.satellites != null ? gps.satellites : 0;
-  if (elLat) elLat.textContent = gps.lat != null ? gps.lat.toFixed(6) : '-';
-  if (elLon) elLon.textContent = gps.lon != null ? gps.lon.toFixed(6) : '-';
-  if (elProjX) elProjX.textContent = `${(gps.projected_x_m || 0).toFixed(2)} m`;
-  if (elProjY) elProjY.textContent = `${(gps.projected_y_m || 0).toFixed(2)} m`;
+  if (elSats) elSats.textContent = satsCount != null ? satsCount : 0;
+
+  const latVal = fusedGps ? fusedGps.fused_lat : (gps ? gps.lat : null);
+  const lonVal = fusedGps ? fusedGps.fused_lon : (gps ? gps.lon : null);
+
+  if (elLat) elLat.textContent = latVal != null ? latVal.toFixed(6) : '-';
+  if (elLon) elLon.textContent = lonVal != null ? lonVal.toFixed(6) : '-';
+
+  const projX = fusedGps ? fusedGps.fused_x_m : (gps ? gps.projected_x_m : 0.0);
+  const projY = fusedGps ? fusedGps.fused_y_m : (gps ? gps.projected_y_m : 0.0);
+
+  if (elProjX) elProjX.textContent = `${(projX || 0).toFixed(2)} m`;
+  if (elProjY) elProjY.textContent = `${(projY || 0).toFixed(2)} m`;
 
   // Update Modal Overlay Panel
   const elOvlStatus = document.getElementById('overlayGpsStatus');
@@ -1162,28 +1178,32 @@ function updateGpsTelemetry(gps) {
   const elOvlX = document.getElementById('overlayGpsX');
   const elOvlY = document.getElementById('overlayGpsY');
   const elOvlOrigin = document.getElementById('overlayGpsOrigin');
+  const elOvlAccuracy = document.getElementById('overlayGpsAccuracy');
 
-  if (elOvlStatus) elOvlStatus.textContent = gps.fix_status || 'SEARCHING...';
-  if (elOvlSats) elOvlSats.textContent = gps.satellites != null ? gps.satellites : 0;
-  if (elOvlSpeed) elOvlSpeed.textContent = `${(gps.speed_kmh || 0).toFixed(1)} km/h`;
-  if (elOvlAlt) elOvlAlt.textContent = `${(gps.alt_m || 0).toFixed(1)} m`;
-  if (elOvlLat) elOvlLat.textContent = `${gps.lat != null ? gps.lat.toFixed(6) : '-'}°`;
-  if (elOvlLon) elOvlLon.textContent = `${gps.lon != null ? gps.lon.toFixed(6) : '-'}°`;
-  if (elOvlX) elOvlX.textContent = `${(gps.projected_x_m || 0).toFixed(2)} m`;
-  if (elOvlY) elOvlY.textContent = `${(gps.projected_y_m || 0).toFixed(2)} m`;
+  if (elOvlStatus) elOvlStatus.textContent = fixStatus || 'SEARCHING...';
+  if (elOvlSats) elOvlSats.textContent = satsCount != null ? satsCount : 0;
+  if (elOvlSpeed) elOvlSpeed.textContent = `${((fusedGps ? fusedGps.speed_kmh : (gps ? gps.speed_kmh : 0)) || 0).toFixed(1)} km/h`;
+  if (elOvlAlt) elOvlAlt.textContent = `${((fusedGps ? fusedGps.fused_alt_m : (gps ? gps.alt_m : 0)) || 0).toFixed(1)} m`;
+  if (elOvlLat) elOvlLat.textContent = `${latVal != null ? latVal.toFixed(6) : '-'}°`;
+  if (elOvlLon) elOvlLon.textContent = `${lonVal != null ? lonVal.toFixed(6) : '-'}°`;
+  if (elOvlX) elOvlX.textContent = `${(projX || 0).toFixed(2)} m`;
+  if (elOvlY) elOvlY.textContent = `${(projY || 0).toFixed(2)} m`;
+  if (elOvlAccuracy && fusedGps && fusedGps.accuracy_radius_m != null) {
+    elOvlAccuracy.textContent = `±${fusedGps.accuracy_radius_m.toFixed(2)} m`;
+  }
 
-  const activeOrigin = gps.origin || currentGpsState.origin;
+  const activeOrigin = (fusedGps && fusedGps.origin) || (gps && gps.origin) || currentGpsState.origin;
   if (elOvlOrigin && activeOrigin && activeOrigin.lat != null && activeOrigin.lon != null) {
     elOvlOrigin.textContent = `${activeOrigin.lat.toFixed(6)}, ${activeOrigin.lon.toFixed(6)}`;
   }
 
   // Update Leaflet map markers
-  if (leafletMap && gps.lat != null && gps.lon != null) {
-    const newPos = [gps.lat, gps.lon];
+  if (leafletMap && latVal != null && lonVal != null) {
+    const newPos = [latVal, lonVal];
     if (leafletMarker) leafletMarker.setLatLng(newPos);
 
-    if (gps.origin && leafletOriginMarker) {
-      leafletOriginMarker.setLatLng([gps.origin.lat, gps.origin.lon]);
+    if (activeOrigin && leafletOriginMarker) {
+      leafletOriginMarker.setLatLng([activeOrigin.lat, activeOrigin.lon]);
     }
 
     gpsTrailPoints.push(newPos);

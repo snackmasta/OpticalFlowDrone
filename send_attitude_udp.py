@@ -246,6 +246,7 @@ def read_latest_flow():
 
 
 from madgwick_ahrs import MadgwickPositionEstimator
+from sensor_fusion import SensorFusionEngine
 
 def main():
     parser = argparse.ArgumentParser(description="Send Shared Memory Roll Pitch Yaw to web_server.py via UDP.")
@@ -257,14 +258,15 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     interval = 1.0 / args.rate
 
-    # Instantiate Madgwick AHRS Position Estimator (6DoF IMU mode, no magnetometer)
+    # Instantiate Madgwick AHRS Position Estimator & Sensor Fusion Engine
     madgwick_estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=args.rate)
+    fusion_engine = SensorFusionEngine(gps_gain=0.15, flow_weight=0.85)
 
     # Start Hardware GPS thread (reading /dev/ttyAMA2 on drone side)
     gps_thread = threading.Thread(target=gps_hardware_thread, daemon=True)
     gps_thread.start()
 
-    print(f"[SHM UDP Sender] Streaming Madgwick AHRS, Optical Flow & GPS Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
+    print(f"[SHM UDP Sender] Streaming Madgwick AHRS, Optical Flow & Sensor-Fused GPS Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
 
     start_time = time.time()
 
@@ -315,8 +317,24 @@ def main():
             vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
             vel_z = -m_state["velocity"]["z"]
 
+            # Multi-Sensor Fusion Engine Update (IMU + Compass + Optical Flow + GPS)
+            fusion_engine.update_attitude(roll_deg=roll, pitch_deg=pitch, heading_deg=yaw)
+            fusion_engine.predict_flow_step(flow_vx_m_s=vel_x, flow_vy_m_s=vel_y, dt=interval)
+
             with gps_lock:
                 gps_snapshot = dict(latest_gps_data)
+
+            if gps_snapshot.get("lat") is not None and gps_snapshot.get("lon") is not None:
+                fusion_engine.update_gps(
+                    raw_lat=gps_snapshot["lat"],
+                    raw_lon=gps_snapshot["lon"],
+                    alt_m=gps_snapshot.get("alt_m", 0.0),
+                    speed_kmh=gps_snapshot.get("speed_kmh", 0.0),
+                    sats=gps_snapshot.get("satellites", 0),
+                    fix_status=gps_snapshot.get("fix_status", "")
+                )
+
+            fused_gps_state = fusion_engine.get_fused_state()
 
             telemetry_packet = {
                 "timestamp": ts,
@@ -335,7 +353,8 @@ def main():
                 },
                 "heading": round(yaw, 2),
                 "status": "connected",
-                "gps": gps_snapshot
+                "gps": gps_snapshot,
+                "fused_gps": fused_gps_state
             }
 
             payload = json.dumps(telemetry_packet).encode("utf-8")

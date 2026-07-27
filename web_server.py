@@ -534,6 +534,15 @@ def start_udp_listener():
             payload["status"] = "connected"
             
             # Extract & process GPS telemetry if present in UDP payload
+            if "fused_gps" in payload and isinstance(payload["fused_gps"], dict):
+                fg = payload["fused_gps"]
+                if fg.get("fused_lat") is not None and fg.get("fused_lon") is not None:
+                    orig_l = gps_data_state["origin"]["lat"]
+                    orig_lo = gps_data_state["origin"]["lon"]
+                    fx_m, fy_m = geo_to_2d_plane(fg["fused_lat"], fg["fused_lon"], orig_l, orig_lo)
+                    fg["fused_x_m"] = fx_m
+                    fg["fused_y_m"] = fy_m
+
             if "gps" in payload and isinstance(payload["gps"], dict):
                 g = payload["gps"]
                 update_gps_state(
