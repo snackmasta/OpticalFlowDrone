@@ -605,7 +605,7 @@ def send_arm_angles(roll_deg, pitch_deg):
 # Server-side autonomous geofence state
 geofence_state = {
     "breached": False,
-    "center": {"x": 0.0, "y": 0.0, "z": 0.0},
+    "center": {"x": 0.0, "y": 1.5, "z": 0.0},
     "half_size": 0.50,  # 1.0m x 1.0m x 1.0m box
     "cube_half_size": 0.06,
     "last_buzzer_sent": 0.0
