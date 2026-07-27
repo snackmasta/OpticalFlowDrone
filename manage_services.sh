@@ -46,6 +46,12 @@ start_services() {
     "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
 
     echo "All active Raspberry Pi services started."
+    echo ""
+    echo "=========================================================="
+    echo "   Streaming Real-Time Logs (Press Ctrl+C to exit logs)   "
+    echo "=========================================================="
+    sleep 1
+    tail -n 20 -f "$LOG_DIR"/*.log
 }
 
 stop_services() {
