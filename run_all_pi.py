@@ -73,8 +73,12 @@ def stop_all(signum=None, frame=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Master Raspberry Pi Autonomous Drone Services Orchestrator")
+    parser.add_argument("--stream", action="store_true", help="Run optical flow with RTSP video stream enabled")
+    parser.add_argument("--headless", action="store_true", default=True, help="Run optical flow in ultra-fast headless telemetry-only mode (default)")
     parser.add_argument("--no-web", action="store_true", help="Do not start web_server.py")
     args = parser.parse_args()
+
+    flow_flag = "-stream" if args.stream else "-headless"
 
     os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -85,9 +89,38 @@ def main():
     print("       OPTICAL FLOW DRONE - FULL RASPBERRY PI SUITE")
     print("=" * 65)
     print(f"Project Directory: {PROJECT_DIR}")
-    print(f"Logs Directory:    {LOG_DIR}\n")
+    print(f"Logs Directory:    {LOG_DIR}")
+    print(f"Optical Flow Mode: {flow_flag.upper()}\n")
 
-    for svc in SERVICES:
+    services_list = [
+        {
+            "name": "HMC5883L Compass",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "hmc5883l.py")],
+            "log": os.path.join(LOG_DIR, "hmc5883l.log"),
+        },
+        {
+            "name": "Optical Flow Stream",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "optical_flow_stream.py"), flow_flag],
+            "log": os.path.join(LOG_DIR, "optical_flow_stream.log"),
+        },
+        {
+            "name": "Buzzer Alarm Listener",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_buzzer_listener.py")],
+            "log": os.path.join(LOG_DIR, "geofence_buzzer_listener.log"),
+        },
+        {
+            "name": "Telemetry UDP Bridge",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "send_attitude_udp.py"), "--ip", "127.0.0.1", "--port", "5005"],
+            "log": os.path.join(LOG_DIR, "send_attitude_udp.log"),
+        },
+        {
+            "name": "Web Dashboard Server",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "web_server.py")],
+            "log": os.path.join(LOG_DIR, "web_server.log"),
+        },
+    ]
+
+    for svc in services_list:
         if args.no_web and "web_server.py" in svc["cmd"][1]:
             continue
 

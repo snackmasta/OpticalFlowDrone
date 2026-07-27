@@ -229,10 +229,25 @@ class RtspSink:
             self.process.kill()
 
 
+class DummySink:
+    """
+    Headless video sink that discards frames to save CPU when running telemetry-only mode.
+    """
+    def write(self, frame):
+        pass
+
+    def release(self):
+        pass
+
+
 def create_output_sink(frame_size, fps, mode=None, rtsp_name=None):
     """
-    Creates and returns the appropriate video output sink (FileSink or RtspSink) based on configuration.
+    Creates and returns the appropriate video output sink (FileSink, RtspSink, or DummySink) based on configuration.
     """
+    if mode == "headless":
+        print("[VideoSink] Running in HEADLESS telemetry-only mode (No video encoding / RTSP sink).")
+        return DummySink(), False, None
+
     if mode is None:
         mode = choose_output_mode()
     if mode == "rtsp":

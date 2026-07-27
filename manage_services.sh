@@ -25,14 +25,16 @@ wait_for_wlan0() {
 }
 
 start_services() {
+    FLOW_MODE="${1:---headless}"
+
     # Block until wlan0 is connected
     wait_for_wlan0
 
     echo "Starting HMC5883L Compass..."
     "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
 
-    echo "Starting Optical Flow Stream..."
-    "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+    echo "Starting High-Priority Optical Flow Stream (Mode: $FLOW_MODE, Priority: nice -n -5)..."
+    nice -n -5 "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
     echo "Starting Geofence Buzzer Listener..."
     "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
@@ -49,7 +51,7 @@ start_services() {
 stop_services() {
     echo "Stopping all active Raspberry Pi drone services..."
     pkill -f "hmc5883l.py"
-    pkill -f "optical_flow_stream.py -stream"
+    pkill -f "optical_flow_stream.py"
     pkill -f "geofence_buzzer_listener.py"
     pkill -f "send_attitude_udp.py"
     pkill -f "web_server.py"
@@ -106,8 +108,11 @@ disable_boot() {
 # Handle command-line arguments if provided
 if [ -n "$1" ]; then
     case "$1" in
-        start)
-            start_services
+        start|start-headless|--headless)
+            start_services "--headless"
+            ;;
+        start-stream|-stream)
+            start_services "-stream"
             ;;
         stop)
             stop_services
@@ -115,7 +120,7 @@ if [ -n "$1" ]; then
         restart)
             stop_services
             sleep 2
-            start_services
+            start_services "--headless"
             ;;
         status)
             check_status
@@ -127,7 +132,7 @@ if [ -n "$1" ]; then
             disable_boot
             ;;
         *)
-            echo "Usage: $0 {start|stop|restart|status|enable-boot|disable-boot}"
+            echo "Usage: $0 {start|start-headless|start-stream|stop|restart|status|enable-boot|disable-boot}"
             exit 1
             ;;
     esac

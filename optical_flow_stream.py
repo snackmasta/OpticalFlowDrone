@@ -6,7 +6,8 @@ import cv2
 try:
     initial_threads = cv2.getNumThreads()
     cpus = cv2.getNumberOfCPUs()
-    cv2.setNumThreads(cpus)
+    target_threads = min(2, cpus)
+    cv2.setNumThreads(target_threads)
     print(f"OpenCV Multi-threading: Configured threads from {initial_threads} to {cv2.getNumThreads()} (Available CPUs: {cpus})")
 except Exception as e:
     print(f"Failed to configure OpenCV threads: {e}")
@@ -26,17 +27,20 @@ import csv
 parser = argparse.ArgumentParser(description="Lightweight optical flow recorder and streamer.")
 parser.add_argument("-stream", "--stream", action="store_true", help="Automatically run in RTSP stream mode.")
 parser.add_argument("-record", "--record", action="store_true", help="Automatically run in local record mode.")
+parser.add_argument("-headless", "--headless", action="store_true", help="Run in headless telemetry-only mode (no video stream, no HUD rendering).")
 parser.add_argument("-duration", "--duration", "-d", type=float, default=None, help="Automatically run for this duration in seconds.")
 parser.add_argument("-csv", "--csv", nargs="?", const="auto", default=None, help="Save sensor readings and optical flow trajectory session to CSV file.")
 args = parser.parse_args()
 
-if args.stream and args.record:
-    parser.error("Cannot specify both -stream and -record")
+if sum([bool(args.stream), bool(args.record), bool(args.headless)]) > 1:
+    parser.error("Can only specify one of -stream, -record, or -headless")
 
 # Determine mode and RTSP name
 mode = None
 rtsp_name = None
-if args.stream:
+if args.headless:
+    mode = "headless"
+elif args.stream:
     mode = "rtsp"
     rtsp_name = "drone"
 elif args.record:
@@ -709,16 +713,17 @@ def record_optical_flow():
                     print(f"Error writing to CSV: {e}")
 
             old_gray = frame_gray.copy()
-            img = draw_ground_reticle(img)
-            img = draw_osd(img, tracked_count)
-            try:
-                output_sink.write(img)
-            except RuntimeError as exc:
-                if rtsp_selected:
-                    switch_to_file_sink((frame_width, frame_height), TARGET_FPS, f"RTSP failed, falling back to local recording: {exc}")
+            if mode != "headless":
+                img = draw_ground_reticle(img)
+                img = draw_osd(img, tracked_count)
+                try:
                     output_sink.write(img)
-                else:
-                    raise
+                except RuntimeError as exc:
+                    if rtsp_selected:
+                        switch_to_file_sink((frame_width, frame_height), TARGET_FPS, f"RTSP failed, falling back to local recording: {exc}")
+                        output_sink.write(img)
+                    else:
+                        raise
     finally:
         if csv_file is not None:
             try:
