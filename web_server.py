@@ -23,9 +23,9 @@ except ImportError:
     PYNMEA2_AVAILABLE = False
 
 # Server configuration
-HTTP_PORT = 8000
-UDP_PORT = 5005
-UDP_IP = "0.0.0.0"
+HTTP_PORT = int(os.environ.get("HTTP_PORT", os.environ.get("PORT", 8000)))
+UDP_PORT = int(os.environ.get("UDP_PORT", 5005))
+UDP_IP = os.environ.get("UDP_IP", "0.0.0.0")
 
 # Directories to search for session logs
 LOG_DIRECTORIES = ["recordings", "hasil_dan_pembahasan", "."]
@@ -34,7 +34,22 @@ LOG_DIRECTORIES = ["recordings", "hasil_dan_pembahasan", "."]
 DEFAULT_GPS_ORIGIN = {"lat": None, "lon": None}
 EARTH_RADIUS_M = 6378137.0
 GPS_SERIAL_PORT = os.environ.get("GPS_SERIAL_PORT", "/dev/ttyAMA2")
-GPS_BAUD_RATE = 9600
+GPS_BAUD_RATE = int(os.environ.get("GPS_BAUD_RATE", 9600))
+
+# Try importing gpiozero for direct Raspberry Pi hardware GPIO control
+try:
+    from gpiozero import PWMOutputDevice
+    GPIO_AVAILABLE = True
+except Exception:
+    GPIO_AVAILABLE = False
+
+local_buzzer_pwm = None
+if GPIO_AVAILABLE:
+    try:
+        local_buzzer_pwm = PWMOutputDevice(12, frequency=2300)
+        print("[GPIO] Native Raspberry Pi PWM Buzzer on GPIO 12 (2300Hz) initialized.")
+    except Exception as e:
+        local_buzzer_pwm = None
 
 gps_data_state = {
     "lat": None,
@@ -162,6 +177,122 @@ latest_telemetry = {
 
 connected_sse_clients = []
 clients_lock = threading.Lock()
+
+
+def start_gps_serial_reader():
+    """
+    Background worker thread reading hardware serial NMEA data directly on Raspberry Pi.
+    Updates global gps_data_state if hardware GPS is connected to serial port.
+    """
+    if not SERIAL_AVAILABLE:
+        print("[GPS Serial] pyserial library not installed. Operating in UDP mode.")
+        return
+
+    candidate_ports = [GPS_SERIAL_PORT, "/dev/ttyAMA2", "/dev/ttyAMA0", "/dev/ttyS0", "/dev/ttyUSB0"]
+    # De-duplicate candidate ports while preserving order
+    seen = set()
+    ports_to_try = []
+    for p in candidate_ports:
+        if p and p not in seen:
+            seen.add(p)
+            ports_to_try.append(p)
+
+    ser = None
+    active_port = None
+
+    while True:
+        if ser is None or not ser.is_open:
+            for p in ports_to_try:
+                try:
+                    if os.path.exists(p) or p.startswith("COM"):
+                        ser = serial.Serial(p, GPS_BAUD_RATE, timeout=2.0)
+                        active_port = p
+                        print(f"[GPS Serial] Hardware GPS connected on {active_port} @ {GPS_BAUD_RATE} baud.")
+                        break
+                except Exception:
+                    ser = None
+
+            if ser is None:
+                time.sleep(10.0)
+                continue
+
+        try:
+            line_bytes = ser.readline()
+            if not line_bytes:
+                continue
+            line = line_bytes.decode('ascii', errors='ignore').strip()
+            if not line.startswith('$'):
+                continue
+
+            parsed_lat, parsed_lon, parsed_alt, parsed_speed = None, None, None, None
+            sats, fix_st, fix_cd = None, None, None
+
+            if PYNMEA2_AVAILABLE:
+                try:
+                    msg = pynmea2.parse(line)
+                    if hasattr(msg, 'latitude') and hasattr(msg, 'longitude'):
+                        if msg.latitude != 0.0 or msg.longitude != 0.0:
+                            parsed_lat = msg.latitude
+                            parsed_lon = msg.longitude
+                    if hasattr(msg, 'altitude') and msg.altitude is not None:
+                        parsed_alt = float(msg.altitude)
+                    if hasattr(msg, 'num_sats') and msg.num_sats is not None:
+                        sats = int(msg.num_sats)
+                    if hasattr(msg, 'gps_qual') and msg.gps_qual is not None:
+                        fix_cd = str(msg.gps_qual)
+                        fix_st = "3D FIX" if fix_cd in ['1', '2'] else ("RTK FIX" if fix_cd in ['4', '5'] else "SEARCHING...")
+                    if hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None:
+                        parsed_speed = float(msg.spd_over_grnd) * 1.852  # Knots to km/h
+                except Exception:
+                    pass
+
+            if parsed_lat is None:
+                # Custom NMEA sentence fallback parser
+                parts = line.split(',')
+                sentence = parts[0]
+                if sentence in ('$GPRMC', '$GNRMC') and len(parts) >= 9:
+                    if parts[2] == 'A':  # Valid status
+                        parsed_lat = nmea_to_decimal(parts[3], parts[4])
+                        parsed_lon = nmea_to_decimal(parts[5], parts[6], is_lon=True)
+                        if parts[7]:
+                            try:
+                                parsed_speed = float(parts[7]) * 1.852
+                            except ValueError:
+                                pass
+                elif sentence in ('$GPGGA', '$GNGGA') and len(parts) >= 10:
+                    raw_fix = parts[6] if len(parts) > 6 else '0'
+                    if raw_fix != '0':
+                        parsed_lat = nmea_to_decimal(parts[2], parts[3])
+                        parsed_lon = nmea_to_decimal(parts[4], parts[5], is_lon=True)
+                        fix_cd = raw_fix
+                        fix_st = "3D FIX" if raw_fix in ['1', '2'] else "SEARCHING..."
+                        if len(parts) > 7 and parts[7]:
+                            try:
+                                sats = int(parts[7])
+                            except ValueError:
+                                pass
+                        if len(parts) > 9 and parts[9]:
+                            try:
+                                parsed_alt = float(parts[9])
+                            except ValueError:
+                                pass
+
+            if parsed_lat is not None and parsed_lon is not None:
+                update_gps_state(
+                    lat=parsed_lat, lon=parsed_lon, alt_m=parsed_alt,
+                    speed_kmh=parsed_speed, satellites=sats,
+                    fix_status=fix_st, fix_code=fix_cd
+                )
+        except (serial.SerialException, OSError) as se:
+            print(f"[GPS Serial Warning] Port disconnected/error ({se}), retrying...")
+            try:
+                if ser: ser.close()
+            except Exception:
+                pass
+            ser = None
+            time.sleep(5.0)
+        except Exception:
+            time.sleep(0.1)
 
 
 def get_available_logs():
@@ -519,19 +650,30 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
         super().log_message(format, *args)
 
 
-# Arm destination UDP settings
-ARM_UDP_IP = "192.168.137.54"
-ARM_UDP_PORT = 8888
+# Arm destination UDP settings (configurable for local loopback or external IP)
+ARM_UDP_IP = os.environ.get("ARM_UDP_IP", "127.0.0.1")
+ARM_UDP_PORT = int(os.environ.get("ARM_UDP_PORT", 8888))
 
-# Buzzer destination UDP settings
-BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "192.168.137.54")
-BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
+# Buzzer destination UDP settings (configurable for local loopback or external IP)
+BUZZER_UDP_IP = os.environ.get("BUZZER_UDP_IP", "127.0.0.1")
+BUZZER_UDP_PORT = int(os.environ.get("BUZZER_UDP_PORT", 5006))
 
 def send_geofence_buzzer_udp(is_breached):
     """
-    Sends UDP packet to the Geofence Buzzer Listener on Raspberry Pi (default 192.168.137.54:5006 & broadcast).
+    Sends UDP packet to the Geofence Buzzer Listener on Raspberry Pi or local device.
     Payload: "BREACH" when breached, "SAFE" when inside geofence.
+    Directly triggers native GPIO pin 12 if available on local Raspberry Pi.
     """
+    # Direct GPIO hardware actuation if running natively on Raspberry Pi
+    if local_buzzer_pwm is not None:
+        try:
+            if is_breached:
+                local_buzzer_pwm.value = 0.5
+            else:
+                local_buzzer_pwm.off()
+        except Exception:
+            pass
+
     try:
         payload = b"BREACH" if is_breached else b"SAFE"
         buzzer_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -540,13 +682,23 @@ def send_geofence_buzzer_udp(is_breached):
         except Exception:
             pass
 
-        # Send to Pi IP (192.168.137.54)
-        buzzer_sock.sendto(payload, (BUZZER_UDP_IP, BUZZER_UDP_PORT))
+        # Send to configured Buzzer IP
+        try:
+            buzzer_sock.sendto(payload, (BUZZER_UDP_IP, BUZZER_UDP_PORT))
+        except Exception:
+            pass
 
-        # Send to local host if testing locally
-        if BUZZER_UDP_IP != "127.0.0.1":
+        # Always send to local loopback when running on same device
+        if BUZZER_UDP_IP not in ("127.0.0.1", "0.0.0.0"):
             try:
                 buzzer_sock.sendto(payload, ("127.0.0.1", BUZZER_UDP_PORT))
+            except Exception:
+                pass
+
+        # Send to default Raspberry Pi IP static fallback (192.168.137.54) if configured
+        if BUZZER_UDP_IP != "192.168.137.54":
+            try:
+                buzzer_sock.sendto(payload, ("192.168.137.54", BUZZER_UDP_PORT))
             except Exception:
                 pass
 
@@ -576,7 +728,28 @@ def send_arm_angles(roll_deg, pitch_deg):
 
         payload = f"90,{shoulder_angle},90,{wrist_angle}".encode('ascii')
         arm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            arm_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        except Exception:
+            pass
+
+        # Send to primary target IP
         arm_sock.sendto(payload, (ARM_UDP_IP, ARM_UDP_PORT))
+
+        # Also send to loopback 127.0.0.1 if main IP is external
+        if ARM_UDP_IP not in ("127.0.0.1", "0.0.0.0"):
+            try:
+                arm_sock.sendto(payload, ("127.0.0.1", ARM_UDP_PORT))
+            except Exception:
+                pass
+
+        # Also send to default Pi IP static fallback (192.168.137.54) if distinct
+        if ARM_UDP_IP != "192.168.137.54":
+            try:
+                arm_sock.sendto(payload, ("192.168.137.54", ARM_UDP_PORT))
+            except Exception:
+                pass
+
         arm_sock.close()
     except Exception as e:
         pass
@@ -593,6 +766,11 @@ def start_udp_listener():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         except Exception:
             pass
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
         sock.bind((UDP_IP, UDP_PORT))
         print(f"[UDP Listener] Bound to {UDP_IP}:{UDP_PORT}")
     except Exception as e:
@@ -647,6 +825,18 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def server_bind(self):
+        try:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        except Exception:
+            pass
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
+        super().server_bind()
+
     def handle_error(self, request, client_address):
         """Silently ignore routine client connection aborts/resets during browser refresh/close."""
         exc_type, exc_val, _ = sys.exc_info()
@@ -663,6 +853,10 @@ def main():
     # Start UDP listener in background thread
     udp_thread = threading.Thread(target=start_udp_listener, daemon=True)
     udp_thread.start()
+
+    # Start GPS Serial reader thread (for direct hardware GPS on Raspberry Pi)
+    gps_serial_thread = threading.Thread(target=start_gps_serial_reader, daemon=True)
+    gps_serial_thread.start()
 
     # Start Multi-Threaded HTTP + SSE Server
     try:
