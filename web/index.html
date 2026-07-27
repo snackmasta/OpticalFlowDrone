@@ -16,6 +16,9 @@
   <!-- Custom Styles -->
   <link rel="stylesheet" href="style.css">
   
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
   <!-- Three.js and OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -142,6 +145,45 @@
         <div class="metric">
           <span class="label">Speed</span>
           <span class="value" id="speedVal">0.00 m/s</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Real World GPS & 2D Projection Card -->
+    <div class="hud-card gps-card" id="hudGpsCard">
+      <div class="card-header flex-between">
+        <div>
+          <i class="fa-solid fa-earth-americas"></i>
+          <span>Real-World GPS & 2D Plane</span>
+        </div>
+        <button class="btn-card-action" id="btnToggleGpsModal" title="Open GPS Map Visualizer">
+          <i class="fa-solid fa-expand"></i> Map
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="gps-status-row flex-between">
+          <span class="status-badge-sm" id="gpsFixBadge">FIX: SEARCHING...</span>
+          <span class="gps-sats-info"><i class="fa-solid fa-satellite me-1"></i> <span id="gpsSats">0</span> Sats</span>
+        </div>
+        <div class="grid-2 mt-2">
+          <div class="metric">
+            <span class="label">Latitude</span>
+            <span class="value val-sm" id="gpsLat">-6.864885</span>
+          </div>
+          <div class="metric">
+            <span class="label">Longitude</span>
+            <span class="value val-sm" id="gpsLon">107.573586</span>
+          </div>
+        </div>
+        <div class="grid-2 mt-2">
+          <div class="metric">
+            <span class="label">2D Plane X (East)</span>
+            <span class="value highlight-roll" id="gpsProjX">0.00 m</span>
+          </div>
+          <div class="metric">
+            <span class="label">2D Plane Y (North)</span>
+            <span class="value highlight-pitch" id="gpsProjY">0.00 m</span>
+          </div>
         </div>
       </div>
     </div>
@@ -321,8 +363,50 @@
     </div>
   </div>
 
+  <!-- Interactive Real-World GPS Map & 2D Plane Projection Modal Drawer -->
+  <aside class="gps-map-drawer hidden" id="gpsMapDrawer">
+    <div class="drawer-header flex-between">
+      <h3><i class="fa-solid fa-map-location-dot me-2"></i> Real-World Map & 2D Plane Projection</h3>
+      <div class="drawer-actions">
+        <button class="btn-card-action" id="btnSetGpsOrigin" title="Set current location as Reference Home Origin (0, 0)">
+          <i class="fa-solid fa-crosshairs"></i> Set Origin
+        </button>
+        <button class="btn-close-drawer" id="btnCloseGpsDrawer" title="Close GPS Map Panel"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    
+    <div class="gps-map-body">
+      <!-- Leaflet Interactive Map Container -->
+      <div id="leafletMap" class="leaflet-map-container"></div>
+
+      <!-- Real World <-> 2D Plane Coordinate Telemetry Overlay -->
+      <div class="gps-overlay-panel">
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-satellite-dish me-1"></i> Satellite Fix</h4>
+          <p>Status: <strong id="overlayGpsStatus">SEARCHING...</strong></p>
+          <p>Satellites: <strong id="overlayGpsSats">0</strong> | Speed: <strong id="overlayGpsSpeed">0.0 km/h</strong> | Alt: <strong id="overlayGpsAlt">0.0 m</strong></p>
+        </div>
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-location-dot me-1"></i> Geographic Position</h4>
+          <p>Lat: <strong id="overlayGpsLat">-6.864885°</strong></p>
+          <p>Lon: <strong id="overlayGpsLon">107.573586°</strong></p>
+        </div>
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-draw-polygon me-1"></i> 2D Tangent Plane Projection</h4>
+          <p>Local X (East): <strong id="overlayGpsX">0.00 m</strong></p>
+          <p>Local Y (North): <strong id="overlayGpsY">0.00 m</strong></p>
+          <p>Origin: <span id="overlayGpsOrigin">-6.864885, 107.573586</span></p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
   <!-- Interactive Floating Toolbar -->
   <div class="hud-toolbar">
+    <button class="btn-tool" id="btnToggleGpsMap" title="Toggle Real World GPS Map & 2D Projection">
+      <i class="fa-solid fa-map-location-dot"></i>
+      <span>GPS Map</span>
+    </button>
     <button class="btn-tool" id="btnToggleAnchor" title="Lock position in place and prevent translation movement">
       <i class="fa-solid fa-anchor"></i>
       <span>Anchor</span>
@@ -369,6 +453,8 @@
     </button>
   </div>
 
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

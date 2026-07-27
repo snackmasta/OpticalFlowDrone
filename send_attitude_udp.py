@@ -10,11 +10,100 @@ import math
 import socket
 import struct
 import time
+import threading
 from multiprocessing import shared_memory
 from multiprocessing import resource_tracker
 
+try:
+    import serial
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+
 DEFAULT_TARGET_IP = "192.168.137.1"
 DEFAULT_TARGET_PORT = 5005
+
+GPS_SERIAL_PORT = "/dev/ttyAMA2"
+GPS_BAUD_RATE = 9600
+
+latest_gps_data = {
+    "lat": None,
+    "lon": None,
+    "alt_m": 0.0,
+    "speed_kmh": 0.0,
+    "satellites": 0,
+    "fix_status": "SEARCHING FOR SATELLITES...",
+    "fix_code": "0"
+}
+gps_lock = threading.Lock()
+
+def nmea_to_decimal(raw_val, direction, is_lon=False):
+    if not raw_val or '.' not in str(raw_val):
+        return None
+    try:
+        raw_str = str(raw_val)
+        dot_idx = raw_str.find('.')
+        deg_len = 3 if is_lon else 2
+        if dot_idx > deg_len:
+            deg_len = dot_idx - 2
+        if deg_len <= 0:
+            return None
+        degrees = float(raw_str[:deg_len])
+        minutes = float(raw_str[deg_len:])
+        decimal = degrees + (minutes / 60.0)
+        if direction in ['S', 'W']:
+            decimal = -decimal
+        return round(decimal, 6)
+    except ValueError:
+        return None
+
+def gps_hardware_thread():
+    """Reads GPS NMEA stream from /dev/ttyAMA2 on the Pi drone side."""
+    if not SERIAL_AVAILABLE:
+        return
+    try:
+        ser = serial.Serial(GPS_SERIAL_PORT, GPS_BAUD_RATE, timeout=1)
+        print(f"[GPS Thread] Hardware GPS listener active on {GPS_SERIAL_PORT} @ {GPS_BAUD_RATE} baud.")
+    except Exception as e:
+        print(f"[GPS Thread] Serial port {GPS_SERIAL_PORT} unavailable on this system ({e}).")
+        return
+
+    while True:
+        try:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            if not line.startswith('$'):
+                continue
+            parts = line.split(',')
+            sentence = parts[0]
+            if sentence in ['$GNGGA', '$GPGGA'] and len(parts) >= 10:
+                raw_lat, lat_dir = parts[2], parts[3]
+                raw_lon, lon_dir = parts[4], parts[5]
+                fix_code = parts[6] if len(parts) > 6 else '0'
+                sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
+                alt = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
+                lat = nmea_to_decimal(raw_lat, lat_dir)
+                lon = nmea_to_decimal(raw_lon, lon_dir, is_lon=True)
+                fix_str = "3D FIX ACQUIRED" if fix_code in ['1', '2', '4', '5'] else "SEARCHING FOR SATELLITES..."
+                with gps_lock:
+                    if lat is not None: latest_gps_data["lat"] = lat
+                    if lon is not None: latest_gps_data["lon"] = lon
+                    latest_gps_data["alt_m"] = alt
+                    latest_gps_data["satellites"] = sats
+                    latest_gps_data["fix_status"] = fix_str
+                    latest_gps_data["fix_code"] = fix_code
+            elif sentence in ['$GNRMC', '$GPRMC'] and len(parts) >= 9:
+                status = parts[2]
+                if status == 'A':
+                    lat = nmea_to_decimal(parts[3], parts[4])
+                    lon = nmea_to_decimal(parts[5], parts[6], is_lon=True)
+                    spd_knots = float(parts[7]) if len(parts) > 7 and parts[7] else 0.0
+                    with gps_lock:
+                        if lat is not None: latest_gps_data["lat"] = lat
+                        if lon is not None: latest_gps_data["lon"] = lon
+                        latest_gps_data["speed_kmh"] = round(spd_knots * 1.852, 1)
+                        latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
+        except Exception:
+            time.sleep(0.1)
 
 ATTITUDE_SHM_NAME = "drone_attitude_stream"
 ATTITUDE_SHM_MAGIC = b"ATT "
@@ -132,7 +221,11 @@ def main():
     # Instantiate Madgwick AHRS Position Estimator (6DoF IMU mode, no magnetometer)
     madgwick_estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=args.rate)
 
-    print(f"[SHM UDP Sender] Streaming Madgwick AHRS & Position Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
+    # Start Hardware GPS thread (reading /dev/ttyAMA2 on drone side)
+    gps_thread = threading.Thread(target=gps_hardware_thread, daemon=True)
+    gps_thread.start()
+
+    print(f"[SHM UDP Sender] Streaming Madgwick AHRS, Optical Flow & GPS Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
 
     start_time = time.time()
 
@@ -183,6 +276,9 @@ def main():
             vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
             vel_z = -m_state["velocity"]["z"]
 
+            with gps_lock:
+                gps_snapshot = dict(latest_gps_data)
+
             telemetry_packet = {
                 "timestamp": ts,
                 "rotation": {
@@ -200,6 +296,7 @@ def main():
                 },
                 "heading": round(yaw, 2),
                 "status": "connected",
+                "gps": gps_snapshot
             }
 
             payload = json.dumps(telemetry_packet).encode("utf-8")

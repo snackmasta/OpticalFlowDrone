@@ -7,7 +7,20 @@ import time
 import os
 import sys
 import csv
+import math
 from urllib.parse import parse_qs, urlparse, unquote
+
+try:
+    import serial
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+
+try:
+    import pynmea2
+    PYNMEA2_AVAILABLE = True
+except ImportError:
+    PYNMEA2_AVAILABLE = False
 
 # Server configuration
 HTTP_PORT = 8000
@@ -17,13 +30,121 @@ UDP_IP = "0.0.0.0"
 # Directories to search for session logs
 LOG_DIRECTORIES = ["recordings", "hasil_dan_pembahasan", "."]
 
+# GPS and 2D Cartesian Plane projection configuration
+DEFAULT_GPS_ORIGIN = {"lat": -6.864885, "lon": 107.573586}
+EARTH_RADIUS_M = 6378137.0
+GPS_SERIAL_PORT = os.environ.get("GPS_SERIAL_PORT", "/dev/ttyAMA2")
+GPS_BAUD_RATE = 9600
+
+gps_data_state = {
+    "lat": -6.864885,
+    "lon": 107.573586,
+    "alt_m": 0.0,
+    "speed_kmh": 0.0,
+    "satellites": 0,
+    "fix_status": "SEARCHING FOR SATELLITES...",
+    "fix_code": "0",
+    "projected_x_m": 0.0,
+    "projected_y_m": 0.0,
+    "origin": dict(DEFAULT_GPS_ORIGIN),
+    "last_update": time.time()
+}
+
+def geo_to_2d_plane(lat, lon, origin_lat, origin_lon):
+    """
+    Projects WGS-84 Geographic (Lat, Lon) to 2D Local Cartesian Plane (X, Y) in meters.
+    X: East (meters), Y: North (meters)
+    """
+    if lat is None or lon is None or origin_lat is None or origin_lon is None:
+        return 0.0, 0.0
+    lat_rad = math.radians(lat)
+    lon_rad = math.radians(lon)
+    origin_lat_rad = math.radians(origin_lat)
+    origin_lon_rad = math.radians(origin_lon)
+
+    dlat = lat_rad - origin_lat_rad
+    dlon = lon_rad - origin_lon_rad
+
+    avg_lat = (lat_rad + origin_lat_rad) / 2.0
+    x_m = dlon * math.cos(avg_lat) * EARTH_RADIUS_M
+    y_m = dlat * EARTH_RADIUS_M
+    return round(x_m, 3), round(y_m, 3)
+
+def plane_2d_to_geo(x_m, y_m, origin_lat, origin_lon):
+    """
+    Inverse projection: Converts 2D Cartesian Plane (X meters East, Y meters North)
+    to Geographic (Lat, Lon).
+    """
+    if origin_lat is None or origin_lon is None:
+        return 0.0, 0.0
+    dlat = y_m / EARTH_RADIUS_M
+    lat_rad = math.radians(origin_lat) + dlat
+    lat = math.degrees(lat_rad)
+    
+    dlon = x_m / (EARTH_RADIUS_M * math.cos(lat_rad))
+    lon = origin_lon + math.degrees(dlon)
+    return round(lat, 6), round(lon, 6)
+
+def nmea_to_decimal(raw_val, direction, is_lon=False):
+    """Converts NMEA raw coordinate format (DDMM.MMMM / DDDMM.MMMM) to Decimal Degrees."""
+    if not raw_val or '.' not in str(raw_val):
+        return None
+    try:
+        raw_str = str(raw_val)
+        dot_idx = raw_str.find('.')
+        deg_len = 3 if is_lon else 2
+        if dot_idx > deg_len:
+            deg_len = dot_idx - 2
+        if deg_len <= 0:
+            return None
+        degrees = float(raw_str[:deg_len])
+        minutes = float(raw_str[deg_len:])
+        decimal = degrees + (minutes / 60.0)
+        if direction in ['S', 'W']:
+            decimal = -decimal
+        return round(decimal, 6)
+    except ValueError:
+        return None
+
+def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=None, fix_status=None, fix_code=None, origin=None):
+    """Updates global gps_data_state and recalculates 2D planar projection."""
+    global gps_data_state, latest_telemetry
+    with clients_lock:
+        if origin is not None and isinstance(origin, dict):
+            if "lat" in origin and origin["lat"] is not None:
+                gps_data_state["origin"]["lat"] = float(origin["lat"])
+            if "lon" in origin and origin["lon"] is not None:
+                gps_data_state["origin"]["lon"] = float(origin["lon"])
+
+        if lat is not None: gps_data_state["lat"] = float(lat)
+        if lon is not None: gps_data_state["lon"] = float(lon)
+        if alt_m is not None: gps_data_state["alt_m"] = float(alt_m)
+        if speed_kmh is not None: gps_data_state["speed_kmh"] = float(speed_kmh)
+        if satellites is not None: gps_data_state["satellites"] = int(satellites)
+        if fix_status is not None: gps_data_state["fix_status"] = str(fix_status)
+        if fix_code is not None: gps_data_state["fix_code"] = str(fix_code)
+
+        orig_lat = gps_data_state["origin"]["lat"]
+        orig_lon = gps_data_state["origin"]["lon"]
+        curr_lat = gps_data_state["lat"]
+        curr_lon = gps_data_state["lon"]
+
+        x_m, y_m = geo_to_2d_plane(curr_lat, curr_lon, orig_lat, orig_lon)
+        gps_data_state["projected_x_m"] = x_m
+        gps_data_state["projected_y_m"] = y_m
+        gps_data_state["last_update"] = time.time()
+
+        # Update latest_telemetry dictionary
+        latest_telemetry["gps"] = dict(gps_data_state)
+
 # Global state to store latest telemetry packet and connected client queues
 latest_telemetry = {
     "timestamp": time.time(),
     "rotation": {"quaternion": {"w": 0.7071, "x": 0.7071, "y": 0, "z": 0}, "euler": {"roll": 90.0, "pitch": 0.0, "yaw": 0.0}},
     "translation": {"position": {"x": 0, "y": 0, "z": 0}, "velocity": {"x": 0, "y": 0, "z": 0}, "linear_accel": {"x": 0, "y": 0, "z": 0}},
     "heading": 0.0,
-    "status": "waiting"
+    "status": "waiting",
+    "gps": dict(gps_data_state)
 }
 
 connected_sse_clients = []
@@ -214,6 +335,17 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                     if client_queue in connected_sse_clients:
                         connected_sse_clients.remove(client_queue)
 
+        elif path == '/api/gps':
+            with clients_lock:
+                gps_res = dict(gps_data_state)
+            response_data = json.dumps({"status": "success", "gps": gps_res}, indent=2).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(response_data)))
+            self.end_headers()
+            self.wfile.write(response_data)
+
         elif path in ('/api/logs', '/logs', '/api/recordings'):
             # List available session logs
             logs = get_available_logs()
@@ -291,6 +423,49 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def do_POST(self):
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+
+        if path in ('/api/gps/origin', '/api/gps'):
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length > 0 else b'{}'
+            try:
+                data = json.loads(body.decode('utf-8'))
+                if path == '/api/gps/origin':
+                    origin = {"lat": data.get("lat"), "lon": data.get("lon")}
+                    update_gps_state(origin=origin)
+                else:
+                    update_gps_state(
+                        lat=data.get("lat"),
+                        lon=data.get("lon"),
+                        alt_m=data.get("alt_m"),
+                        speed_kmh=data.get("speed_kmh"),
+                        satellites=data.get("satellites"),
+                        fix_status=data.get("fix_status"),
+                        origin=data.get("origin")
+                    )
+                resp = json.dumps({"status": "success", "gps": gps_data_state}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+                self.wfile.flush()
+            except Exception as e:
+                err_body = json.dumps({"status": "error", "message": str(e)}).encode('utf-8')
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(err_body)))
+                self.end_headers()
+                self.wfile.write(err_body)
+                self.wfile.flush()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def log_message(self, format, *args):
         # Suppress routine GET logging for clean console output
         try:
@@ -318,7 +493,6 @@ def send_arm_angles(roll_deg, pitch_deg):
         wrist_angle = int(round(90.0 + pitch_deg))
         wrist_angle = max(0, min(180, wrist_angle))
 
-        # Servo 1 (Elbow)=90, Servo 2 (Shoulder Pitch)=shoulder_angle, Servo 3 (Base Yaw)=90, Servo 4 (Wrist Pitch)=wrist_angle
         payload = f"90,{shoulder_angle},90,{wrist_angle}".encode('ascii')
         arm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         arm_sock.sendto(payload, (ARM_UDP_IP, ARM_UDP_PORT))
@@ -334,6 +508,10 @@ def start_udp_listener():
     global latest_telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        except Exception:
+            pass
         sock.bind((UDP_IP, UDP_PORT))
         print(f"[UDP Listener] Bound to {UDP_IP}:{UDP_PORT}")
     except Exception as e:
@@ -345,6 +523,24 @@ def start_udp_listener():
             data, _ = sock.recvfrom(4096)
             payload = json.loads(data.decode('utf-8'))
             payload["status"] = "connected"
+            
+            # Extract & process GPS telemetry if present in UDP payload
+            if "gps" in payload and isinstance(payload["gps"], dict):
+                g = payload["gps"]
+                update_gps_state(
+                    lat=g.get("lat"), lon=g.get("lon"), alt_m=g.get("alt_m"),
+                    speed_kmh=g.get("speed_kmh"), satellites=g.get("satellites"),
+                    fix_status=g.get("fix_status"), fix_code=g.get("fix_code"),
+                    origin=g.get("origin")
+                )
+            elif "lat" in payload or "latitude" in payload:
+                lat_v = payload.get("lat") or payload.get("latitude")
+                lon_v = payload.get("lon") or payload.get("longitude")
+                alt_v = payload.get("alt") or payload.get("altitude")
+                update_gps_state(lat=lat_v, lon=lon_v, alt_m=alt_v)
+
+            payload["gps"] = dict(gps_data_state)
+
             with clients_lock:
                 latest_telemetry = payload
 
@@ -376,6 +572,7 @@ def main():
         handler = TelemetryHTTPServer
         httpd = ThreadedHTTPServer(("", HTTP_PORT), handler)
         print(f"[HTTP + Stream Server] Running on http://localhost:{HTTP_PORT}")
+        print(f"[GPS API] GET http://localhost:{HTTP_PORT}/api/gps | POST http://localhost:{HTTP_PORT}/api/gps/origin")
         print(f"[Session Logs API] GET http://localhost:{HTTP_PORT}/api/logs")
         print(f"[Dashboard] Open http://localhost:{HTTP_PORT} in your web browser.\n")
         httpd.serve_forever()
@@ -386,3 +583,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

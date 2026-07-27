@@ -298,6 +298,11 @@ function updateTelemetry(data) {
   if (data.raw_imu) {
     updateSensorCharts(data.raw_imu);
   }
+
+  // Update GPS and 2D Planar Projection
+  if (data.gps) {
+    updateGpsTelemetry(data.gps);
+  }
 }
 
 // ----------------------------------------------------
@@ -1062,6 +1067,169 @@ window.addEventListener('DOMContentLoaded', () => {
   initSensorCharts();
   applyTheme(isDarkMode);
   connectTelemetryStream();
+});
+
+// ----------------------------------------------------
+// Real-World GPS & 2D Tangent Plane Projection Map
+// ----------------------------------------------------
+let leafletMap = null;
+let leafletMarker = null;
+let leafletOriginMarker = null;
+let leafletPolyline = null;
+let gpsTrailPoints = [];
+let currentGpsState = {
+  lat: -6.864885,
+  lon: 107.573586,
+  alt_m: 0.0,
+  speed_kmh: 0.0,
+  satellites: 0,
+  fix_status: 'SEARCHING FOR SATELLITES...',
+  projected_x_m: 0.0,
+  projected_y_m: 0.0,
+  origin: { lat: -6.864885, lon: 107.573586 }
+};
+
+function initLeafletMap() {
+  const container = document.getElementById('leafletMap');
+  if (!container || leafletMap) return;
+
+  const initialLat = currentGpsState.lat || -6.864885;
+  const initialLon = currentGpsState.lon || 107.573586;
+
+  leafletMap = L.map('leafletMap').setView([initialLat, initialLon], 17);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(leafletMap);
+
+  // Custom Icon for Reference Home Origin
+  const homeIcon = L.divIcon({
+    className: 'custom-leaflet-icon-home',
+    html: '<div style="background:#ef4444; width:14px; height:14px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 8px #ef4444;"></div>',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+
+  leafletOriginMarker = L.marker([initialLat, initialLon], { icon: homeIcon }).addTo(leafletMap).bindPopup('Reference Home Origin (0,0)');
+
+  // Custom Icon for Drone Marker
+  const droneIcon = L.divIcon({
+    className: 'custom-leaflet-icon-drone',
+    html: '<div style="background:#06b6d4; width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 12px #06b6d4;"></div>',
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
+  });
+
+  leafletMarker = L.marker([initialLat, initialLon], { icon: droneIcon }).addTo(leafletMap).bindPopup('Drone Current Position');
+
+  // Flight Path Polyline
+  leafletPolyline = L.polyline([], { color: '#06b6d4', weight: 4, opacity: 0.8 }).addTo(leafletMap);
+}
+
+function updateGpsTelemetry(gps) {
+  if (!gps) return;
+  currentGpsState = { ...currentGpsState, ...gps };
+
+  const elFixBadge = document.getElementById('gpsFixBadge');
+  const elSats = document.getElementById('gpsSats');
+  const elLat = document.getElementById('gpsLat');
+  const elLon = document.getElementById('gpsLon');
+  const elProjX = document.getElementById('gpsProjX');
+  const elProjY = document.getElementById('gpsProjY');
+
+  if (elFixBadge) {
+    elFixBadge.textContent = gps.fix_status || 'SEARCHING...';
+    if (gps.fix_status && (gps.fix_status.includes('FIX') || gps.fix_status.includes('3D'))) {
+      elFixBadge.className = 'status-badge-sm active';
+    } else {
+      elFixBadge.className = 'status-badge-sm';
+    }
+  }
+  if (elSats) elSats.textContent = gps.satellites != null ? gps.satellites : 0;
+  if (elLat) elLat.textContent = gps.lat != null ? gps.lat.toFixed(6) : '-';
+  if (elLon) elLon.textContent = gps.lon != null ? gps.lon.toFixed(6) : '-';
+  if (elProjX) elProjX.textContent = `${(gps.projected_x_m || 0).toFixed(2)} m`;
+  if (elProjY) elProjY.textContent = `${(gps.projected_y_m || 0).toFixed(2)} m`;
+
+  // Update Modal Overlay Panel
+  const elOvlStatus = document.getElementById('overlayGpsStatus');
+  const elOvlSats = document.getElementById('overlayGpsSats');
+  const elOvlSpeed = document.getElementById('overlayGpsSpeed');
+  const elOvlAlt = document.getElementById('overlayGpsAlt');
+  const elOvlLat = document.getElementById('overlayGpsLat');
+  const elOvlLon = document.getElementById('overlayGpsLon');
+  const elOvlX = document.getElementById('overlayGpsX');
+  const elOvlY = document.getElementById('overlayGpsY');
+  const elOvlOrigin = document.getElementById('overlayGpsOrigin');
+
+  if (elOvlStatus) elOvlStatus.textContent = gps.fix_status || 'SEARCHING...';
+  if (elOvlSats) elOvlSats.textContent = gps.satellites != null ? gps.satellites : 0;
+  if (elOvlSpeed) elOvlSpeed.textContent = `${(gps.speed_kmh || 0).toFixed(1)} km/h`;
+  if (elOvlAlt) elOvlAlt.textContent = `${(gps.alt_m || 0).toFixed(1)} m`;
+  if (elOvlLat) elOvlLat.textContent = `${gps.lat != null ? gps.lat.toFixed(6) : '-'}°`;
+  if (elOvlLon) elOvlLon.textContent = `${gps.lon != null ? gps.lon.toFixed(6) : '-'}°`;
+  if (elOvlX) elOvlX.textContent = `${(gps.projected_x_m || 0).toFixed(2)} m`;
+  if (elOvlY) elOvlY.textContent = `${(gps.projected_y_m || 0).toFixed(2)} m`;
+
+  if (elOvlOrigin && gps.origin) {
+    elOvlOrigin.textContent = `${gps.origin.lat.toFixed(6)}, ${gps.origin.lon.toFixed(6)}`;
+  }
+
+  // Update Leaflet map markers
+  if (leafletMap && gps.lat != null && gps.lon != null) {
+    const newPos = [gps.lat, gps.lon];
+    if (leafletMarker) leafletMarker.setLatLng(newPos);
+
+    if (gps.origin && leafletOriginMarker) {
+      leafletOriginMarker.setLatLng([gps.origin.lat, gps.origin.lon]);
+    }
+
+    gpsTrailPoints.push(newPos);
+    if (gpsTrailPoints.length > 500) gpsTrailPoints.shift();
+    if (leafletPolyline) leafletPolyline.setLatLngs(gpsTrailPoints);
+  }
+}
+
+const gpsMapDrawer = document.getElementById('gpsMapDrawer');
+const btnToggleGpsMap = document.getElementById('btnToggleGpsMap');
+const btnToggleGpsModal = document.getElementById('btnToggleGpsModal');
+const btnCloseGpsDrawer = document.getElementById('btnCloseGpsDrawer');
+const btnSetGpsOrigin = document.getElementById('btnSetGpsOrigin');
+
+function toggleGpsMapDrawer() {
+  if (!gpsMapDrawer) return;
+  const isHidden = gpsMapDrawer.classList.contains('hidden');
+  if (isHidden) {
+    gpsMapDrawer.classList.remove('hidden');
+    btnToggleGpsMap?.classList.add('active');
+    initLeafletMap();
+    setTimeout(() => {
+      if (leafletMap) leafletMap.invalidateSize();
+    }, 200);
+  } else {
+    gpsMapDrawer.classList.add('hidden');
+    btnToggleGpsMap?.classList.remove('active');
+  }
+}
+
+btnToggleGpsMap?.addEventListener('click', toggleGpsMapDrawer);
+btnToggleGpsModal?.addEventListener('click', toggleGpsMapDrawer);
+btnCloseGpsDrawer?.addEventListener('click', toggleGpsMapDrawer);
+
+btnSetGpsOrigin?.addEventListener('click', async () => {
+  if (currentGpsState.lat != null && currentGpsState.lon != null) {
+    try {
+      await fetch('/api/gps/origin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: currentGpsState.lat, lon: currentGpsState.lon })
+      });
+      alert(`Reference Home Origin set to (${currentGpsState.lat.toFixed(6)}, ${currentGpsState.lon.toFixed(6)})`);
+    } catch (e) {
+      console.error('Failed to set GPS origin:', e);
+    }
+  }
 });
 
 
