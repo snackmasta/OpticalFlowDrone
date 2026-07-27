@@ -129,7 +129,7 @@ let geofenceBoxWireframe = null;
 let geofenceCenter = { x: 0, y: 1.5, z: 0 };
 
 let breachCountdownTimer = null;
-let breachCountdownSec = 30;
+let breachCountdownSec = 5;
 let isBreachCountdownActive = false;
 
 function createGeofence3D() {
@@ -169,7 +169,7 @@ function recenterGeofenceToCube() {
 
   // Reset countdown
   isBreachCountdownActive = false;
-  breachCountdownSec = 30;
+  breachCountdownSec = 5;
   if (breachCountdownTimer) {
     clearInterval(breachCountdownTimer);
     breachCountdownTimer = null;
@@ -185,7 +185,7 @@ function resetGeofenceCenter() {
     geofenceMesh.position.set(0, 1.5, 0);
   }
   isBreachCountdownActive = false;
-  breachCountdownSec = 30;
+  breachCountdownSec = 5;
   if (breachCountdownTimer) {
     clearInterval(breachCountdownTimer);
     breachCountdownTimer = null;
@@ -215,11 +215,11 @@ function updateGeofenceHitboxCheck() {
                      (Math.abs(dz) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
                      (Math.abs(dy) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M);
 
-  // Manage 30-second relocation countdown
+  // Manage 5-second relocation countdown
   if (isBreached) {
     if (!isBreachCountdownActive) {
       isBreachCountdownActive = true;
-      breachCountdownSec = 30;
+      breachCountdownSec = 5;
 
       if (breachCountdownTimer) clearInterval(breachCountdownTimer);
       breachCountdownTimer = setInterval(() => {
@@ -238,7 +238,7 @@ function updateGeofenceHitboxCheck() {
   } else {
     if (isBreachCountdownActive) {
       isBreachCountdownActive = false;
-      breachCountdownSec = 30;
+      breachCountdownSec = 5;
       if (breachCountdownTimer) {
         clearInterval(breachCountdownTimer);
         breachCountdownTimer = null;
