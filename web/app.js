@@ -264,9 +264,11 @@ function updateGeofenceHitboxCheck() {
     }
   }
 
-  // Notify backend API / UDP transmitter when breach state changes
-  if (window.lastGeofenceBreachState !== isBreached) {
+  // Continuously refresh breach status (and heartbeat every 500ms while breached) to keep geofence buzzer listener active
+  const now = Date.now();
+  if (window.lastGeofenceBreachState !== isBreached || (isBreached && (now - (window.lastGeofenceBreachTime || 0) > 500))) {
     window.lastGeofenceBreachState = isBreached;
+    window.lastGeofenceBreachTime = now;
     try {
       fetch('/api/geofence/status', {
         method: 'POST',

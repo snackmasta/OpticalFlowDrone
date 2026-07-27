@@ -16,6 +16,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 DEFAULT_UDP_IP = "0.0.0.0"
@@ -37,6 +38,8 @@ class BuzzerController:
         self.frequency = frequency
         self.force_subprocess = force_subprocess
         self.native_pwm = None
+        self.is_active = False
+        self.worker_thread = None
 
         if HAS_GPIOZERO and not self.force_subprocess:
             try:
@@ -46,41 +49,46 @@ class BuzzerController:
                 print(f"[Buzzer] Native gpiozero init failed ({e}), falling back to subprocess execution.")
                 self.native_pwm = None
 
-    def run_beep_cycle(self, on_duration=0.4, off_duration=0.1):
-        """Runs one beep pulse cycle for continuous alarm looping while breach persists."""
+    def start_alarm(self):
+        """Starts continuous alarm sound asynchronously without blocking socket receiver."""
+        if self.is_active:
+            return
+        self.is_active = True
         if self.native_pwm is not None:
             try:
                 self.native_pwm.value = 0.5
-                time.sleep(on_duration)
-                self.native_pwm.off()
-                time.sleep(off_duration)
             except Exception as e:
-                print(f"[Buzzer Error] Native PWM error: {e}")
+                print(f"[Buzzer Error] {e}")
         else:
-            # Command execution matching user requirement
-            cmd = [
-                "python3", "-c",
-                f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep({on_duration}); p.off()"
-            ]
-            try:
-                subprocess.run(cmd, timeout=on_duration + 0.5, check=False)
-                time.sleep(off_duration)
-            except Exception as e:
-                print(f"[Buzzer Error] Subprocess execution error: {e}")
+            self.worker_thread = threading.Thread(target=self._subprocess_alarm_loop, daemon=True)
+            self.worker_thread.start()
 
-    def turn_off(self):
-        """Silences the buzzer immediately."""
+    def stop_alarm(self):
+        """Stops alarm sound immediately."""
+        self.is_active = False
         if self.native_pwm is not None:
             try:
                 self.native_pwm.off()
             except Exception:
                 pass
 
+    def _subprocess_alarm_loop(self):
+        cmd = [
+            "python3", "-c",
+            f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep(0.5); p.off()"
+        ]
+        while self.is_active:
+            try:
+                subprocess.run(cmd, timeout=1.0, check=False)
+            except Exception:
+                pass
+            time.sleep(0.05)
+
     def stop(self):
         """Clean shutdown for buzzer hardware."""
+        self.stop_alarm()
         if self.native_pwm is not None:
             try:
-                self.native_pwm.off()
                 self.native_pwm.close()
             except Exception:
                 pass
@@ -131,13 +139,14 @@ def main():
 
                 if "BREACH" in msg or '"STATUS": "BREACH"' in msg or msg == "1" or "TRUE" in msg:
                     if not is_breached:
-                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED from {addr[0]}! Sounding buzzer loop...")
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> GEOFENCE BREACH DETECTED from {addr[0]}! Sounding alarm...")
                     is_breached = True
+                    buzzer.start_alarm()
                 elif "SAFE" in msg or "INSIDE" in msg or msg == "0" or "FALSE" in msg:
                     if is_breached:
-                        print(f"[{time.strftime('%H:%M:%S')}] >>> Geofence SAFE (Breach Cleared) from {addr[0]}. Silencing buzzer.")
+                        print(f"[{time.strftime('%H:%M:%S')}] >>> Geofence SAFE (Breach Cleared) from {addr[0]}. Silencing alarm.")
                     is_breached = False
-                    buzzer.turn_off()
+                    buzzer.stop_alarm()
             except socket.timeout:
                 pass
             except Exception as e:
@@ -145,16 +154,9 @@ def main():
 
             # Auto-timeout breach alert if no packets received for >3 seconds
             if is_breached and (time.time() - last_packet_ts > 3.0):
-                print(f"[{time.strftime('%H:%M:%S')}] Telemetry timeout (>3s). Silencing buzzer.")
+                print(f"[{time.strftime('%H:%M:%S')}] Telemetry timeout (>3s). Silencing alarm.")
                 is_breached = False
-                buzzer.turn_off()
-
-            # Continuous buzzer loop while breach persists
-            if is_breached:
-                buzzer.run_beep_cycle(on_duration=0.4, off_duration=0.1)
-            else:
-                buzzer.turn_off()
-                time.sleep(0.05)
+                buzzer.stop_alarm()
 
     except KeyboardInterrupt:
         print("\nStopping Buzzer Listener Service...")
