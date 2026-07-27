@@ -645,8 +645,8 @@ def evaluate_server_geofence(pos, status="connected"):
         geofence_state["breached"] = is_breached
         now = time.time()
 
-        # Send status on change OR periodic heartbeat while breached to keep buzzer sounding
-        if is_breached != prev_state or (is_breached and (now - geofence_state["last_buzzer_sent"] > 0.5)):
+        # Send status on change OR periodic heartbeat (every 0.5s while breached, every 1.0s while safe)
+        if is_breached != prev_state or (now - geofence_state["last_buzzer_sent"] > (0.5 if is_breached else 1.0)):
             geofence_state["last_buzzer_sent"] = now
             send_geofence_buzzer_udp(is_breached)
 

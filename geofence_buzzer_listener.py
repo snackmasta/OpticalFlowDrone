@@ -62,13 +62,23 @@ class BuzzerController:
             self.worker_thread.start()
 
     def stop_alarm(self):
-        """Stops alarm sound immediately."""
+        """Stops alarm sound immediately and turns off hardware GPIO pin."""
         self.is_active = False
         if self.native_pwm is not None:
             try:
+                self.native_pwm.value = 0.0
                 self.native_pwm.off()
             except Exception:
                 pass
+        # Force hardware GPIO pin 12 off via python3 -c subprocess as failsafe
+        try:
+            silence_cmd = [
+                "python3", "-c",
+                f"from gpiozero import PWMOutputDevice; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0; p.off(); p.close()"
+            ]
+            subprocess.run(silence_cmd, timeout=1.0, check=False)
+        except Exception:
+            pass
 
     def _native_pulse_loop(self):
         """Pulsing alarm pattern: beeep (0.25s ON) ... pause (0.15s OFF)."""
@@ -83,6 +93,7 @@ class BuzzerController:
                 time.sleep(0.1)
         if self.native_pwm is not None:
             try:
+                self.native_pwm.value = 0.0
                 self.native_pwm.off()
             except Exception:
                 pass
@@ -91,7 +102,7 @@ class BuzzerController:
         """Subprocess execution matching pulsing pattern."""
         cmd = [
             "python3", "-c",
-            f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep(0.25); p.off()"
+            f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep(0.25); p.off(); p.close()"
         ]
         while self.is_active:
             try:
