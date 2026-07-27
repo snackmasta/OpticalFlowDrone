@@ -154,7 +154,7 @@ def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=
 latest_telemetry = {
     "timestamp": time.time(),
     "rotation": {"quaternion": {"w": 0.7071, "x": 0.7071, "y": 0, "z": 0}, "euler": {"roll": 90.0, "pitch": 0.0, "yaw": 0.0}},
-    "translation": {"position": {"x": 0, "y": 0, "z": 0}, "velocity": {"x": 0, "y": 0, "z": 0}, "linear_accel": {"x": 0, "y": 0, "z": 0}},
+    "translation": {"position": {"x": 0, "y": 1.5, "z": 0}, "velocity": {"x": 0, "y": 0, "z": 0}, "linear_accel": {"x": 0, "y": 0, "z": 0}},
     "heading": 0.0,
     "status": "waiting",
     "gps": dict(gps_data_state)
@@ -612,13 +612,13 @@ geofence_state = {
 }
 geofence_lock = threading.Lock()
 
-def evaluate_server_geofence(pos):
+def evaluate_server_geofence(pos, status="connected"):
     """
     Evaluates 3D geofence boundary server-side on every incoming telemetry packet.
     Transmits UDP alerts to buzzer listener even if 0 web clients are connected.
     """
     global geofence_state
-    if not isinstance(pos, dict):
+    if status != "connected" or not isinstance(pos, dict):
         return False
 
     try:
@@ -704,7 +704,7 @@ def start_udp_listener():
 
             # Evaluate 3D Geofence server-side autonomously (works even with 0 browser clients open)
             pos = payload.get("translation", {}).get("position", {})
-            evaluate_server_geofence(pos)
+            evaluate_server_geofence(pos, payload.get("status", "connected"))
 
             with geofence_lock:
                 payload["geofence"] = dict(geofence_state)

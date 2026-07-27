@@ -16,7 +16,7 @@ let anchoredPos = { x: 0, y: 0, z: 0 };
 // Origin offset for resetting zero-position
 let positionOffset = { x: 0, y: 0, z: 0 };
 let rawLatestPos = { x: 0, y: 0, z: 0 };
-let currentTargetPos = new THREE.Vector3(0, 0, 0);
+let currentTargetPos = new THREE.Vector3(0, 1.5, 0);
 let currentTargetQuat = new THREE.Quaternion();
 
 
@@ -98,6 +98,7 @@ function initScene() {
 // Construct Stylized 3D VR Controller Model
 function createControllerMesh() {
   controllerGroup = new THREE.Group();
+  controllerGroup.position.set(0, 1.5, 0);
 
   // Simple Cube Mesh (replaces VR Controller Model)
   const cubeGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
