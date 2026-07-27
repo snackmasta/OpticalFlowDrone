@@ -50,15 +50,13 @@ class BuzzerController:
                 self.native_pwm = None
 
     def start_alarm(self):
-        """Starts continuous alarm sound asynchronously without blocking socket receiver."""
+        """Starts pulsing alarm sound ('beeep ... beeep') asynchronously in background."""
         if self.is_active:
             return
         self.is_active = True
         if self.native_pwm is not None:
-            try:
-                self.native_pwm.value = 0.5
-            except Exception as e:
-                print(f"[Buzzer Error] {e}")
+            self.worker_thread = threading.Thread(target=self._native_pulse_loop, daemon=True)
+            self.worker_thread.start()
         else:
             self.worker_thread = threading.Thread(target=self._subprocess_alarm_loop, daemon=True)
             self.worker_thread.start()
@@ -72,17 +70,35 @@ class BuzzerController:
             except Exception:
                 pass
 
+    def _native_pulse_loop(self):
+        """Pulsing alarm pattern: beeep (0.25s ON) ... pause (0.15s OFF)."""
+        while self.is_active:
+            try:
+                if self.native_pwm is not None:
+                    self.native_pwm.value = 0.5
+                    time.sleep(0.25)
+                    self.native_pwm.off()
+                    time.sleep(0.15)
+            except Exception:
+                time.sleep(0.1)
+        if self.native_pwm is not None:
+            try:
+                self.native_pwm.off()
+            except Exception:
+                pass
+
     def _subprocess_alarm_loop(self):
+        """Subprocess execution matching pulsing pattern."""
         cmd = [
             "python3", "-c",
-            f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep(0.5); p.off()"
+            f"from gpiozero import PWMOutputDevice; from time import sleep; p = PWMOutputDevice({self.pin}, frequency={self.frequency}); p.value = 0.5; sleep(0.25); p.off()"
         ]
         while self.is_active:
             try:
-                subprocess.run(cmd, timeout=1.0, check=False)
+                subprocess.run(cmd, timeout=0.8, check=False)
+                time.sleep(0.15)
             except Exception:
-                pass
-            time.sleep(0.05)
+                time.sleep(0.1)
 
     def stop(self):
         """Clean shutdown for buzzer hardware."""
