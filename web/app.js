@@ -300,8 +300,8 @@ function updateTelemetry(data) {
   }
 
   // Update GPS and 2D Planar Projection
-  if (data.gps) {
-    updateGpsTelemetry(data.gps);
+  if (data.gps || data.fused_gps) {
+    updateGpsTelemetry(data.gps, data.fused_gps);
   }
 }
 
@@ -1068,11 +1068,6 @@ window.addEventListener('DOMContentLoaded', () => {
   applyTheme(isDarkMode);
   connectTelemetryStream();
 });
-
-// Update GPS and 2D Planar Projection
-if (data.gps || data.fused_gps) {
-  updateGpsTelemetry(data.gps, data.fused_gps);
-}
 
 // ----------------------------------------------------
 // Real-World GPS & 2D Tangent Plane Projection Map
