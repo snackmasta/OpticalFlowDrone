@@ -132,8 +132,8 @@ let breachCountdownSec = 30;
 let isBreachCountdownActive = false;
 
 function createGeofence3D() {
-  // 1x1m Active Geofence 3D Box Geometry (1m x 1m x 1m)
-  const boxGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+  // 1.5x1.5m Active Geofence 3D Box Geometry (1.5m x 1.5m x 1.5m)
+  const boxGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
 
   // Translucent Green Fill Material
   const fillMat = new THREE.MeshBasicMaterial({
@@ -199,9 +199,9 @@ function updateGeofenceHitboxCheck() {
   if (!geofenceMesh || !controllerGroup) return;
 
   // Cube size: 0.12m x 0.12m x 0.12m (half-size = 0.06m)
-  // Fence size: 1.0m x 1.0m x 1.0m (half-size = 0.50m)
+  // Fence size: 1.5m x 1.5m x 1.5m (half-size = 0.75m)
   const CUBE_HALF_WIDTH_M = 0.06;
-  const FENCE_HALF_WIDTH_M = 0.50;
+  const FENCE_HALF_WIDTH_M = 0.75;
 
   // Displacement relative to current geofence center
   const dx = controllerGroup.position.x - geofenceCenter.x;
@@ -250,7 +250,7 @@ function updateGeofenceHitboxCheck() {
       elGeofenceBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i> BREACH! RECENTERING IN ${breachCountdownSec}s`;
     } else {
       elGeofenceBadge.className = 'geofence-badge safe';
-      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)';
+      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1.5x1.5m)';
     }
   }
 
