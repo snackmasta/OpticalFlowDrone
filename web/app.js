@@ -1132,8 +1132,12 @@ function initLeafletDualMaps() {
   });
 
   // 1. Initialize MAP 1: RAW UNFILTERED GPS
-  leafletMapRaw = L.map('leafletMapRaw', { zoomControl: false }).setView([initLat, initLon], 17);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(leafletMapRaw);
+  leafletMapRaw = L.map('leafletMapRaw', { zoomControl: false, maxZoom: 28 }).setView([initLat, initLon], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 28,
+    maxNativeZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(leafletMapRaw);
   L.control.zoom({ position: 'topright' }).addTo(leafletMapRaw);
 
   originMarkerRaw = L.marker([initLat, initLon], { icon: homeIcon }).addTo(leafletMapRaw).bindPopup('Raw Home Origin');
@@ -1141,8 +1145,12 @@ function initLeafletDualMaps() {
   polylineRaw = L.polyline([], { color: '#f43f5e', weight: 3, opacity: 0.75, dashArray: '4,6' }).addTo(leafletMapRaw);
 
   // 2. Initialize MAP 2: SENSOR FUSED GPS
-  leafletMapFused = L.map('leafletMapFused', { zoomControl: false }).setView([initLat, initLon], 17);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(leafletMapFused);
+  leafletMapFused = L.map('leafletMapFused', { zoomControl: false, maxZoom: 28 }).setView([initLat, initLon], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 28,
+    maxNativeZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(leafletMapFused);
   L.control.zoom({ position: 'topright' }).addTo(leafletMapFused);
 
   originMarkerFused = L.marker([initLat, initLon], { icon: homeIcon }).addTo(leafletMapFused).bindPopup('Fused Home Origin (0,0)');
