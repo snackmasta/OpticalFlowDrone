@@ -1072,11 +1072,23 @@ window.addEventListener('DOMContentLoaded', () => {
 // ----------------------------------------------------
 // Real-World GPS & 2D Tangent Plane Projection Map
 // ----------------------------------------------------
-let leafletMap = null;
-let leafletMarker = null;
-let leafletOriginMarker = null;
-let leafletPolyline = null;
-let gpsTrailPoints = [];
+// ----------------------------------------------------
+// Real-World GPS & 2D Tangent Plane Projection Dual Maps
+// ----------------------------------------------------
+let leafletMapRaw = null;
+let leafletMapFused = null;
+let markerRaw = null;
+let markerFused = null;
+let originMarkerRaw = null;
+let originMarkerFused = null;
+let polylineRaw = null;
+let polylineFused = null;
+let accuracyCircleFused = null;
+
+let rawTrailPoints = [];
+let fusedTrailPoints = [];
+let isSyncingMaps = false;
+
 let currentGpsState = {
   lat: null,
   lon: null,
@@ -1089,21 +1101,15 @@ let currentGpsState = {
   origin: { lat: null, lon: null }
 };
 
-function initLeafletMap() {
-  const container = document.getElementById('leafletMap');
-  if (!container || leafletMap) return;
+function initLeafletDualMaps() {
+  const containerRaw = document.getElementById('leafletMapRaw');
+  const containerFused = document.getElementById('leafletMapFused');
+  if (!containerRaw || !containerFused || (leafletMapRaw && leafletMapFused)) return;
 
-  const initialLat = (currentGpsState.lat != null) ? currentGpsState.lat : 0.0;
-  const initialLon = (currentGpsState.lon != null) ? currentGpsState.lon : 0.0;
+  const initLat = (currentGpsState.lat != null) ? currentGpsState.lat : 0.0;
+  const initLon = (currentGpsState.lon != null) ? currentGpsState.lon : 0.0;
 
-  leafletMap = L.map('leafletMap').setView([initialLat, initialLon], 17);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap'
-  }).addTo(leafletMap);
-
-  // Custom Icon for Reference Home Origin
+  // Custom Leaflet Markers
   const homeIcon = L.divIcon({
     className: 'custom-leaflet-icon-home',
     html: '<div style="background:#ef4444; width:14px; height:14px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 8px #ef4444;"></div>',
@@ -1111,20 +1117,55 @@ function initLeafletMap() {
     iconAnchor: [7, 7]
   });
 
-  leafletOriginMarker = L.marker([initialLat, initialLon], { icon: homeIcon }).addTo(leafletMap).bindPopup('Reference Home Origin (0,0)');
+  const rawDroneIcon = L.divIcon({
+    className: 'custom-leaflet-icon-raw',
+    html: '<div style="background:#f43f5e; width:16px; height:16px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 10px #f43f5e;"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
 
-  // Custom Icon for Drone Marker
-  const droneIcon = L.divIcon({
-    className: 'custom-leaflet-icon-drone',
-    html: '<div style="background:#06b6d4; width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 12px #06b6d4;"></div>',
+  const fusedDroneIcon = L.divIcon({
+    className: 'custom-leaflet-icon-fused',
+    html: '<div style="background:#06b6d4; width:18px; height:18px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 14px #06b6d4;"></div>',
     iconSize: [18, 18],
     iconAnchor: [9, 9]
   });
 
-  leafletMarker = L.marker([initialLat, initialLon], { icon: droneIcon }).addTo(leafletMap).bindPopup('Drone Current Position (Fused)');
+  // 1. Initialize MAP 1: RAW UNFILTERED GPS
+  leafletMapRaw = L.map('leafletMapRaw', { zoomControl: false }).setView([initLat, initLon], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(leafletMapRaw);
+  L.control.zoom({ position: 'topright' }).addTo(leafletMapRaw);
 
-  // Flight Path Polyline
-  leafletPolyline = L.polyline([], { color: '#06b6d4', weight: 4, opacity: 0.8 }).addTo(leafletMap);
+  originMarkerRaw = L.marker([initLat, initLon], { icon: homeIcon }).addTo(leafletMapRaw).bindPopup('Raw Home Origin');
+  markerRaw = L.marker([initLat, initLon], { icon: rawDroneIcon }).addTo(leafletMapRaw).bindPopup('Raw Unfiltered GPS');
+  polylineRaw = L.polyline([], { color: '#f43f5e', weight: 3, opacity: 0.75, dashArray: '4,6' }).addTo(leafletMapRaw);
+
+  // 2. Initialize MAP 2: SENSOR FUSED GPS
+  leafletMapFused = L.map('leafletMapFused', { zoomControl: false }).setView([initLat, initLon], 17);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(leafletMapFused);
+  L.control.zoom({ position: 'topright' }).addTo(leafletMapFused);
+
+  originMarkerFused = L.marker([initLat, initLon], { icon: homeIcon }).addTo(leafletMapFused).bindPopup('Fused Home Origin (0,0)');
+  markerFused = L.marker([initLat, initLon], { icon: fusedDroneIcon }).addTo(leafletMapFused).bindPopup('50Hz Sensor Fused Position');
+  polylineFused = L.polyline([], { color: '#06b6d4', weight: 4, opacity: 0.9 }).addTo(leafletMapFused);
+
+  accuracyCircleFused = L.circle([initLat, initLon], {
+    color: '#06b6d4',
+    fillColor: '#06b6d4',
+    fillOpacity: 0.15,
+    radius: 0.5
+  }).addTo(leafletMapFused);
+
+  // Synchronize Pan & Zoom between maps
+  function syncMaps(sourceMap, targetMap) {
+    if (isSyncingMaps) return;
+    isSyncingMaps = true;
+    targetMap.setView(sourceMap.getCenter(), sourceMap.getZoom(), { animate: false });
+    isSyncingMaps = false;
+  }
+
+  leafletMapRaw.on('move', () => syncMaps(leafletMapRaw, leafletMapFused));
+  leafletMapFused.on('move', () => syncMaps(leafletMapFused, leafletMapRaw));
 }
 
 function updateGpsTelemetry(gps, fusedGps) {
@@ -1151,11 +1192,15 @@ function updateGpsTelemetry(gps, fusedGps) {
   }
   if (elSats) elSats.textContent = satsCount != null ? satsCount : 0;
 
-  const latVal = fusedGps ? fusedGps.fused_lat : (gps ? gps.lat : null);
-  const lonVal = fusedGps ? fusedGps.fused_lon : (gps ? gps.lon : null);
+  // Extract Raw vs Fused values
+  const rawLat = (gps && gps.lat != null) ? gps.lat : (fusedGps && fusedGps.raw_gps ? fusedGps.raw_gps.lat : null);
+  const rawLon = (gps && gps.lon != null) ? gps.lon : (fusedGps && fusedGps.raw_gps ? fusedGps.raw_gps.lon : null);
 
-  if (elLat) elLat.textContent = latVal != null ? latVal.toFixed(6) : '-';
-  if (elLon) elLon.textContent = lonVal != null ? lonVal.toFixed(6) : '-';
+  const fusedLat = fusedGps ? fusedGps.fused_lat : rawLat;
+  const fusedLon = fusedGps ? fusedGps.fused_lon : rawLon;
+
+  if (elLat) elLat.textContent = fusedLat != null ? fusedLat.toFixed(6) : '-';
+  if (elLon) elLon.textContent = fusedLon != null ? fusedLon.toFixed(6) : '-';
 
   const projX = fusedGps ? fusedGps.fused_x_m : (gps ? gps.projected_x_m : 0.0);
   const projY = fusedGps ? fusedGps.fused_y_m : (gps ? gps.projected_y_m : 0.0);
@@ -1168,6 +1213,8 @@ function updateGpsTelemetry(gps, fusedGps) {
   const elOvlSats = document.getElementById('overlayGpsSats');
   const elOvlSpeed = document.getElementById('overlayGpsSpeed');
   const elOvlAlt = document.getElementById('overlayGpsAlt');
+  const elOvlRawLat = document.getElementById('overlayRawLat');
+  const elOvlRawLon = document.getElementById('overlayRawLon');
   const elOvlLat = document.getElementById('overlayGpsLat');
   const elOvlLon = document.getElementById('overlayGpsLon');
   const elOvlX = document.getElementById('overlayGpsX');
@@ -1179,10 +1226,16 @@ function updateGpsTelemetry(gps, fusedGps) {
   if (elOvlSats) elOvlSats.textContent = satsCount != null ? satsCount : 0;
   if (elOvlSpeed) elOvlSpeed.textContent = `${((fusedGps ? fusedGps.speed_kmh : (gps ? gps.speed_kmh : 0)) || 0).toFixed(1)} km/h`;
   if (elOvlAlt) elOvlAlt.textContent = `${((fusedGps ? fusedGps.fused_alt_m : (gps ? gps.alt_m : 0)) || 0).toFixed(1)} m`;
-  if (elOvlLat) elOvlLat.textContent = `${latVal != null ? latVal.toFixed(6) : '-'}°`;
-  if (elOvlLon) elOvlLon.textContent = `${lonVal != null ? lonVal.toFixed(6) : '-'}°`;
+
+  if (elOvlRawLat) elOvlRawLat.textContent = `${rawLat != null ? rawLat.toFixed(6) : '-'}°`;
+  if (elOvlRawLon) elOvlRawLon.textContent = `${rawLon != null ? rawLon.toFixed(6) : '-'}°`;
+
+  if (elOvlLat) elOvlLat.textContent = `${fusedLat != null ? fusedLat.toFixed(6) : '-'}°`;
+  if (elOvlLon) elOvlLon.textContent = `${fusedLon != null ? fusedLon.toFixed(6) : '-'}°`;
+
   if (elOvlX) elOvlX.textContent = `${(projX || 0).toFixed(2)} m`;
   if (elOvlY) elOvlY.textContent = `${(projY || 0).toFixed(2)} m`;
+
   if (elOvlAccuracy && fusedGps && fusedGps.accuracy_radius_m != null) {
     elOvlAccuracy.textContent = `±${fusedGps.accuracy_radius_m.toFixed(2)} m`;
   }
@@ -1192,18 +1245,34 @@ function updateGpsTelemetry(gps, fusedGps) {
     elOvlOrigin.textContent = `${activeOrigin.lat.toFixed(6)}, ${activeOrigin.lon.toFixed(6)}`;
   }
 
-  // Update Leaflet map markers
-  if (leafletMap && latVal != null && lonVal != null) {
-    const newPos = [latVal, lonVal];
-    if (leafletMarker) leafletMarker.setLatLng(newPos);
+  // Update Leaflet Map 1: RAW UNFILTERED GPS
+  if (leafletMapRaw && rawLat != null && rawLon != null) {
+    const rawPos = [rawLat, rawLon];
+    if (markerRaw) markerRaw.setLatLng(rawPos);
+    if (activeOrigin && activeOrigin.lat != null && originMarkerRaw) {
+      originMarkerRaw.setLatLng([activeOrigin.lat, activeOrigin.lon]);
+    }
+    rawTrailPoints.push(rawPos);
+    if (rawTrailPoints.length > 500) rawTrailPoints.shift();
+    if (polylineRaw) polylineRaw.setLatLngs(rawTrailPoints);
+  }
 
-    if (activeOrigin && leafletOriginMarker) {
-      leafletOriginMarker.setLatLng([activeOrigin.lat, activeOrigin.lon]);
+  // Update Leaflet Map 2: 50Hz SENSOR FUSED GPS
+  if (leafletMapFused && fusedLat != null && fusedLon != null) {
+    const fusedPos = [fusedLat, fusedLon];
+    if (markerFused) markerFused.setLatLng(fusedPos);
+    if (activeOrigin && activeOrigin.lat != null && originMarkerFused) {
+      originMarkerFused.setLatLng([activeOrigin.lat, activeOrigin.lon]);
     }
 
-    gpsTrailPoints.push(newPos);
-    if (gpsTrailPoints.length > 500) gpsTrailPoints.shift();
-    if (leafletPolyline) leafletPolyline.setLatLngs(gpsTrailPoints);
+    if (accuracyCircleFused && fusedGps && fusedGps.accuracy_radius_m != null) {
+      accuracyCircleFused.setLatLng(fusedPos);
+      accuracyCircleFused.setRadius(fusedGps.accuracy_radius_m);
+    }
+
+    fusedTrailPoints.push(fusedPos);
+    if (fusedTrailPoints.length > 500) fusedTrailPoints.shift();
+    if (polylineFused) polylineFused.setLatLngs(fusedTrailPoints);
   }
 }
 
@@ -1213,15 +1282,52 @@ const btnToggleGpsModal = document.getElementById('btnToggleGpsModal');
 const btnCloseGpsDrawer = document.getElementById('btnCloseGpsDrawer');
 const btnSetGpsOrigin = document.getElementById('btnSetGpsOrigin');
 
+const btnMapSplit = document.getElementById('btnMapSplit');
+const btnMapFused = document.getElementById('btnMapFused');
+const btnMapRaw = document.getElementById('btnMapRaw');
+const rawMapBox = document.getElementById('rawMapBox');
+const fusedMapBox = document.getElementById('fusedMapBox');
+
+function setMapViewMode(mode) {
+  [btnMapSplit, btnMapFused, btnMapRaw].forEach(btn => btn?.classList.remove('active'));
+
+  if (mode === 'split') {
+    btnMapSplit?.classList.add('active');
+    if (rawMapBox) rawMapBox.style.display = 'flex';
+    if (fusedMapBox) fusedMapBox.style.display = 'flex';
+    if (gpsMapDrawer) gpsMapDrawer.style.width = '880px';
+  } else if (mode === 'fused') {
+    btnMapFused?.classList.add('active');
+    if (rawMapBox) rawMapBox.style.display = 'none';
+    if (fusedMapBox) fusedMapBox.style.display = 'flex';
+    if (gpsMapDrawer) gpsMapDrawer.style.width = '560px';
+  } else if (mode === 'raw') {
+    btnMapRaw?.classList.add('active');
+    if (rawMapBox) rawMapBox.style.display = 'flex';
+    if (fusedMapBox) fusedMapBox.style.display = 'none';
+    if (gpsMapDrawer) gpsMapDrawer.style.width = '560px';
+  }
+
+  setTimeout(() => {
+    if (leafletMapRaw) leafletMapRaw.invalidateSize();
+    if (leafletMapFused) leafletMapFused.invalidateSize();
+  }, 200);
+}
+
+btnMapSplit?.addEventListener('click', () => setMapViewMode('split'));
+btnMapFused?.addEventListener('click', () => setMapViewMode('fused'));
+btnMapRaw?.addEventListener('click', () => setMapViewMode('raw'));
+
 function toggleGpsMapDrawer() {
   if (!gpsMapDrawer) return;
   const isHidden = gpsMapDrawer.classList.contains('hidden');
   if (isHidden) {
     gpsMapDrawer.classList.remove('hidden');
     btnToggleGpsMap?.classList.add('active');
-    initLeafletMap();
+    initLeafletDualMaps();
     setTimeout(() => {
-      if (leafletMap) leafletMap.invalidateSize();
+      if (leafletMapRaw) leafletMapRaw.invalidateSize();
+      if (leafletMapFused) leafletMapFused.invalidateSize();
     }, 200);
   } else {
     gpsMapDrawer.classList.add('hidden');

@@ -366,7 +366,20 @@
   <!-- Interactive Real-World GPS Map & 2D Plane Projection Modal Drawer -->
   <aside class="gps-map-drawer hidden" id="gpsMapDrawer">
     <div class="drawer-header flex-between">
-      <h3><i class="fa-solid fa-map-location-dot me-2"></i> Real-World Map & 2D Plane Projection</h3>
+      <div class="flex-align-center gap-2">
+        <h3><i class="fa-solid fa-map-location-dot me-2"></i> Real-World Map Comparison</h3>
+        <div class="map-view-toggle ms-3">
+          <button class="btn-map-mode active" id="btnMapSplit" title="Side-by-Side Dual Map View">
+            <i class="fa-solid fa-columns me-1"></i> Split View
+          </button>
+          <button class="btn-map-mode" id="btnMapFused" title="Fused GPS Map Only">
+            <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Fused Map
+          </button>
+          <button class="btn-map-mode" id="btnMapRaw" title="Raw Hardware GPS Map Only">
+            <i class="fa-solid fa-satellite me-1"></i> Raw GPS
+          </button>
+        </div>
+      </div>
       <div class="drawer-actions">
         <button class="btn-card-action" id="btnSetGpsOrigin" title="Set current location as Reference Home Origin (0, 0)">
           <i class="fa-solid fa-crosshairs"></i> Set Origin
@@ -376,31 +389,48 @@
     </div>
     
     <div class="gps-map-body">
-      <!-- Leaflet Interactive Map Container -->
-      <div id="leafletMap" class="leaflet-map-container"></div>
+      <div class="dual-maps-wrapper mode-split" id="dualMapsWrapper">
+        <!-- MAP 1: RAW HARDWARE GPS -->
+        <div class="map-container-box" id="rawMapBox">
+          <div class="map-title-bar raw-title">
+            <span><i class="fa-solid fa-satellite me-1"></i> Raw Hardware GPS (u-blox /dev/ttyAMA2)</span>
+            <span class="status-badge-sm" id="rawMapBadge">RAW UNFILTERED</span>
+          </div>
+          <div id="leafletMapRaw" class="leaflet-map-container"></div>
+        </div>
+
+        <!-- MAP 2: SENSOR FUSED GPS -->
+        <div class="map-container-box" id="fusedMapBox">
+          <div class="map-title-bar fused-title">
+            <span><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Sensor Fusion Engine (IMU + Flow + Compass + GPS)</span>
+            <span class="status-badge-sm active" id="fusedMapBadge">50Hz SMOOTH</span>
+          </div>
+          <div id="leafletMapFused" class="leaflet-map-container"></div>
+        </div>
+      </div>
 
       <!-- Real World <-> 2D Plane Coordinate Telemetry Overlay -->
       <div class="gps-overlay-panel">
         <div class="overlay-section">
-          <h4><i class="fa-solid fa-satellite-dish me-1"></i> Satellite Fix</h4>
+          <h4><i class="fa-solid fa-satellite-dish me-1"></i> Hardware GPS Fix</h4>
           <p>Status: <strong id="overlayGpsStatus">SEARCHING...</strong></p>
-          <p>Satellites: <strong id="overlayGpsSats">0</strong> | Speed: <strong id="overlayGpsSpeed">0.0 km/h</strong> | Alt: <strong id="overlayGpsAlt">0.0 m</strong></p>
+          <p>Sats: <strong id="overlayGpsSats">0</strong> | Speed: <strong id="overlayGpsSpeed">0.0 km/h</strong> | Alt: <strong id="overlayGpsAlt">0.0 m</strong></p>
         </div>
         <div class="overlay-section">
-          <h4><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Sensor Fusion Engine</h4>
-          <p>Status: <span class="status-badge-sm active" id="fusionStatusBadge">ACTIVE (IMU + Flow + Compass + GPS)</span></p>
-          <p>Est. Accuracy Radius: <strong id="overlayGpsAccuracy">±0.50 m</strong></p>
+          <h4><i class="fa-solid fa-satellite me-1"></i> Raw GPS Position</h4>
+          <p>Raw Lat: <strong id="overlayRawLat">-°</strong></p>
+          <p>Raw Lon: <strong id="overlayRawLon">-°</strong></p>
         </div>
         <div class="overlay-section">
-          <h4><i class="fa-solid fa-location-dot me-1"></i> Fused Geographic Position</h4>
-          <p>Lat: <strong id="overlayGpsLat">-°</strong></p>
-          <p>Lon: <strong id="overlayGpsLon">-°</strong></p>
+          <h4><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Fused Sensor Position</h4>
+          <p>Fused Lat: <strong id="overlayGpsLat">-°</strong></p>
+          <p>Fused Lon: <strong id="overlayGpsLon">-°</strong></p>
+          <p>Est. Accuracy: <strong id="overlayGpsAccuracy">±0.50 m</strong></p>
         </div>
         <div class="overlay-section">
-          <h4><i class="fa-solid fa-draw-polygon me-1"></i> 2D Tangent Plane Projection</h4>
-          <p>Local X (East): <strong id="overlayGpsX">0.00 m</strong></p>
-          <p>Local Y (North): <strong id="overlayGpsY">0.00 m</strong></p>
-          <p>Origin: <span id="overlayGpsOrigin">Awaiting GPS Fix...</span></p>
+          <h4><i class="fa-solid fa-draw-polygon me-1"></i> 2D Tangent Projection</h4>
+          <p>Local X (East): <strong id="overlayGpsX">0.00 m</strong> | Y (North): <strong id="overlayGpsY">0.00 m</strong></p>
+          <p>Home Origin: <span id="overlayGpsOrigin">Awaiting GPS Fix...</span></p>
         </div>
       </div>
     </div>
