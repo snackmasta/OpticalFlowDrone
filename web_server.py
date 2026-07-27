@@ -557,8 +557,9 @@ def send_geofence_buzzer_udp(is_breached):
             pass
 
         buzzer_sock.close()
-    except Exception:
-        pass
+        print(f"[Buzzer UDP] Transmitted status: {'BREACH' if is_breached else 'SAFE'} -> {BUZZER_UDP_IP}:{BUZZER_UDP_PORT}")
+    except Exception as e:
+        print(f"[Buzzer UDP Error] {e}")
 
 def send_arm_angles(roll_deg, pitch_deg):
     """
