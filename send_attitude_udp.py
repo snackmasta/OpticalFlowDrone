@@ -43,26 +43,30 @@ try:
 except ImportError:
     PYNMEA2_AVAILABLE = False
 
-def nmea_to_decimal(raw_val, direction, is_lon=False):
-    if not raw_val or '.' not in str(raw_val):
+def convert_latitude(lat_str, lat_dir):
+    if not lat_str or not lat_dir:
         return None
     try:
-        raw_str = str(raw_val)
-        dot_idx = raw_str.find('.')
-        if dot_idx < 0:
-            return None
-        split_idx = 3 if is_lon else 2
-        if dot_idx > split_idx:
-            split_idx = dot_idx - 2
-        if split_idx <= 0:
-            return None
-        degrees = float(raw_str[:split_idx])
-        minutes = float(raw_str[split_idx:])
-        decimal = degrees + (minutes / 60.0)
-        if direction in ['S', 'W']:
-            decimal = -decimal
-        return round(decimal, 6)
-    except ValueError:
+        deg = float(lat_str[:2])
+        minutes = float(lat_str[2:])
+        dec_deg = deg + (minutes / 60.0)
+        if lat_dir == 'S':
+            dec_deg = -dec_deg
+        return round(dec_deg, 6)
+    except Exception:
+        return None
+
+def convert_longitude(lon_str, lon_dir):
+    if not lon_str or not lon_dir:
+        return None
+    try:
+        deg = float(lon_str[:3])
+        minutes = float(lon_str[3:])
+        dec_deg = deg + (minutes / 60.0)
+        if lon_dir == 'W':
+            dec_deg = -dec_deg
+        return round(dec_deg, 6)
+    except Exception:
         return None
 
 def gps_hardware_thread():
@@ -85,25 +89,26 @@ def gps_hardware_thread():
             if PYNMEA2_AVAILABLE:
                 try:
                     msg = pynmea2.parse(line)
-                    if isinstance(msg, pynmea2.types.talker.GGA):
-                        sats = int(msg.num_sats) if msg.num_sats else 0
-                        fix_code = str(msg.gps_qual) if msg.gps_qual else '0'
-                        fix_str = "3D FIX ACQUIRED" if int(fix_code) > 0 else "SEARCHING FOR SATELLITES..."
-                        alt = float(msg.altitude) if msg.altitude else 0.0
-                        lat = nmea_to_decimal(msg.lat, msg.lat_dir) if msg.lat and msg.lat_dir else None
-                        lon = nmea_to_decimal(msg.lon, msg.lon_dir, is_lon=True) if msg.lon and msg.lon_dir else None
+                    stype = getattr(msg, 'sentence_type', '')
+                    if stype == 'GGA':
+                        sats = int(msg.num_sats) if (hasattr(msg, 'num_sats') and msg.num_sats) else 0
+                        fix_qual = int(msg.gps_qual) if (hasattr(msg, 'gps_qual') and msg.gps_qual) else 0
+                        fix_str = "3D FIX ACQUIRED" if fix_qual > 0 else "SEARCHING FOR SATELLITES..."
+                        alt = float(msg.altitude) if (hasattr(msg, 'altitude') and msg.altitude) else 0.0
+                        lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
+                        lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
                         with gps_lock:
                             if lat is not None: latest_gps_data["lat"] = lat
                             if lon is not None: latest_gps_data["lon"] = lon
                             latest_gps_data["alt_m"] = alt
                             latest_gps_data["satellites"] = sats
                             latest_gps_data["fix_status"] = fix_str
-                            latest_gps_data["fix_code"] = fix_code
-                    elif isinstance(msg, pynmea2.types.talker.RMC):
-                        if msg.status == 'A':
-                            lat = nmea_to_decimal(msg.lat, msg.lat_dir) if msg.lat and msg.lat_dir else None
-                            lon = nmea_to_decimal(msg.lon, msg.lon_dir, is_lon=True) if msg.lon and msg.lon_dir else None
-                            spd_kmh = float(msg.spd_over_grnd) * 1.852 if msg.spd_over_grnd is not None else 0.0
+                            latest_gps_data["fix_code"] = str(fix_qual)
+                    elif stype == 'RMC':
+                        if hasattr(msg, 'status') and msg.status == 'A':
+                            lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
+                            lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
+                            spd_kmh = float(msg.spd_over_grnd) * 1.852 if (hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None) else 0.0
                             with gps_lock:
                                 if lat is not None: latest_gps_data["lat"] = lat
                                 if lon is not None: latest_gps_data["lon"] = lon
@@ -120,8 +125,8 @@ def gps_hardware_thread():
                     fix_code = parts[6] if len(parts) > 6 and parts[6] else '0'
                     sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
                     alt = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
-                    lat = nmea_to_decimal(raw_lat, lat_dir)
-                    lon = nmea_to_decimal(raw_lon, lon_dir, is_lon=True)
+                    lat = convert_latitude(raw_lat, lat_dir)
+                    lon = convert_longitude(raw_lon, lon_dir)
                     fix_str = "3D FIX ACQUIRED" if fix_code in ['1', '2', '4', '5'] else "SEARCHING FOR SATELLITES..."
                     with gps_lock:
                         if lat is not None: latest_gps_data["lat"] = lat
@@ -133,8 +138,8 @@ def gps_hardware_thread():
                 elif sentence.endswith('RMC') and len(parts) >= 9:
                     status = parts[2]
                     if status == 'A':
-                        lat = nmea_to_decimal(parts[3], parts[4])
-                        lon = nmea_to_decimal(parts[5], parts[6], is_lon=True)
+                        lat = convert_latitude(parts[3], parts[4])
+                        lon = convert_longitude(parts[5], parts[6])
                         spd_knots = float(parts[7]) if len(parts) > 7 and parts[7] else 0.0
                         with gps_lock:
                             if lat is not None: latest_gps_data["lat"] = lat

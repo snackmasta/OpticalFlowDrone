@@ -1078,23 +1078,23 @@ let leafletOriginMarker = null;
 let leafletPolyline = null;
 let gpsTrailPoints = [];
 let currentGpsState = {
-  lat: -6.864885,
-  lon: 107.573586,
+  lat: null,
+  lon: null,
   alt_m: 0.0,
   speed_kmh: 0.0,
   satellites: 0,
   fix_status: 'SEARCHING FOR SATELLITES...',
   projected_x_m: 0.0,
   projected_y_m: 0.0,
-  origin: { lat: -6.864885, lon: 107.573586 }
+  origin: { lat: null, lon: null }
 };
 
 function initLeafletMap() {
   const container = document.getElementById('leafletMap');
   if (!container || leafletMap) return;
 
-  const initialLat = currentGpsState.lat || -6.864885;
-  const initialLon = currentGpsState.lon || 107.573586;
+  const initialLat = (currentGpsState.lat != null) ? currentGpsState.lat : 0.0;
+  const initialLon = (currentGpsState.lon != null) ? currentGpsState.lon : 0.0;
 
   leafletMap = L.map('leafletMap').setView([initialLat, initialLon], 17);
 

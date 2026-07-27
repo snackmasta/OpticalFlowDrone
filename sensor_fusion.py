@@ -80,10 +80,11 @@ class SensorFusionEngine:
         self.vx_east_m_s = 0.0
         self.vy_north_m_s = 0.0
 
-        # Origin reference calibration
+        # Dynamic origin reference calibration (obtained dynamically from hardware GPS)
         self.origin_lat = None
         self.origin_lon = None
         self.origin_set = False
+        self.first_gps_lock = False
 
         # Raw sensor inputs cache
         self.heading_deg = 0.0
@@ -155,10 +156,11 @@ class SensorFusionEngine:
         self.fused_alt_m = float(alt_m)
 
         # Auto-initialize origin on first valid GPS fix
-        if not self.origin_set:
+        if not self.first_gps_lock:
             self.set_origin(self.raw_gps_lat, self.raw_gps_lon)
             self.fused_x_m = 0.0
             self.fused_y_m = 0.0
+            self.first_gps_lock = True
             self.last_gps_update_ts = time.time()
             return
 

@@ -30,15 +30,15 @@ UDP_IP = "0.0.0.0"
 # Directories to search for session logs
 LOG_DIRECTORIES = ["recordings", "hasil_dan_pembahasan", "."]
 
-# GPS and 2D Cartesian Plane projection configuration
-DEFAULT_GPS_ORIGIN = {"lat": -6.864885, "lon": 107.573586}
+# GPS and 2D Cartesian Plane projection configuration (origin initialized dynamically from hardware GPS)
+DEFAULT_GPS_ORIGIN = {"lat": None, "lon": None}
 EARTH_RADIUS_M = 6378137.0
 GPS_SERIAL_PORT = os.environ.get("GPS_SERIAL_PORT", "/dev/ttyAMA2")
 GPS_BAUD_RATE = 9600
 
 gps_data_state = {
-    "lat": -6.864885,
-    "lon": 107.573586,
+    "lat": None,
+    "lon": None,
     "alt_m": 0.0,
     "speed_kmh": 0.0,
     "satellites": 0,
@@ -46,7 +46,7 @@ gps_data_state = {
     "fix_code": "0",
     "projected_x_m": 0.0,
     "projected_y_m": 0.0,
-    "origin": dict(DEFAULT_GPS_ORIGIN),
+    "origin": {"lat": None, "lon": None},
     "last_update": time.time()
 }
 
@@ -127,8 +127,8 @@ def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=
         if fix_status is not None: gps_data_state["fix_status"] = str(fix_status)
         if fix_code is not None: gps_data_state["fix_code"] = str(fix_code)
 
-        # Set reference origin to first valid GPS fix coordinate automatically
-        if not origin_initialized and lat is not None and lon is not None:
+        # Set reference origin to first valid GPS fix coordinate automatically from hardware GPS
+        if (not origin_initialized or gps_data_state["origin"]["lat"] is None) and lat is not None and lon is not None:
             gps_data_state["origin"]["lat"] = float(lat)
             gps_data_state["origin"]["lon"] = float(lon)
             origin_initialized = True
@@ -138,7 +138,11 @@ def update_gps_state(lat=None, lon=None, alt_m=None, speed_kmh=None, satellites=
         curr_lat = gps_data_state["lat"]
         curr_lon = gps_data_state["lon"]
 
-        x_m, y_m = geo_to_2d_plane(curr_lat, curr_lon, orig_lat, orig_lon)
+        if orig_lat is not None and orig_lon is not None and curr_lat is not None and curr_lon is not None:
+            x_m, y_m = geo_to_2d_plane(curr_lat, curr_lon, orig_lat, orig_lon)
+        else:
+            x_m, y_m = 0.0, 0.0
+
         gps_data_state["projected_x_m"] = x_m
         gps_data_state["projected_y_m"] = y_m
         gps_data_state["last_update"] = time.time()
