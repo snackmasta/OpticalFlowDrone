@@ -35,9 +35,9 @@ SERVICES = [
         "log": os.path.join(LOG_DIR, "optical_flow_stream.log"),
     },
     {
-        "name": "Buzzer Alarm Listener",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_buzzer_listener.py")],
-        "log": os.path.join(LOG_DIR, "geofence_buzzer_listener.log"),
+        "name": "Geofence Engine Service",
+        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_engine.py")],
+        "log": os.path.join(LOG_DIR, "geofence_engine.log"),
     },
     {
         "name": "Telemetry UDP Bridge",
@@ -104,9 +104,9 @@ def main():
             "log": os.path.join(LOG_DIR, "optical_flow_stream.log"),
         },
         {
-            "name": "Buzzer Alarm Listener",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_buzzer_listener.py")],
-            "log": os.path.join(LOG_DIR, "geofence_buzzer_listener.log"),
+            "name": "Geofence Engine Service",
+            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_engine.py")],
+            "log": os.path.join(LOG_DIR, "geofence_engine.log"),
         },
         {
             "name": "Telemetry UDP Bridge",

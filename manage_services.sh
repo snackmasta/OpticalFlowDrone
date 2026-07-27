@@ -36,8 +36,8 @@ start_services() {
     echo "Starting High-Priority Optical Flow Stream (Mode: $FLOW_MODE, Priority: nice -n -5)..."
     nice -n -5 "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
-    echo "Starting Geofence Buzzer Listener..."
-    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+    echo "Starting Geofence Engine Service..."
+    "$PYTHON_BIN" "$PROJECT_DIR/geofence_engine.py" > "$LOG_DIR/geofence_engine.log" 2>&1 &
 
     echo "Starting Telemetry UDP Bridge..."
     "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
@@ -52,6 +52,7 @@ stop_services() {
     echo "Stopping all active Raspberry Pi drone services..."
     pkill -f "hmc5883l.py"
     pkill -f "optical_flow_stream.py"
+    pkill -f "geofence_engine.py"
     pkill -f "geofence_buzzer_listener.py"
     pkill -f "send_attitude_udp.py"
     pkill -f "web_server.py"
@@ -61,7 +62,7 @@ stop_services() {
 
 check_status() {
     echo "=== Active Raspberry Pi Service Status ==="
-    for service in "hmc5883l.py" "optical_flow_stream.py" "geofence_buzzer_listener.py" "send_attitude_udp.py" "web_server.py"; do
+    for service in "hmc5883l.py" "optical_flow_stream.py" "geofence_engine.py" "send_attitude_udp.py" "web_server.py"; do
         if pgrep -f "$service" > /dev/null; then
             echo -e "  $service: \e[32mRUNNING\e[0m"
         else
@@ -160,11 +161,11 @@ toggle_individual_services() {
             echo -e " 2) Optical Flow Stream: \e[31mSTOPPED\e[0m (Select to START)"
         fi
 
-        # 3. Geofence Buzzer Listener
-        if pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
-            echo -e " 3) Geofence Buzzer Listener: \e[32mRUNNING\e[0m (Select to STOP)"
+        # 3. Geofence Engine
+        if pgrep -f "geofence_engine.py" > /dev/null || pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
+            echo -e " 3) Geofence Engine: \e[32mRUNNING\e[0m (Select to STOP)"
         else
-            echo -e " 3) Geofence Buzzer Listener: \e[31mSTOPPED\e[0m (Select to START)"
+            echo -e " 3) Geofence Engine: \e[31mSTOPPED\e[0m (Select to START)"
         fi
 
         # 4. Telemetry UDP Bridge
@@ -206,12 +207,13 @@ toggle_individual_services() {
                 fi
                 ;;
             3)
-                if pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
-                    echo "Stopping Geofence Buzzer Listener..."
+                if pgrep -f "geofence_engine.py" > /dev/null || pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
+                    echo "Stopping Geofence Engine..."
+                    pkill -f "geofence_engine.py"
                     pkill -f "geofence_buzzer_listener.py"
                 else
-                    echo "Starting Geofence Buzzer Listener..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+                    echo "Starting Geofence Engine..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/geofence_engine.py" > "$LOG_DIR/geofence_engine.log" 2>&1 &
                 fi
                 ;;
             4)

@@ -9,6 +9,7 @@ import sys
 import csv
 import math
 from urllib.parse import parse_qs, urlparse, unquote
+from geofence_engine import send_geofence_status_udp
 
 try:
     import serial
@@ -528,38 +529,8 @@ BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
 BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
 
 def send_geofence_buzzer_udp(is_breached):
-    """
-    Sends UDP packet to the Geofence Buzzer Listener on Raspberry Pi (default 192.168.137.54:5006 & broadcast).
-    Payload: "BREACH" when breached, "SAFE" when inside geofence.
-    """
-    try:
-        payload = b"BREACH" if is_breached else b"SAFE"
-        buzzer_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            buzzer_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        except Exception:
-            pass
-
-        # Send to Pi IP (192.168.137.54)
-        buzzer_sock.sendto(payload, (BUZZER_UDP_IP, BUZZER_UDP_PORT))
-
-        # Send to local host if testing locally
-        if BUZZER_UDP_IP != "127.0.0.1":
-            try:
-                buzzer_sock.sendto(payload, ("127.0.0.1", BUZZER_UDP_PORT))
-            except Exception:
-                pass
-
-        # Send to local network broadcast
-        try:
-            buzzer_sock.sendto(payload, ("<broadcast>", BUZZER_UDP_PORT))
-        except Exception:
-            pass
-
-        buzzer_sock.close()
-        print(f"[Buzzer UDP] Transmitted status: {'BREACH' if is_breached else 'SAFE'} -> {BUZZER_UDP_IP}:{BUZZER_UDP_PORT}")
-    except Exception as e:
-        print(f"[Buzzer UDP Error] {e}")
+    """Delegates geofence status dispatch to Geofence Engine."""
+    send_geofence_status_udp(is_breached, target_ip=BUZZER_UDP_IP, target_port=BUZZER_UDP_PORT)
 
 def send_arm_angles(roll_deg, pitch_deg):
     """
