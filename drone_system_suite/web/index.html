@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Optical Flow Geofence Visualizer</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <!-- Three.js and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <!-- Chart.js for Real-Time Telemetry Graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- WebGL Render Canvas -->
+  <canvas id="canvas3d"></canvas>
+
+  <!-- Glassmorphism Header Overlay -->
+  <header class="hud-header">
+    <div class="brand">
+      <i class="fa-solid me-2 fa-draw-polygon logo-icon"></i>
+      <div>
+        <h1>Geofence Visualizer</h1>
+        <p class="subtitle">1m × 1m Active Geofence & Real-Time Telemetry Tracking</p>
+      </div>
+    </div>
+    
+    <div class="status-container">
+      <span class="geofence-badge safe" id="geofenceBadge">
+        <i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)
+      </span>
+      <button class="btn-theme-toggle" id="btnToggleTheme" title="Toggle Light/Dark Theme">
+        <i class="fa-solid fa-sun" id="themeIcon"></i>
+        <span>Theme</span>
+      </button>
+      <span class="status-badge disconnected" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">Connecting...</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Glassmorphism Floating Telemetry Dashboard -->
+  <main class="hud-dashboard">
+    
+    <!-- Position Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-location-crosshairs"></i>
+        <span>3D Translation (m)</span>
+      </div>
+      <div class="card-body grid-3">
+        <div class="metric">
+          <span class="label">X</span>
+          <span class="value" id="posX">0.00</span>
+        </div>
+        <div class="metric">
+          <span class="label">Y</span>
+          <span class="value" id="posY">0.00</span>
+        </div>
+        <div class="metric">
+          <span class="label">Z</span>
+          <span class="value" id="posZ">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rotation Card (Euler) -->
+    <div class="hud-card">
+      <div class="card-header flex-between">
+        <div>
+          <i class="fa-solid fa-arrows-spin"></i>
+          <span>3D Rotation (Euler °)</span>
+        </div>
+        <button class="btn-card-action" id="btnQuickAxisSwap" title="Swap & Remap Axes">
+          <i class="fa-solid fa-sliders"></i> Swap Axes
+        </button>
+      </div>
+      <div class="card-body grid-3">
+        <div class="metric">
+          <span class="label">Roll</span>
+          <span class="value highlight-roll" id="rotRoll">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Pitch</span>
+          <span class="value highlight-pitch" id="rotPitch">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Yaw</span>
+          <span class="value highlight-yaw" id="rotYaw">0.0°</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quaternion Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-cube"></i>
+        <span>Quaternion [w, x, y, z]</span>
+      </div>
+      <div class="card-body grid-4">
+        <div class="metric-mini">
+          <span class="label">qw</span>
+          <span class="val-sm" id="qw">1.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qx</span>
+          <span class="val-sm" id="qx">0.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qy</span>
+          <span class="val-sm" id="qy">0.00</span>
+        </div>
+        <div class="metric-mini">
+          <span class="label">qz</span>
+          <span class="val-sm" id="qz">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heading & Motion Card -->
+    <div class="hud-card">
+      <div class="card-header">
+        <i class="fa-solid fa-compass"></i>
+        <span>Heading & Speed</span>
+      </div>
+      <div class="card-body grid-2">
+        <div class="metric">
+          <span class="label">Heading</span>
+          <span class="value" id="headingVal">0.0°</span>
+        </div>
+        <div class="metric">
+          <span class="label">Speed</span>
+          <span class="value" id="speedVal">0.00 m/s</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Real World GPS & 2D Projection Card -->
+    <div class="hud-card gps-card" id="hudGpsCard">
+      <div class="card-header flex-between">
+        <div>
+          <i class="fa-solid fa-earth-americas"></i>
+          <span>Real-World GPS & 2D Plane</span>
+        </div>
+        <button class="btn-card-action" id="btnToggleGpsModal" title="Open GPS Map Visualizer">
+          <i class="fa-solid fa-expand"></i> Map
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="gps-status-row flex-between">
+          <span class="status-badge-sm" id="gpsFixBadge">FIX: SEARCHING...</span>
+          <span class="gps-sats-info"><i class="fa-solid fa-satellite me-1"></i> <span id="gpsSats">0</span> Sats</span>
+        </div>
+        <div class="grid-2 mt-2">
+          <div class="metric">
+            <span class="label">Latitude</span>
+            <span class="value val-sm" id="gpsLat">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Longitude</span>
+            <span class="value val-sm" id="gpsLon">-</span>
+          </div>
+        </div>
+        <div class="grid-2 mt-2">
+          <div class="metric">
+            <span class="label">2D Plane X (East)</span>
+            <span class="value highlight-roll" id="gpsProjX">0.00 m</span>
+          </div>
+          <div class="metric">
+            <span class="label">2D Plane Y (North)</span>
+            <span class="value highlight-pitch" id="gpsProjY">0.00 m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Collapsible Axis Remap / Swap Drawer -->
+  <aside class="axis-swap-drawer hidden" id="axisSwapDrawer">
+    <div class="drawer-header">
+      <h3><i class="fa-solid fa-sliders me-2"></i> Remap & Swap Rotation Axes</h3>
+      <button class="btn-close-drawer" id="btnCloseAxisDrawer" title="Close Axis Swap Panel"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="swap-body">
+      <p class="swap-info"><i class="fa-solid fa-circle-info me-1"></i> Swap input source or invert sign for Roll, Pitch, and Yaw.</p>
+
+      <!-- Roll Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-roll"><i class="fa-solid fa-rotate-right me-1"></i> Roll Output</label>
+        <div class="swap-inputs">
+          <select id="selectRollAxis" class="swap-select">
+            <option value="roll" selected>Source: Roll</option>
+            <option value="pitch">Source: Pitch</option>
+            <option value="yaw">Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertRoll"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Pitch Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-pitch"><i class="fa-solid fa-arrows-up-down me-1"></i> Pitch Output</label>
+        <div class="swap-inputs">
+          <select id="selectPitchAxis" class="swap-select">
+            <option value="roll">Source: Roll</option>
+            <option value="pitch" selected>Source: Pitch</option>
+            <option value="yaw">Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertPitch"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Yaw Control -->
+      <div class="swap-row">
+        <label class="swap-label highlight-yaw"><i class="fa-solid fa-arrows-left-right me-1"></i> Yaw Output</label>
+        <div class="swap-inputs">
+          <select id="selectYawAxis" class="swap-select">
+            <option value="roll">Source: Roll</option>
+            <option value="pitch">Source: Pitch</option>
+            <option value="yaw" selected>Source: Yaw</option>
+          </select>
+          <label class="swap-check-label">
+            <input type="checkbox" id="chkInvertYaw"> Invert (-)
+          </label>
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="preset-section">
+        <span class="preset-title">Quick Presets:</span>
+        <div class="preset-grid">
+          <button class="btn-preset" id="presetDefault">Default (R,P,Y)</button>
+          <button class="btn-preset" id="presetSwapRP">Swap Roll ↔ Pitch</button>
+          <button class="btn-preset" id="presetSwapPY">Swap Pitch ↔ Yaw</button>
+          <button class="btn-preset" id="presetSwapRY">Swap Roll ↔ Yaw</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Collapsible Real-Time Raw Sensor Graphs Drawer -->
+  <aside class="graph-drawer hidden" id="graphDrawer">
+    <div class="graph-drawer-header">
+      <h3><i class="fa-solid fa-chart-line me-2"></i> Real-Time Raw Sensor Streams</h3>
+      <button class="btn-close-drawer" id="btnCloseDrawer" title="Close Graphs"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div class="graph-container">
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-arrows-spin me-2"></i> Orientation (Roll, Pitch, Yaw °)</div>
+        <div class="canvas-box"><canvas id="eulerChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-gauge-high me-2"></i> Accelerometer (g)</div>
+        <div class="canvas-box"><canvas id="accelChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-rotate me-2"></i> Gyroscope (°/s)</div>
+        <div class="canvas-box"><canvas id="gyroChart"></canvas></div>
+      </div>
+      <div class="graph-card">
+        <div class="graph-title"><i class="fa-solid fa-magnet me-2"></i> Magnetometer (µT)</div>
+        <div class="canvas-box"><canvas id="magChart"></canvas></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Collapsible Session Logs Reader Drawer -->
+  <aside class="graph-drawer hidden" id="logsDrawer" style="z-index: 1000;">
+    <div class="graph-drawer-header">
+      <h3><i class="fa-solid fa-file-csv me-2"></i> Recorded Session Logs Reader</h3>
+      <button class="btn-close-drawer" id="btnCloseLogsDrawer" title="Close Session Logs"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    
+    <div style="padding: 15px; display: flex; flex-direction: column; gap: 12px; color: var(--text-color, #f8fafc);">
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <select id="logSelect" style="flex: 1; min-width: 200px; padding: 8px 12px; background: rgba(15, 23, 42, 0.7); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.4); border-radius: 8px; font-size: 14px;">
+          <option value="">-- Select a Session Log CSV --</option>
+        </select>
+        <button id="btnRefreshLogs" style="padding: 8px 14px; background: #0284c7; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px;">
+          <i class="fa-solid fa-rotate-right me-1"></i> Refresh
+        </button>
+        <button id="btnLoadSelectedLog" style="padding: 8px 14px; background: #10b981; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px;">
+          <i class="fa-solid fa-folder-open me-1"></i> Load Log Data
+        </button>
+        <button id="btnStartReplay" style="padding: 8px 14px; background: #ec4899; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">
+          <i class="fa-solid fa-play me-1"></i> Replay 3D Trajectory
+        </button>
+      </div>
+
+      <div id="logSummaryPanel" style="display: none; background: rgba(30, 41, 59, 0.6); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+        <h4 style="margin: 0 0 8px 0; color: #38bdf8; font-size: 14px;"><i class="fa-solid fa-circle-info me-1"></i> Session Metrics Summary</h4>
+        <div id="logMetricsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; font-size: 13px;">
+        </div>
+      </div>
+
+      <div id="logTableContainer" style="max-height: 250px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;">
+        <table id="logDataTable" style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+          <thead style="position: sticky; top: 0; background: #0f172a; color: #38bdf8;">
+            <tr id="logTableHeader"><th style="padding: 8px;">No data loaded</th></tr>
+          </thead>
+          <tbody id="logTableBody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Floating 3D Trajectory Replay Control Bar Overlay -->
+  <div class="hud-replay-bar hidden" id="replayBar">
+    <div class="replay-info">
+      <span class="replay-badge"><i class="fa-solid fa-film me-1"></i> REPLAY MODE</span>
+      <span class="replay-filename" id="replayFilename">session.csv</span>
+    </div>
+
+    <div class="replay-controls">
+      <button class="btn-replay-action" id="btnReplayPlayPause" title="Play / Pause">
+        <i class="fa-solid fa-pause" id="iconReplayPlayPause"></i>
+      </button>
+      <button class="btn-replay-action" id="btnReplayStop" title="Stop & Reset">
+        <i class="fa-solid fa-stop"></i>
+      </button>
+
+      <span class="replay-time" id="replayTimeCurrent">00:00</span>
+      <input type="range" class="replay-slider" id="replaySlider" min="0" max="100" value="0" step="0.1">
+      <span class="replay-time" id="replayTimeTotal">00:00</span>
+
+      <select class="replay-speed" id="replaySpeedSelect" title="Playback Speed">
+        <option value="0.5">0.5x</option>
+        <option value="1.0" selected>1.0x (Realtime)</option>
+        <option value="2.0">2.0x</option>
+        <option value="5.0">5.0x</option>
+        <option value="10.0">10.0x</option>
+      </select>
+
+      <button class="btn-replay-action" id="btnReplayLoop" title="Toggle Loop Playback">
+        <i class="fa-solid fa-repeat"></i>
+      </button>
+
+      <button class="btn-replay-exit" id="btnReplayExit" title="Exit Replay Mode & Return to Live Stream">
+        <i class="fa-solid fa-xmark me-1"></i> Exit Replay
+      </button>
+    </div>
+  </div>
+
+  <!-- Interactive Real-World GPS Map & 2D Plane Projection Modal Drawer -->
+  <aside class="gps-map-drawer hidden" id="gpsMapDrawer">
+    <div class="drawer-header flex-between">
+      <div class="flex-align-center gap-2">
+        <h3><i class="fa-solid fa-map-location-dot me-2"></i> Real-World Map Comparison</h3>
+        <div class="map-view-toggle ms-3">
+          <button class="btn-map-mode active" id="btnMapSplit" title="Side-by-Side Dual Map View">
+            <i class="fa-solid fa-columns me-1"></i> Split View
+          </button>
+          <button class="btn-map-mode" id="btnMapFused" title="Fused GPS Map Only">
+            <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Fused Map
+          </button>
+          <button class="btn-map-mode" id="btnMapRaw" title="Raw Hardware GPS Map Only">
+            <i class="fa-solid fa-satellite me-1"></i> Raw GPS
+          </button>
+        </div>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn-card-action" id="btnSetGpsOrigin" title="Set current location as Reference Home Origin (0, 0)">
+          <i class="fa-solid fa-crosshairs"></i> Set Origin
+        </button>
+        <button class="btn-close-drawer" id="btnCloseGpsDrawer" title="Close GPS Map Panel"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    
+    <div class="gps-map-body">
+      <div class="dual-maps-wrapper mode-split" id="dualMapsWrapper">
+        <!-- MAP 1: RAW HARDWARE GPS -->
+        <div class="map-container-box" id="rawMapBox">
+          <div class="map-title-bar raw-title">
+            <span><i class="fa-solid fa-satellite me-1"></i> Raw Hardware GPS (u-blox /dev/ttyAMA2)</span>
+            <span class="status-badge-sm" id="rawMapBadge">RAW UNFILTERED</span>
+          </div>
+          <div id="leafletMapRaw" class="leaflet-map-container"></div>
+        </div>
+
+        <!-- MAP 2: SENSOR FUSED GPS -->
+        <div class="map-container-box" id="fusedMapBox">
+          <div class="map-title-bar fused-title">
+            <span><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Sensor Fusion Engine (IMU + Flow + Compass + GPS)</span>
+            <span class="status-badge-sm active" id="fusedMapBadge">50Hz SMOOTH</span>
+          </div>
+          <div id="leafletMapFused" class="leaflet-map-container"></div>
+        </div>
+      </div>
+
+      <!-- Real World <-> 2D Plane Coordinate Telemetry Overlay -->
+      <div class="gps-overlay-panel">
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-satellite-dish me-1"></i> Hardware GPS Fix</h4>
+          <p>Status: <strong id="overlayGpsStatus">SEARCHING...</strong></p>
+          <p>Sats: <strong id="overlayGpsSats">0</strong> | Speed: <strong id="overlayGpsSpeed">0.0 km/h</strong> | Alt: <strong id="overlayGpsAlt">0.0 m</strong></p>
+        </div>
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-satellite me-1"></i> Raw GPS Position</h4>
+          <p>Raw Lat: <strong id="overlayRawLat">-°</strong></p>
+          <p>Raw Lon: <strong id="overlayRawLon">-°</strong></p>
+        </div>
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Fused Sensor Position</h4>
+          <p>Fused Lat: <strong id="overlayGpsLat">-°</strong></p>
+          <p>Fused Lon: <strong id="overlayGpsLon">-°</strong></p>
+          <p>Est. Accuracy: <strong id="overlayGpsAccuracy">±0.50 m</strong></p>
+        </div>
+        <div class="overlay-section">
+          <h4><i class="fa-solid fa-draw-polygon me-1"></i> 2D Tangent Projection</h4>
+          <p>Local X (East): <strong id="overlayGpsX">0.00 m</strong> | Y (North): <strong id="overlayGpsY">0.00 m</strong></p>
+          <p>Home Origin: <span id="overlayGpsOrigin">Awaiting GPS Fix...</span></p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Interactive Floating Toolbar -->
+  <div class="hud-toolbar">
+    <button class="btn-tool" id="btnToggleGpsMap" title="Toggle Real World GPS Map & 2D Projection">
+      <i class="fa-solid fa-map-location-dot"></i>
+      <span>GPS Map</span>
+    </button>
+    <button class="btn-tool" id="btnToggleAnchor" title="Lock position in place and prevent translation movement">
+      <i class="fa-solid fa-anchor"></i>
+      <span>Anchor</span>
+    </button>
+    <button class="btn-tool" id="btnToggleAxisSwap" title="Remap / Swap Roll, Pitch, Yaw Axes">
+      <i class="fa-solid fa-sliders"></i>
+      <span>Swap Axes</span>
+    </button>
+    <button class="btn-tool" id="btnToggleGraphs" title="Toggle Real-Time Raw Graphs">
+      <i class="fa-solid fa-chart-line"></i>
+      <span>Raw Graphs</span>
+    </button>
+    <button class="btn-tool" id="btnToggleLogs" title="Read Recorded Session Logs">
+      <i class="fa-solid fa-file-csv"></i>
+      <span>Session Logs</span>
+    </button>
+    <button class="btn-tool" id="btnCalibrateDrift" title="Zero out position drift & recalibrate origin">
+      <i class="fa-solid fa-compass-drafting"></i>
+      <span>Zero Drift</span>
+    </button>
+    <button class="btn-tool" id="btnToggleFollow" title="Follow Controller with Camera">
+      <i class="fa-solid fa-eye"></i>
+      <span>Follow Mode</span>
+    </button>
+    <button class="btn-tool" id="btnResetTrail" title="Clear Trajectory Path">
+      <i class="fa-solid fa-broom"></i>
+      <span>Clear Trail</span>
+    </button>
+    <button class="btn-tool" id="btnResetPos" title="Reset Origin Position">
+      <i class="fa-solid fa-arrows-to-dot"></i>
+      <span>Reset Origin</span>
+    </button>
+    <button class="btn-tool" id="btnRecenterCam" title="Recenter 3D Camera">
+      <i class="fa-solid fa-video"></i>
+      <span>Recenter Cam</span>
+    </button>
+    <button class="btn-tool active" id="btnToggleGrid" title="Toggle Grid Plane">
+      <i class="fa-solid fa-border-all"></i>
+      <span>Toggle Grid</span>
+    </button>
+    <button class="btn-tool" id="btnToggleThemeTool" title="Toggle Light/Dark Theme">
+      <i class="fa-solid fa-circle-half-stroke"></i>
+      <span>Theme</span>
+    </button>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+
+
+
