@@ -266,14 +266,6 @@ function updateTelemetry(data) {
   const mappedEulerObj = new THREE.Euler(pitchRad, yawRad, rollRad, 'YXZ');
   currentTargetQuat.setFromEuler(mappedEulerObj);
 
-  // Only add point to 3D trajectory trail when translation is active (not anchored) and movement > 1cm
-  if (!isAnchorActive) {
-    const lastPoint = trajectoryPoints[trajectoryPoints.length - 1];
-    if (!lastPoint || lastPoint.distanceTo(targetPosSmooth) > 0.01) {
-      addTrajectoryPoint(targetPosSmooth.x, targetPosSmooth.y, targetPosSmooth.z);
-    }
-  }
-
   // Update Dashboard Text Metrics
   elPosX.textContent = posX.toFixed(2);
   elPosY.textContent = posY.toFixed(2);
@@ -357,17 +349,22 @@ function initSensorCharts() {
 }
 
 function pushChartData(chart, xVal, yVal, zVal) {
-  if (!chart) return;
+  if (!chart || !chart.data) return;
   const labels = chart.data.labels;
-  const d0 = chart.data.datasets[0].data;
-  const d1 = chart.data.datasets[1].data;
-  const d2 = chart.data.datasets[2].data;
+  const datasets = chart.data.datasets;
+  if (!datasets || datasets.length < 3) return;
 
   labels.push('');
-  if (chart.data.datasets[1].data.length > MAX_CHART_SAMPLES) chart.data.datasets[1].data.shift();
+  if (labels.length > MAX_CHART_SAMPLES) labels.shift();
 
-  chart.data.datasets[2].data.push(zVal);
-  if (chart.data.datasets[2].data.length > MAX_CHART_SAMPLES) chart.data.datasets[2].data.shift();
+  datasets[0].data.push(xVal != null ? xVal : 0);
+  if (datasets[0].data.length > MAX_CHART_SAMPLES) datasets[0].data.shift();
+
+  datasets[1].data.push(yVal != null ? yVal : 0);
+  if (datasets[1].data.length > MAX_CHART_SAMPLES) datasets[1].data.shift();
+
+  datasets[2].data.push(zVal != null ? zVal : 0);
+  if (datasets[2].data.length > MAX_CHART_SAMPLES) datasets[2].data.shift();
 
   chart.update('none');
 }
@@ -1057,6 +1054,42 @@ replaySlider?.addEventListener('input', (e) => {
     updateTelemetry(recordToTelemetry(rec));
   }
 });
+
+let eventSource = null;
+
+function connectTelemetryStream() {
+  if (eventSource) {
+    try {
+      eventSource.close();
+    } catch (e) {}
+  }
+
+  eventSource = new EventSource('/stream');
+
+  eventSource.onmessage = (event) => {
+    if (isReplayMode) return;
+    try {
+      const data = JSON.parse(event.data);
+      updateTelemetry(data);
+    } catch (err) {
+      console.error('Telemetry JSON parse error:', err);
+    }
+  };
+
+  eventSource.onerror = (err) => {
+    if (elStatusBadge && elStatusText) {
+      elStatusBadge.className = 'status-badge disconnected';
+      elStatusText.textContent = 'Disconnected (Reconnecting...)';
+    }
+  };
+
+  eventSource.onopen = () => {
+    if (elStatusBadge && elStatusText) {
+      elStatusBadge.className = 'status-badge active';
+      elStatusText.textContent = 'Connected (50Hz Stream)';
+    }
+  };
+}
 
 // Launch on page load
 window.addEventListener('DOMContentLoaded', () => {

@@ -341,7 +341,7 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                         data_str = json.dumps(latest_telemetry)
                     self.wfile.write(f"data: {data_str}\n\n".encode('utf-8'))
                     self.wfile.flush()
-            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            except Exception:
                 pass
             finally:
                 with clients_lock:
