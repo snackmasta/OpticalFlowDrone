@@ -337,7 +337,7 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                         data_str = json.dumps(latest_telemetry)
                     self.wfile.write(f"data: {data_str}\n\n".encode('utf-8'))
                     self.wfile.flush()
-            except (ConnectionResetError, BrokenPipeError):
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
                 pass
             finally:
                 with clients_lock:
@@ -574,6 +574,13 @@ def start_udp_listener():
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        """Silently ignore routine client connection aborts/resets during browser refresh/close."""
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type in (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) or (exc_type and issubclass(exc_type, OSError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def main():
