@@ -524,7 +524,7 @@ ARM_UDP_IP = "192.168.137.54"
 ARM_UDP_PORT = 8888
 
 # Buzzer destination UDP settings
-BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "192.168.137.54")
+BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
 BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
 
 def send_geofence_buzzer_udp(is_breached):

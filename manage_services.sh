@@ -28,42 +28,38 @@ start_services() {
     # Block until wlan0 is connected
     wait_for_wlan0
 
-    echo "Starting MAVProxy..."
-    tail -f /dev/null | bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
-
-    echo "Starting Static GPS Injector..."
-    "$PYTHON_BIN" "$PROJECT_DIR/static_gps_injector.py" > "$LOG_DIR/static_gps_injector.log" 2>&1 &
-
     echo "Starting HMC5883L Compass..."
     "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
-
-    echo "Starting Shared Memory Dashboard..."
-    "$PYTHON_BIN" "$PROJECT_DIR/read_shared_memory.py" --dashboard --port 5003 > "$LOG_DIR/read_shared_memory.log" 2>&1 &
 
     echo "Starting Optical Flow Stream..."
     "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
-    echo "Starting Battery Monitor..."
-    "$PYTHON_BIN" "$PROJECT_DIR/battery_monitor.py" > "$LOG_DIR/battery_monitor.log" 2>&1 &
+    echo "Starting Geofence Buzzer Listener..."
+    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
 
-    echo "All services started."
+    echo "Starting Telemetry UDP Bridge..."
+    "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
+
+    echo "Starting 3D Geofence Web Server & Dashboard..."
+    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+
+    echo "All active Raspberry Pi services started."
 }
 
 stop_services() {
-    echo "Stopping all drone services..."
-    pkill -f "mavproxy.py"
-    pkill -f "static_gps_injector.py"
+    echo "Stopping all active Raspberry Pi drone services..."
     pkill -f "hmc5883l.py"
-    pkill -f "read_shared_memory.py --dashboard"
     pkill -f "optical_flow_stream.py -stream"
-    pkill -f "battery_monitor.py"
+    pkill -f "geofence_buzzer_listener.py"
+    pkill -f "send_attitude_udp.py"
+    pkill -f "web_server.py"
     killall mediamtx 2>/dev/null || true
     echo "All services stopped."
 }
 
 check_status() {
-    echo "=== Service Status ==="
-    for service in "mavproxy.py" "static_gps_injector.py" "hmc5883l.py" "read_shared_memory.py" "optical_flow_stream.py" "battery_monitor.py"; do
+    echo "=== Active Raspberry Pi Service Status ==="
+    for service in "hmc5883l.py" "optical_flow_stream.py" "geofence_buzzer_listener.py" "send_attitude_udp.py" "web_server.py"; do
         if pgrep -f "$service" > /dev/null; then
             echo -e "  $service: \e[32mRUNNING\e[0m"
         else
@@ -145,39 +141,39 @@ toggle_individual_services() {
         echo "          TOGGLE INDIVIDUAL SERVICES         "
         echo "============================================="
         
-        # 1. MAVProxy
-        if pgrep -f "mavproxy.py" > /dev/null; then
-            echo -e " 1) MAVProxy: \e[32mRUNNING\e[0m (Select to STOP)"
-        else
-            echo -e " 1) MAVProxy: \e[31mSTOPPED\e[0m (Select to START)"
-        fi
-
-        # 2. Static GPS Injector
-        if pgrep -f "static_gps_injector.py" > /dev/null; then
-            echo -e " 2) Static GPS Injector: \e[32mRUNNING\e[0m (Select to STOP)"
-        else
-            echo -e " 2) Static GPS Injector: \e[31mSTOPPED\e[0m (Select to START)"
-        fi
-
-        # 3. HMC5883L Compass
+        # 1. HMC5883L Compass
         if pgrep -f "hmc5883l.py" > /dev/null; then
-            echo -e " 3) HMC5883L Compass: \e[32mRUNNING\e[0m (Select to STOP)"
+            echo -e " 1) HMC5883L Compass: \e[32mRUNNING\e[0m (Select to STOP)"
         else
-            echo -e " 3) HMC5883L Compass: \e[31mSTOPPED\e[0m (Select to START)"
+            echo -e " 1) HMC5883L Compass: \e[31mSTOPPED\e[0m (Select to START)"
         fi
 
-        # 4. Shared Memory Dashboard
-        if pgrep -f "read_shared_memory.py --dashboard" > /dev/null; then
-            echo -e " 4) Shared Memory Dashboard: \e[32mRUNNING\e[0m (Select to STOP)"
-        else
-            echo -e " 4) Shared Memory Dashboard: \e[31mSTOPPED\e[0m (Select to START)"
-        fi
-
-        # 5. Optical Flow Stream
+        # 2. Optical Flow Stream
         if pgrep -f "optical_flow_stream.py -stream" > /dev/null; then
-            echo -e " 5) Optical Flow Stream: \e[32mRUNNING\e[0m (Select to STOP)"
+            echo -e " 2) Optical Flow Stream: \e[32mRUNNING\e[0m (Select to STOP)"
         else
-            echo -e " 5) Optical Flow Stream: \e[31mSTOPPED\e[0m (Select to START)"
+            echo -e " 2) Optical Flow Stream: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 3. Geofence Buzzer Listener
+        if pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
+            echo -e " 3) Geofence Buzzer Listener: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 3) Geofence Buzzer Listener: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 4. Telemetry UDP Bridge
+        if pgrep -f "send_attitude_udp.py" > /dev/null; then
+            echo -e " 4) Telemetry UDP Bridge: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 4) Telemetry UDP Bridge: \e[31mSTOPPED\e[0m (Select to START)"
+        fi
+
+        # 5. 3D Geofence Web Server
+        if pgrep -f "web_server.py" > /dev/null; then
+            echo -e " 5) 3D Geofence Web Server: \e[32mRUNNING\e[0m (Select to STOP)"
+        else
+            echo -e " 5) 3D Geofence Web Server: \e[31mSTOPPED\e[0m (Select to START)"
         fi
 
         echo " 6) Back to main menu"
@@ -186,24 +182,6 @@ toggle_individual_services() {
 
         case $choice in
             1)
-                if pgrep -f "mavproxy.py" > /dev/null; then
-                    echo "Stopping MAVProxy..."
-                    pkill -f "mavproxy.py"
-                else
-                    echo "Starting MAVProxy..."
-                    tail -f /dev/null | bash "$PROJECT_DIR/mavproxy.sh" > "$LOG_DIR/mavproxy.log" 2>&1 &
-                fi
-                ;;
-            2)
-                if pgrep -f "static_gps_injector.py" > /dev/null; then
-                    echo "Stopping Static GPS Injector..."
-                    pkill -f "static_gps_injector.py"
-                else
-                    echo "Starting Static GPS Injector..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/static_gps_injector.py" > "$LOG_DIR/static_gps_injector.log" 2>&1 &
-                fi
-                ;;
-            3)
                 if pgrep -f "hmc5883l.py" > /dev/null; then
                     echo "Stopping HMC5883L Compass..."
                     pkill -f "hmc5883l.py"
@@ -212,16 +190,7 @@ toggle_individual_services() {
                     "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
                 fi
                 ;;
-            4)
-                if pgrep -f "read_shared_memory.py --dashboard" > /dev/null; then
-                    echo "Stopping Shared Memory Dashboard..."
-                    pkill -f "read_shared_memory.py --dashboard"
-                else
-                    echo "Starting Shared Memory Dashboard..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/read_shared_memory.py" --dashboard --port 5003 > "$LOG_DIR/read_shared_memory.log" 2>&1 &
-                fi
-                ;;
-            5)
+            2)
                 if pgrep -f "optical_flow_stream.py -stream" > /dev/null; then
                     echo "Stopping Optical Flow Stream..."
                     pkill -f "optical_flow_stream.py -stream"
@@ -229,6 +198,33 @@ toggle_individual_services() {
                 else
                     echo "Starting Optical Flow Stream..."
                     "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+                fi
+                ;;
+            3)
+                if pgrep -f "geofence_buzzer_listener.py" > /dev/null; then
+                    echo "Stopping Geofence Buzzer Listener..."
+                    pkill -f "geofence_buzzer_listener.py"
+                else
+                    echo "Starting Geofence Buzzer Listener..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+                fi
+                ;;
+            4)
+                if pgrep -f "send_attitude_udp.py" > /dev/null; then
+                    echo "Stopping Telemetry UDP Bridge..."
+                    pkill -f "send_attitude_udp.py"
+                else
+                    echo "Starting Telemetry UDP Bridge..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
+                fi
+                ;;
+            5)
+                if pgrep -f "web_server.py" > /dev/null; then
+                    echo "Stopping 3D Geofence Web Server..."
+                    pkill -f "web_server.py"
+                else
+                    echo "Starting 3D Geofence Web Server..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
                 fi
                 ;;
             6)
@@ -248,9 +244,9 @@ while true; do
     echo "============================================="
     echo "          DRONE SERVICE MANAGER              "
     echo "============================================="
-    echo " 1) Start all services"
-    echo " 2) Stop all services (delete all)"
-    echo " 3) Restart all services"
+    echo " 1) Start all active services"
+    echo " 2) Stop all active services"
+    echo " 3) Restart all active services"
     echo " 4) Check services status"
     echo " 5) Toggle individual services (start/stop)"
     echo " 6) Enable autorun on boot (systemd)"
