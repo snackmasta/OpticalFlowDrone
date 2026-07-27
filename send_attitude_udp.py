@@ -328,7 +328,7 @@ def main():
             # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
             pos_x = flow["x_m"] if flow else m_state["position"]["x"]
             pos_y = flow["y_m"] if flow else m_state["position"]["y"]
-            pos_z = -flow["z_m"] if flow else -m_state["position"]["z"]
+            pos_z = -flow["z_m"] if flow else 1.5
 
             vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
             vel_y = flow["vy"] if flow else m_state["velocity"]["y"]

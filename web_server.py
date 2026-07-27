@@ -623,7 +623,7 @@ def evaluate_server_geofence(pos, status="connected"):
 
     try:
         px = float(pos.get("x", 0.0))
-        py = float(pos.get("y", 0.0))
+        py = float(pos.get("y", 1.5))
         pz = float(pos.get("z", 0.0))
     except Exception:
         return False

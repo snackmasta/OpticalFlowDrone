@@ -193,11 +193,13 @@ function resetGeofenceCenter() {
   updateGeofenceHitboxCheck();
 }
 
+let hasReceivedFirstTelemetry = false;
+
 // ----------------------------------------------------
 // 3D Hitbox-Based Geofence Breach & Auto-Recenter Detection
 // ----------------------------------------------------
 function updateGeofenceHitboxCheck() {
-  if (!geofenceMesh || !controllerGroup) return;
+  if (!geofenceMesh || !controllerGroup || !hasReceivedFirstTelemetry) return;
 
   // Cube size: 0.12m x 0.12m x 0.12m (half-size = 0.06m)
   // Fence size: 1.0m x 1.0m x 1.0m (half-size = 0.50m)
@@ -408,8 +410,12 @@ function updateTelemetry(data) {
   }
 
   // Exponential moving average filter for buttery smooth position rendering (alpha = 0.2)
-  if (typeof targetPosSmooth === 'undefined') {
+  if (typeof targetPosSmooth === 'undefined' || !hasReceivedFirstTelemetry) {
     window.targetPosSmooth = new THREE.Vector3(posX, posY, posZ);
+    if (controllerGroup) {
+      controllerGroup.position.set(posX, posY, posZ);
+    }
+    hasReceivedFirstTelemetry = true;
   } else {
     targetPosSmooth.x += (posX - targetPosSmooth.x) * 0.2;
     targetPosSmooth.y += (posY - targetPosSmooth.y) * 0.2;
