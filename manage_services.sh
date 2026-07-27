@@ -26,6 +26,7 @@ wait_for_wlan0() {
 
 start_services() {
     FLOW_MODE="${1:---headless}"
+    SERVER_SCRIPT="${2:-web_server.py}"
 
     # Block until wlan0 is connected
     wait_for_wlan0
@@ -42,8 +43,8 @@ start_services() {
     echo "Starting Telemetry UDP Bridge..."
     "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
 
-    echo "Starting 3D Geofence Web Server & Dashboard..."
-    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+    echo "Starting 3D Geofence Web Server & Dashboard ($SERVER_SCRIPT)..."
+    "$PYTHON_BIN" "$PROJECT_DIR/$SERVER_SCRIPT" > "$LOG_DIR/web_server.log" 2>&1 &
 
     echo "All active Raspberry Pi services started."
 }
@@ -55,13 +56,14 @@ stop_services() {
     pkill -f "geofence_buzzer_listener.py"
     pkill -f "send_attitude_udp.py"
     pkill -f "web_server.py"
+    pkill -f "web_server_deploy.py"
     killall mediamtx 2>/dev/null || true
     echo "All services stopped."
 }
 
 check_status() {
     echo "=== Active Raspberry Pi Service Status ==="
-    for service in "hmc5883l.py" "optical_flow_stream.py" "geofence_buzzer_listener.py" "send_attitude_udp.py" "web_server.py"; do
+    for service in "hmc5883l.py" "optical_flow_stream.py" "geofence_buzzer_listener.py" "send_attitude_udp.py" "web_server.py" "web_server_deploy.py"; do
         if pgrep -f "$service" > /dev/null; then
             echo -e "  $service: \e[32mRUNNING\e[0m"
         else
@@ -84,7 +86,7 @@ Wants=network-online.target
 Type=forking
 User=raspi
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/manage_services.sh start
+ExecStart=$PROJECT_DIR/manage_services.sh deploy
 ExecStop=$PROJECT_DIR/manage_services.sh stop
 RemainAfterExit=yes
 
@@ -109,10 +111,16 @@ disable_boot() {
 if [ -n "$1" ]; then
     case "$1" in
         start|start-headless|--headless)
-            start_services "--headless"
+            start_services "--headless" "web_server.py"
+            ;;
+        deploy|start-deploy|--deploy)
+            start_services "--headless" "web_server_deploy.py"
             ;;
         start-stream|-stream)
-            start_services "-stream"
+            start_services "-stream" "web_server.py"
+            ;;
+        deploy-stream)
+            start_services "-stream" "web_server_deploy.py"
             ;;
         stop)
             stop_services
@@ -120,7 +128,12 @@ if [ -n "$1" ]; then
         restart)
             stop_services
             sleep 2
-            start_services "--headless"
+            start_services "--headless" "web_server.py"
+            ;;
+        restart-deploy)
+            stop_services
+            sleep 2
+            start_services "--headless" "web_server_deploy.py"
             ;;
         status)
             check_status
@@ -132,7 +145,7 @@ if [ -n "$1" ]; then
             disable_boot
             ;;
         *)
-            echo "Usage: $0 {start|start-headless|start-stream|stop|restart|status|enable-boot|disable-boot}"
+            echo "Usage: $0 {start|deploy|start-headless|start-deploy|start-stream|deploy-stream|stop|restart|restart-deploy|status|enable-boot|disable-boot}"
             exit 1
             ;;
     esac
@@ -175,10 +188,12 @@ toggle_individual_services() {
         fi
 
         # 5. 3D Geofence Web Server
-        if pgrep -f "web_server.py" > /dev/null; then
-            echo -e " 5) 3D Geofence Web Server: \e[32mRUNNING\e[0m (Select to STOP)"
+        if pgrep -f "web_server_deploy.py" > /dev/null; then
+            echo -e " 5) Web Server: \e[32mRUNNING (DEPLOY MODE)\e[0m (Select to STOP)"
+        elif pgrep -f "web_server.py" > /dev/null; then
+            echo -e " 5) Web Server: \e[32mRUNNING (DEV MODE)\e[0m (Select to STOP)"
         else
-            echo -e " 5) 3D Geofence Web Server: \e[31mSTOPPED\e[0m (Select to START)"
+            echo -e " 5) Web Server: \e[31mSTOPPED\e[0m (Select to START DEPLOY MODE)"
         fi
 
         echo " 6) Back to main menu"
@@ -224,12 +239,13 @@ toggle_individual_services() {
                 fi
                 ;;
             5)
-                if pgrep -f "web_server.py" > /dev/null; then
-                    echo "Stopping 3D Geofence Web Server..."
+                if pgrep -f "web_server_deploy.py" > /dev/null || pgrep -f "web_server.py" > /dev/null; then
+                    echo "Stopping Web Server..."
+                    pkill -f "web_server_deploy.py"
                     pkill -f "web_server.py"
                 else
-                    echo "Starting 3D Geofence Web Server..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+                    echo "Starting Web Server (Deploy Mode)..."
+                    "$PYTHON_BIN" "$PROJECT_DIR/web_server_deploy.py" > "$LOG_DIR/web_server.log" 2>&1 &
                 fi
                 ;;
             6)
@@ -249,42 +265,46 @@ while true; do
     echo "============================================="
     echo "          DRONE SERVICE MANAGER              "
     echo "============================================="
-    echo " 1) Start all active services"
-    echo " 2) Stop all active services"
-    echo " 3) Restart all active services"
-    echo " 4) Check services status"
-    echo " 5) Toggle individual services (start/stop)"
-    echo " 6) Enable autorun on boot (systemd)"
-    echo " 7) Disable autorun on boot"
-    echo " 8) Exit"
+    echo " 1) Start all active services (Dev Mode)"
+    echo " 2) Start all active services (Deploy Mode)"
+    echo " 3) Stop all active services"
+    echo " 4) Restart all active services"
+    echo " 5) Check services status"
+    echo " 6) Toggle individual services (start/stop)"
+    echo " 7) Enable autorun on boot (systemd)"
+    echo " 8) Disable autorun on boot"
+    echo " 9) Exit"
     echo "============================================="
-    read -rp "Choose an option [1-8]: " opt
+    read -rp "Choose an option [1-9]: " opt
 
     case $opt in
         1)
-            start_services
+            start_services "--headless" "web_server.py"
             ;;
         2)
-            stop_services
+            start_services "--headless" "web_server_deploy.py"
             ;;
         3)
             stop_services
-            sleep 2
-            start_services
             ;;
         4)
-            check_status
+            stop_services
+            sleep 2
+            start_services "--headless" "web_server_deploy.py"
             ;;
         5)
-            toggle_individual_services
+            check_status
             ;;
         6)
-            enable_boot
+            toggle_individual_services
             ;;
         7)
-            disable_boot
+            enable_boot
             ;;
         8)
+            disable_boot
+            ;;
+        9)
             echo "Exiting."
             exit 0
             ;;
