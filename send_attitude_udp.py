@@ -380,7 +380,18 @@ def main():
             # Send UDP breach packet to Geofence Buzzer Listener (port 5006)
             is_breached = (abs(pos_x) + 0.104 > 0.50) or (abs(pos_y) + 0.104 > 0.50)
             try:
-                sock.sendto(b"BREACH" if is_breached else b"SAFE", (args.ip, 5006))
+                buzzer_msg = b"BREACH" if is_breached else b"SAFE"
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                except Exception:
+                    pass
+                sock.sendto(buzzer_msg, ("192.168.137.54", 5006))
+                if args.ip != "192.168.137.54":
+                    sock.sendto(buzzer_msg, (args.ip, 5006))
+                try:
+                    sock.sendto(buzzer_msg, ("<broadcast>", 5006))
+                except Exception:
+                    pass
             except Exception:
                 pass
 

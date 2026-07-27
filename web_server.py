@@ -520,22 +520,42 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
 
 
 # Arm destination UDP settings
-ARM_UDP_IP = "192.168.137.229"
+ARM_UDP_IP = "192.168.137.54"
 ARM_UDP_PORT = 8888
 
 # Buzzer destination UDP settings
-BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
+BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "192.168.137.54")
 BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
 
 def send_geofence_buzzer_udp(is_breached):
     """
-    Sends UDP packet to the Geofence Buzzer Listener (default 127.0.0.1:5006).
+    Sends UDP packet to the Geofence Buzzer Listener on Raspberry Pi (default 192.168.137.54:5006 & broadcast).
     Payload: "BREACH" when breached, "SAFE" when inside geofence.
     """
     try:
         payload = b"BREACH" if is_breached else b"SAFE"
         buzzer_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            buzzer_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        except Exception:
+            pass
+
+        # Send to Pi IP (192.168.137.54)
         buzzer_sock.sendto(payload, (BUZZER_UDP_IP, BUZZER_UDP_PORT))
+
+        # Send to local host if testing locally
+        if BUZZER_UDP_IP != "127.0.0.1":
+            try:
+                buzzer_sock.sendto(payload, ("127.0.0.1", BUZZER_UDP_PORT))
+            except Exception:
+                pass
+
+        # Send to local network broadcast
+        try:
+            buzzer_sock.sendto(payload, ("<broadcast>", BUZZER_UDP_PORT))
+        except Exception:
+            pass
+
         buzzer_sock.close()
     except Exception:
         pass
