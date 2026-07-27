@@ -417,6 +417,17 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
 
+        elif path in ('/api/geofence', '/api/geofence/status'):
+            with geofence_lock:
+                geo_res = dict(geofence_state)
+            response_data = json.dumps({"status": "success", "geofence": geo_res}, indent=2).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(response_data)))
+            self.end_headers()
+            self.wfile.write(response_data)
+
         elif path.startswith('/recordings/') or path.startswith('/hasil_dan_pembahasan/'):
             # Static log file serving from workspace root
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -481,14 +492,24 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(err_body)
                 self.wfile.flush()
-        elif path in ('/api/geofence/status', '/api/geofence'):
+        elif path in ('/api/geofence/status', '/api/geofence', '/api/geofence/recenter'):
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length) if content_length > 0 else b'{}'
             try:
                 data = json.loads(body.decode('utf-8'))
-                is_breached = bool(data.get("breached", False))
-                send_geofence_buzzer_udp(is_breached)
-                resp = json.dumps({"status": "success", "breached": is_breached}).encode('utf-8')
+                with geofence_lock:
+                    if "center" in data and isinstance(data["center"], dict):
+                        geofence_state["center"]["x"] = float(data["center"].get("x", geofence_state["center"]["x"]))
+                        geofence_state["center"]["y"] = float(data["center"].get("y", geofence_state["center"]["y"]))
+                        geofence_state["center"]["z"] = float(data["center"].get("z", geofence_state["center"]["z"]))
+                    if "breached" in data:
+                        is_breached = bool(data["breached"])
+                        geofence_state["breached"] = is_breached
+                        send_geofence_buzzer_udp(is_breached)
+                    else:
+                        is_breached = geofence_state["breached"]
+
+                resp = json.dumps({"status": "success", "geofence": geofence_state}).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -581,10 +602,60 @@ def send_arm_angles(roll_deg, pitch_deg):
     except Exception as e:
         pass
 
+# Server-side autonomous geofence state
+geofence_state = {
+    "breached": False,
+    "center": {"x": 0.0, "y": 0.0, "z": 0.0},
+    "half_size": 0.50,  # 1.0m x 1.0m x 1.0m box
+    "cube_half_size": 0.06,
+    "last_buzzer_sent": 0.0
+}
+geofence_lock = threading.Lock()
+
+def evaluate_server_geofence(pos):
+    """
+    Evaluates 3D geofence boundary server-side on every incoming telemetry packet.
+    Transmits UDP alerts to buzzer listener even if 0 web clients are connected.
+    """
+    global geofence_state
+    if not isinstance(pos, dict):
+        return False
+
+    try:
+        px = float(pos.get("x", 0.0))
+        py = float(pos.get("y", 0.0))
+        pz = float(pos.get("z", 0.0))
+    except Exception:
+        return False
+
+    with geofence_lock:
+        cx = geofence_state["center"]["x"]
+        cy = geofence_state["center"]["y"]
+        cz = geofence_state["center"]["z"]
+        half_fence = geofence_state["half_size"]
+        half_cube = geofence_state["cube_half_size"]
+
+        dx = abs(px - cx)
+        dy = abs(py - cy)
+        dz = abs(pz - cz)
+
+        is_breached = (dx + half_cube > half_fence) or (dy + half_cube > half_fence) or (dz + half_cube > half_fence)
+
+        prev_state = geofence_state["breached"]
+        geofence_state["breached"] = is_breached
+        now = time.time()
+
+        # Send status on change OR periodic heartbeat while breached to keep buzzer sounding
+        if is_breached != prev_state or (is_breached and (now - geofence_state["last_buzzer_sent"] > 0.5)):
+            geofence_state["last_buzzer_sent"] = now
+            send_geofence_buzzer_udp(is_breached)
+
+        return is_breached
+
 def start_udp_listener():
     """
-    Listens for incoming UDP telemetry packets from main.py
-    and updates global latest_telemetry state.
+    Listens for incoming UDP telemetry packets from send_attitude_udp.py
+    and updates global latest_telemetry state & autonomous server-side geofence.
     """
     global latest_telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -630,6 +701,13 @@ def start_udp_listener():
                 update_gps_state(lat=lat_v, lon=lon_v, alt_m=alt_v)
 
             payload["gps"] = dict(gps_data_state)
+
+            # Evaluate 3D Geofence server-side autonomously (works even with 0 browser clients open)
+            pos = payload.get("translation", {}).get("position", {})
+            evaluate_server_geofence(pos)
+
+            with geofence_lock:
+                payload["geofence"] = dict(geofence_state)
 
             with clients_lock:
                 latest_telemetry = payload
