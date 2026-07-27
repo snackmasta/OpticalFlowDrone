@@ -155,17 +155,19 @@ function createGeofence3D() {
 function updateGeofenceHitboxCheck() {
   if (!geofenceMesh || !controllerGroup) return;
 
-  // Cube Box size: 0.12m x 0.12m x 0.12m (max rotated half-extent ~0.1039m)
-  // Fence Box size: 1.0m x 1.0m x 1.0m (half-width 0.50m)
-  const CUBE_RADIUS_M = 0.06 * Math.SQRT3; // ~0.1039m max rotated diagonal radius
-  const FENCE_LIMIT_M = 0.50;              // 0.50m fence wall limit
+  // Cube size: 0.12m x 0.12m x 0.12m (half-size = 0.06m)
+  // Fence size: 1.0m x 1.0m x 1.0m (half-size = 0.50m)
+  const CUBE_HALF_WIDTH_M = 0.06;
+  const FENCE_HALF_WIDTH_M = 0.50;
 
   const posX = controllerGroup.position.x;
+  const posY = controllerGroup.position.y;
   const posZ = controllerGroup.position.z;
 
-  // Breach occurs if any face or corner of the cube hitbox crosses outside the 1x1m fence hitbox
-  const isBreached = (Math.abs(posX) + CUBE_RADIUS_M > FENCE_LIMIT_M) ||
-                     (Math.abs(posZ) + CUBE_RADIUS_M > FENCE_LIMIT_M);
+  // Breach occurs if any face of the cube extends outside [-0.5m, +0.5m] on X, Z, or Y axis
+  const isBreached = (Math.abs(posX) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
+                     (Math.abs(posZ) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M) ||
+                     (Math.abs(posY) + CUBE_HALF_WIDTH_M > FENCE_HALF_WIDTH_M);
 
   const elGeofenceBadge = document.getElementById('geofenceBadge');
   if (elGeofenceBadge) {
