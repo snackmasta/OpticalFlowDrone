@@ -589,7 +589,7 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def main():
     print("=" * 60)
-    print("      3D VR Controller Trajectory Web Server")
+    print("      3D Optical Flow Geofence Visualizer Server")
     print("=" * 60)
 
     # Start UDP listener in background thread

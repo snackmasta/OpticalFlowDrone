@@ -79,7 +79,10 @@ function initScene() {
   gridHelper.position.y = -0.5;
   scene.add(gridHelper);
 
-  // Build VR Controller 3D Mesh
+  // 1x1m Active Geofence 3D Box
+  createGeofence3D();
+
+  // Build Drone 3D Mesh
   createControllerMesh();
 
   // Create Trajectory Line
@@ -118,6 +121,32 @@ function createControllerMesh() {
   controllerGroup.add(edgesMesh);
 
   scene.add(controllerGroup);
+}
+
+let geofenceMesh = null;
+let geofenceBoxWireframe = null;
+
+function createGeofence3D() {
+  // 1x1m Active Geofence 3D Box Geometry (1m x 1m x 1m)
+  const boxGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+
+  // Translucent Green Fill Material
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 0x10b981,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide
+  });
+  geofenceMesh = new THREE.Mesh(boxGeo, fillMat);
+  geofenceMesh.position.set(0, 0, 0);
+
+  // Glowing Outline Wireframe
+  const wireGeo = new THREE.EdgesGeometry(boxGeo);
+  const wireMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 2 });
+  geofenceBoxWireframe = new THREE.LineSegments(wireGeo, wireMat);
+  geofenceMesh.add(geofenceBoxWireframe);
+
+  scene.add(geofenceMesh);
 }
 
 
@@ -1209,6 +1238,49 @@ function initLeafletDualMaps() {
   leafletMapFused.on('move', () => syncMaps(leafletMapFused, leafletMapRaw));
 }
 
+let geofenceRectRaw = null;
+let geofenceRectFused = null;
+
+function updateLeafletGeofenceRectangles(originLat, originLon) {
+  if (originLat == null || originLon == null) return;
+
+  const latOffset = (0.5 / 6378137.0) * (180.0 / Math.PI);
+  const lonOffset = (0.5 / (6378137.0 * Math.cos(originLat * Math.PI / 180.0))) * (180.0 / Math.PI);
+
+  const bounds = [
+    [originLat - latOffset, originLon - lonOffset],
+    [originLat + latOffset, originLon + lonOffset]
+  ];
+
+  if (leafletMapRaw) {
+    if (!geofenceRectRaw) {
+      geofenceRectRaw = L.rectangle(bounds, {
+        color: '#10b981',
+        weight: 2,
+        fillColor: '#10b981',
+        fillOpacity: 0.12,
+        dashArray: '5,5'
+      }).addTo(leafletMapRaw).bindPopup('1m x 1m Active Geofence');
+    } else {
+      geofenceRectRaw.setBounds(bounds);
+    }
+  }
+
+  if (leafletMapFused) {
+    if (!geofenceRectFused) {
+      geofenceRectFused = L.rectangle(bounds, {
+        color: '#10b981',
+        weight: 2,
+        fillColor: '#10b981',
+        fillOpacity: 0.12,
+        dashArray: '5,5'
+      }).addTo(leafletMapFused).bindPopup('1m x 1m Active Geofence');
+    } else {
+      geofenceRectFused.setBounds(bounds);
+    }
+  }
+}
+
 function updateGpsTelemetry(gps, fusedGps) {
   if (!gps && !fusedGps) return;
   currentGpsState = { ...currentGpsState, ...gps, ...fusedGps };
@@ -1249,6 +1321,30 @@ function updateGpsTelemetry(gps, fusedGps) {
   if (elProjX) elProjX.textContent = `${(projX || 0).toFixed(2)} m`;
   if (elProjY) elProjY.textContent = `${(projY || 0).toFixed(2)} m`;
 
+  // Geofence 1x1m Breach Detection (|X| > 0.5m or |Y| > 0.5m)
+  const isBreached = Math.abs(projX) > 0.5 || Math.abs(projY) > 0.5;
+  const elGeofenceBadge = document.getElementById('geofenceBadge');
+
+  if (elGeofenceBadge) {
+    if (isBreached) {
+      elGeofenceBadge.className = 'geofence-badge breach';
+      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i> GEOFENCE: BREACH DETECTED!';
+    } else {
+      elGeofenceBadge.className = 'geofence-badge safe';
+      elGeofenceBadge.innerHTML = '<i class="fa-solid fa-shield-halved me-1"></i> GEOFENCE: INSIDE (1x1m)';
+    }
+  }
+
+  if (geofenceBoxWireframe && geofenceMesh) {
+    if (isBreached) {
+      geofenceBoxWireframe.material.color.setHex(0xef4444);
+      geofenceMesh.material.color.setHex(0xef4444);
+    } else {
+      geofenceBoxWireframe.material.color.setHex(0x10b981);
+      geofenceMesh.material.color.setHex(0x10b981);
+    }
+  }
+
   // Update Modal Overlay Panel
   const elOvlStatus = document.getElementById('overlayGpsStatus');
   const elOvlSats = document.getElementById('overlayGpsSats');
@@ -1284,6 +1380,7 @@ function updateGpsTelemetry(gps, fusedGps) {
   const activeOrigin = (fusedGps && fusedGps.origin) || (gps && gps.origin) || currentGpsState.origin;
   if (elOvlOrigin && activeOrigin && activeOrigin.lat != null && activeOrigin.lon != null) {
     elOvlOrigin.textContent = `${activeOrigin.lat.toFixed(6)}, ${activeOrigin.lon.toFixed(6)}`;
+    updateLeafletGeofenceRectangles(activeOrigin.lat, activeOrigin.lon);
   }
 
   // Update Leaflet Map 1: RAW UNFILTERED GPS
