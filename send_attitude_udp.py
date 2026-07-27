@@ -93,8 +93,8 @@ def convert_latitude(lat_str, lat_dir):
         dec_deg = deg + (minutes / 60.0)
         if lat_dir == 'S':
             dec_deg = -dec_deg
-        return round(dec_deg, 6)
-    except Exception:
+        return dec_deg
+    except ValueError:
         return None
 
 def convert_longitude(lon_str, lon_dir):
@@ -106,95 +106,58 @@ def convert_longitude(lon_str, lon_dir):
         dec_deg = deg + (minutes / 60.0)
         if lon_dir == 'W':
             dec_deg = -dec_deg
-        return round(dec_deg, 6)
-    except Exception:
+        return dec_deg
+    except ValueError:
         return None
 
 def gps_hardware_thread():
-    """Reads GPS NMEA stream from /dev/ttyAMA2 on the Pi drone side continuously."""
-    if not SERIAL_AVAILABLE:
-        print("[GPS Thread] pyserial not installed. Hardware GPS disabled.")
+    """Continuously reads NMEA sentences from /dev/ttyAMA2 serial port."""
+    global latest_gps_data
+    if not SERIAL_AVAILABLE or not PYNMEA2_AVAILABLE:
+        print("[GPS Thread] serial or pynmea2 not installed. GPS hardware reader disabled.")
         return
 
+    print(f"[GPS Thread] Connecting to GPS module on {GPS_SERIAL_PORT} @ {GPS_BAUD_RATE} baud...")
     while True:
         ser = None
         try:
-            ser = serial.Serial(GPS_SERIAL_PORT, GPS_BAUD_RATE, timeout=1)
-            print(f"[GPS Thread] Hardware GPS listener connected to {GPS_SERIAL_PORT} @ {GPS_BAUD_RATE} baud.")
-            
-            while True:
-                line = ser.readline().decode('utf-8', errors='ignore').strip()
-                if not line or not line.startswith('$'):
-                    continue
+            ser = serial.Serial(GPS_SERIAL_PORT, baudrate=GPS_BAUD_RATE, timeout=1)
+            print(f"[GPS Thread] Serial port {GPS_SERIAL_PORT} opened successfully.")
 
-                if PYNMEA2_AVAILABLE:
+            while True:
+                line = ser.readline().decode('ascii', errors='replace').strip()
+                if line.startswith('$'):
                     try:
                         msg = pynmea2.parse(line)
-                        stype = getattr(msg, 'sentence_type', '')
-                        if stype == 'GGA':
-                            sats = int(msg.num_sats) if (hasattr(msg, 'num_sats') and msg.num_sats) else 0
-                            fix_qual = int(msg.gps_qual) if (hasattr(msg, 'gps_qual') and msg.gps_qual) else 0
-                            fix_str = "3D FIX ACQUIRED" if fix_qual > 0 else "SEARCHING FOR SATELLITES..."
-                            alt = float(msg.altitude) if (hasattr(msg, 'altitude') and msg.altitude) else 0.0
-                            lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
-                            lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
-                            with gps_lock:
-                                if lat is not None: latest_gps_data["lat"] = lat
-                                if lon is not None: latest_gps_data["lon"] = lon
-                                latest_gps_data["alt_m"] = alt
-                                latest_gps_data["satellites"] = sats
-                                latest_gps_data["fix_status"] = fix_str
-                                latest_gps_data["fix_code"] = str(fix_qual)
-                                latest_gps_data["last_update"] = time.time()
-                        elif stype == 'RMC':
-                            status = getattr(msg, 'status', 'V')
-                            lat = convert_latitude(msg.lat, msg.lat_dir) if (hasattr(msg, 'lat') and msg.lat and hasattr(msg, 'lat_dir') and msg.lat_dir) else None
-                            lon = convert_longitude(msg.lon, msg.lon_dir) if (hasattr(msg, 'lon') and msg.lon and hasattr(msg, 'lon_dir') and msg.lon_dir) else None
-                            spd_kmh = float(msg.spd_over_grnd) * 1.852 if (hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None) else 0.0
-                            with gps_lock:
-                                if lat is not None: latest_gps_data["lat"] = lat
-                                if lon is not None: latest_gps_data["lon"] = lon
-                                latest_gps_data["speed_kmh"] = round(spd_kmh, 1)
-                                if status == 'A':
-                                    latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
-                                latest_gps_data["last_update"] = time.time()
-                    except Exception:
-                        pass
-                else:
-                    parts = line.split(',')
-                    sentence = parts[0]
-                    if sentence.endswith('GGA') and len(parts) >= 10:
-                        raw_lat, lat_dir = parts[2], parts[3]
-                        raw_lon, lon_dir = parts[4], parts[5]
-                        fix_code = parts[6] if len(parts) > 6 and parts[6] else '0'
-                        sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
-                        alt = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
-                        lat = convert_latitude(raw_lat, lat_dir)
-                        lon = convert_longitude(raw_lon, lon_dir)
-                        fix_str = "3D FIX ACQUIRED" if fix_code in ['1', '2', '4', '5'] else "SEARCHING FOR SATELLITES..."
+                    except pynmea2.ParseError:
+                        continue
+
+                    if getattr(msg, 'sentence_type', None) in ['GGA', 'RMC']:
+                        lat = getattr(msg, 'latitude', None)
+                        lon = getattr(msg, 'longitude', None)
+
+                        if (lat is None or lat == 0.0) and hasattr(msg, 'lat') and hasattr(msg, 'lat_dir'):
+                            lat = convert_latitude(msg.lat, msg.lat_dir)
+                        if (lon is None or lon == 0.0) and hasattr(msg, 'lon') and hasattr(msg, 'lon_dir'):
+                            lon = convert_longitude(msg.lon, msg.lon_dir)
+
+                        spd_knots = float(getattr(msg, 'spd_over_grnd', 0.0) or 0.0)
+                        num_sats = int(getattr(msg, 'num_sats', 0) or 0)
+                        fix_code = str(getattr(msg, 'gps_qual', '0') or '0')
+                        status = getattr(msg, 'status', 'V')
+
                         with gps_lock:
-                            if lat is not None: latest_gps_data["lat"] = lat
-                            if lon is not None: latest_gps_data["lon"] = lon
-                            latest_gps_data["alt_m"] = alt
-                            latest_gps_data["satellites"] = sats
-                            latest_gps_data["fix_status"] = fix_str
-                            latest_gps_data["fix_code"] = fix_code
-                            latest_gps_data["last_update"] = time.time()
-                    elif sentence.endswith('RMC') and len(parts) >= 9:
-                        status = parts[2]
-                        lat = convert_latitude(parts[3], parts[4])
-                        lon = convert_longitude(parts[5], parts[6])
-                        spd_knots = float(parts[7]) if len(parts) > 7 and parts[7] else 0.0
-                        with gps_lock:
+                            if num_sats > 0 or latest_gps_data["satellites"] == 0:
+                                latest_gps_data["satellites"] = num_sats
                             if lat is not None: latest_gps_data["lat"] = lat
                             if lon is not None: latest_gps_data["lon"] = lon
                             latest_gps_data["speed_kmh"] = round(spd_knots * 1.852, 1)
-                            if status == 'A':
+                            if status == 'A' or fix_code in ['1', '2']:
                                 latest_gps_data["fix_status"] = "3D FIX ACQUIRED"
                             latest_gps_data["last_update"] = time.time()
 
         except Exception as e:
-            print(f"[GPS Thread] Serial port error on {GPS_SERIAL_PORT}: {e}. Retrying in 2s...")
+            print(f"[GPS Thread] Serial error on {GPS_SERIAL_PORT}: {e}. Retrying in 2s...")
             if ser is not None:
                 try:
                     ser.close()
@@ -218,14 +181,12 @@ FLOW_SHM_HEADER_SIZE = struct.calcsize(FLOW_SHM_HEADER_FORMAT)
 FLOW_SHM_RECORD_SIZE = struct.calcsize(FLOW_SHM_RECORD_FORMAT)
 FLOW_MAX_SAMPLES = 120
 
-
 def safe_unregister_shm(shm):
     """Unregisters shared memory from Python's resource_tracker."""
     try:
         resource_tracker.unregister(shm._name, "shared_memory")
     except Exception:
         pass
-
 
 def euler_to_quaternion(roll_deg, pitch_deg, yaw_deg):
     """Converts Euler angles in degrees to Quaternion (w, x, y, z)."""
@@ -246,7 +207,6 @@ def euler_to_quaternion(roll_deg, pitch_deg, yaw_deg):
     z = cr * cp * sy - sr * sp * cy
 
     return {"w": round(w, 6), "x": round(x, 6), "y": round(y, 6), "z": round(z, 6)}
-
 
 def read_latest_attitude():
     """Reads the latest Roll, Pitch, Yaw record from drone_attitude_stream SHM."""
@@ -275,7 +235,6 @@ def read_latest_attitude():
     except Exception:
         return None
 
-
 def read_latest_flow():
     """Reads the latest Optical Flow sample from optical_flow_stream SHM."""
     try:
@@ -302,7 +261,6 @@ def read_latest_flow():
     except Exception:
         return None
 
-
 from madgwick_ahrs import MadgwickPositionEstimator
 from sensor_fusion import SensorFusionEngine
 
@@ -316,11 +274,9 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     interval = 1.0 / args.rate
 
-    # Instantiate Madgwick AHRS Position Estimator & Sensor Fusion Engine
     madgwick_estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=args.rate)
     fusion_engine = SensorFusionEngine(gps_gain=0.15, flow_weight=0.85)
 
-    # Start Hardware GPS thread (reading /dev/ttyAMA2 on drone side)
     gps_thread = threading.Thread(target=gps_hardware_thread, daemon=True)
     gps_thread.start()
 
@@ -343,7 +299,6 @@ def main():
                 gz = att["gz"]
                 ts = att["timestamp"]
             else:
-                # Fallback: Synthesize smooth dynamic 3D motion for demonstration
                 t = loop_start - start_time
                 roll = 18.0 * math.sin(t * 1.8)
                 pitch = 12.0 * math.cos(t * 1.4)
@@ -353,20 +308,17 @@ def main():
                 gz = 0.8 * (180.0 / math.pi)
                 ts = loop_start
 
-            # Calculate gravity projections for accelerometer input
             roll_rad = math.radians(roll)
             pitch_rad = math.radians(pitch)
             ax_g = -math.sin(pitch_rad)
             ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
             az_g = math.cos(roll_rad) * math.cos(pitch_rad)
 
-            # Update Madgwick AHRS & Position state
             m_state = madgwick_estimator.update(
                 gx_dps=gx, gy_dps=gy, gz_dps=gz,
                 ax_g=ax_g, ay_g=ay_g, az_g=az_g
             )
 
-            # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
             pos_x = flow["x_m"] if flow else m_state["position"]["x"]
             pos_y = flow["y_m"] if flow else m_state["position"]["y"]
             pos_z = -flow["z_m"] if flow else -m_state["position"]["z"]
@@ -375,7 +327,6 @@ def main():
             vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
             vel_z = -m_state["velocity"]["z"]
 
-            # Multi-Sensor Fusion Engine Update (IMU + Compass + Optical Flow + GPS)
             fusion_engine.update_attitude(roll_deg=roll, pitch_deg=pitch, heading_deg=yaw)
             fusion_engine.predict_flow_step(flow_vx_m_s=vel_x, flow_vy_m_s=vel_y, dt=interval)
 
@@ -396,12 +347,10 @@ def main():
             fused_x = fused_gps_state.get("fused_x_m", 0.0)
             fused_y = fused_gps_state.get("fused_y_m", 0.0)
 
-            # Evaluate 1m x 1m Geofence breach (|X| > 0.5m or |Y| > 0.5m)
             chk_x = fused_x if (fused_x != 0.0 or fused_y != 0.0) else pos_x
             chk_y = fused_y if (fused_x != 0.0 or fused_y != 0.0) else pos_y
             is_breached = (abs(chk_x) > 0.5) or (abs(chk_y) > 0.5)
 
-            # Ring hardware buzzer connected to GPIO 12 when outside geofence
             trigger_geofence_buzzer(is_breached)
 
             telemetry_packet = {
@@ -426,6 +375,9 @@ def main():
                 "fused_gps": fused_gps_state
             }
 
+            payload = json.dumps(telemetry_packet).encode("utf-8")
+            sock.sendto(payload, (args.ip, args.port))
+
             elapsed = time.time() - loop_start
             time.sleep(max(0.001, interval - elapsed))
     except KeyboardInterrupt:
@@ -441,7 +393,6 @@ def main():
                 pass
         print("[SHM UDP Sender] Hardware resources cleaned up.")
         sock.close()
-
 
 if __name__ == "__main__":
     main()
