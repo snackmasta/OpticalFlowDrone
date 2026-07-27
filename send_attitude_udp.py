@@ -377,6 +377,13 @@ def main():
             payload = json.dumps(telemetry_packet).encode("utf-8")
             sock.sendto(payload, (args.ip, args.port))
 
+            # Send UDP breach packet to Geofence Buzzer Listener (port 5006)
+            is_breached = (abs(pos_x) + 0.104 > 0.50) or (abs(pos_y) + 0.104 > 0.50)
+            try:
+                sock.sendto(b"BREACH" if is_breached else b"SAFE", (args.ip, 5006))
+            except Exception:
+                pass
+
             elapsed = time.time() - loop_start
             time.sleep(max(0.001, interval - elapsed))
     except KeyboardInterrupt:

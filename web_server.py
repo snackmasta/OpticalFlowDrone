@@ -481,6 +481,30 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(err_body)
                 self.wfile.flush()
+        elif path in ('/api/geofence/status', '/api/geofence'):
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length > 0 else b'{}'
+            try:
+                data = json.loads(body.decode('utf-8'))
+                is_breached = bool(data.get("breached", False))
+                send_geofence_buzzer_udp(is_breached)
+                resp = json.dumps({"status": "success", "breached": is_breached}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+                self.wfile.flush()
+            except Exception as e:
+                err_body = json.dumps({"status": "error", "message": str(e)}).encode('utf-8')
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(err_body)))
+                self.end_headers()
+                self.wfile.write(err_body)
+                self.wfile.flush()
         else:
             self.send_response(404)
             self.end_headers()
@@ -498,6 +522,23 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
 # Arm destination UDP settings
 ARM_UDP_IP = "192.168.137.229"
 ARM_UDP_PORT = 8888
+
+# Buzzer destination UDP settings
+BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
+BUZZER_UDP_PORT = int(os.getenv("BUZZER_UDP_PORT", "5006"))
+
+def send_geofence_buzzer_udp(is_breached):
+    """
+    Sends UDP packet to the Geofence Buzzer Listener (default 127.0.0.1:5006).
+    Payload: "BREACH" when breached, "SAFE" when inside geofence.
+    """
+    try:
+        payload = b"BREACH" if is_breached else b"SAFE"
+        buzzer_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        buzzer_sock.sendto(payload, (BUZZER_UDP_IP, BUZZER_UDP_PORT))
+        buzzer_sock.close()
+    except Exception:
+        pass
 
 def send_arm_angles(roll_deg, pitch_deg):
     """

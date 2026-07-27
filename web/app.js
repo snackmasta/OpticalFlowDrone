@@ -189,6 +189,18 @@ function updateGeofenceHitboxCheck() {
       geofenceMesh.material.color.setHex(0x10b981);
     }
   }
+
+  // Notify backend API / UDP transmitter when breach state changes
+  if (window.lastGeofenceBreachState !== isBreached) {
+    window.lastGeofenceBreachState = isBreached;
+    try {
+      fetch('/api/geofence/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ breached: isBreached })
+      }).catch(() => {});
+    } catch (e) {}
+  }
 }
 
 
