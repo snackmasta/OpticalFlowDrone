@@ -20,33 +20,34 @@ import subprocess
 import signal
 import argparse
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 
 SERVICES = [
     {
         "name": "HMC5883L Compass",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "hmc5883l.py")],
+        "cmd": [sys.executable, os.path.join(SERVICES_DIR, "hmc5883l.py")],
         "log": os.path.join(LOG_DIR, "hmc5883l.log"),
     },
     {
         "name": "Optical Flow Stream",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "optical_flow_stream.py"), "-stream"],
+        "cmd": [sys.executable, os.path.join(SERVICES_DIR, "optical_flow_stream.py"), "-stream"],
         "log": os.path.join(LOG_DIR, "optical_flow_stream.log"),
     },
     {
         "name": "Buzzer Alarm Listener",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_buzzer_listener.py")],
+        "cmd": [sys.executable, os.path.join(SERVICES_DIR, "geofence_buzzer_listener.py")],
         "log": os.path.join(LOG_DIR, "geofence_buzzer_listener.log"),
     },
     {
         "name": "Telemetry UDP Bridge",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "send_attitude_udp.py"), "--ip", "127.0.0.1", "--port", "5005"],
+        "cmd": [sys.executable, os.path.join(SERVICES_DIR, "send_attitude_udp.py"), "--ip", "127.0.0.1", "--port", "5005"],
         "log": os.path.join(LOG_DIR, "send_attitude_udp.log"),
     },
     {
         "name": "Web Dashboard Server",
-        "cmd": [sys.executable, os.path.join(PROJECT_DIR, "web_server.py")],
+        "cmd": [sys.executable, os.path.join(SERVICES_DIR, "web_server.py")],
         "log": os.path.join(LOG_DIR, "web_server.log"),
     },
 ]
@@ -95,27 +96,27 @@ def main():
     services_list = [
         {
             "name": "HMC5883L Compass",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "hmc5883l.py")],
+            "cmd": [sys.executable, os.path.join(SERVICES_DIR, "hmc5883l.py")],
             "log": os.path.join(LOG_DIR, "hmc5883l.log"),
         },
         {
             "name": "Optical Flow Stream",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "optical_flow_stream.py"), flow_flag],
+            "cmd": [sys.executable, os.path.join(SERVICES_DIR, "optical_flow_stream.py"), flow_flag],
             "log": os.path.join(LOG_DIR, "optical_flow_stream.log"),
         },
         {
             "name": "Buzzer Alarm Listener",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "geofence_buzzer_listener.py")],
+            "cmd": [sys.executable, os.path.join(SERVICES_DIR, "geofence_buzzer_listener.py")],
             "log": os.path.join(LOG_DIR, "geofence_buzzer_listener.log"),
         },
         {
             "name": "Telemetry UDP Bridge",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "send_attitude_udp.py"), "--ip", "127.0.0.1", "--port", "5005"],
+            "cmd": [sys.executable, os.path.join(SERVICES_DIR, "send_attitude_udp.py"), "--ip", "127.0.0.1", "--port", "5005"],
             "log": os.path.join(LOG_DIR, "send_attitude_udp.log"),
         },
         {
             "name": "Web Dashboard Server",
-            "cmd": [sys.executable, os.path.join(PROJECT_DIR, "web_server.py")],
+            "cmd": [sys.executable, os.path.join(SERVICES_DIR, "web_server.py")],
             "log": os.path.join(LOG_DIR, "web_server.log"),
         },
     ]

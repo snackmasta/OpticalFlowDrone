@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Configuration
+## Configuration
 PROJECT_DIR="/home/raspi/Desktop/OpticalFlowDrone"
+SERVICES_DIR="$PROJECT_DIR/services"
 PYTHON_BIN="$PROJECT_DIR/venv/bin/python"
 LOG_DIR="$PROJECT_DIR/logs"
 
@@ -31,25 +32,25 @@ start_services() {
     wait_for_wlan0
 
     echo "Starting HMC5883L Compass..."
-    "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
+    "$PYTHON_BIN" "$SERVICES_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
 
     echo "Starting High-Priority Optical Flow Stream (Mode: $FLOW_MODE, Priority: nice -n -5)..."
-    nice -n -5 "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+    nice -n -5 "$PYTHON_BIN" "$SERVICES_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
     echo "Starting Geofence Buzzer Listener..."
-    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+    "$PYTHON_BIN" "$SERVICES_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
 
     echo "Starting Telemetry UDP Bridge..."
-    "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
+    "$PYTHON_BIN" "$SERVICES_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
 
     echo "Starting 3D Geofence Web Server & Dashboard..."
-    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+    "$PYTHON_BIN" "$SERVICES_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
 
     echo "All active Raspberry Pi services started."
 }
 
 stop_services() {
-    echo "Stopping all active Raspberry Pi drone services..."
+    echo "Stopping all active Raspberry Pi system services..."
     pkill -f "hmc5883l.py"
     pkill -f "optical_flow_stream.py"
     pkill -f "geofence_buzzer_listener.py"
@@ -72,11 +73,11 @@ check_status() {
 
 enable_boot() {
     echo "Configuring systemd service for autorun..."
-    SERVICE_FILE="/etc/systemd/system/drone.service"
+    SERVICE_FILE="/etc/systemd/system/opticalflow.service"
     
     sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
-Description=Drone Autonomous Services
+Description=Optical Flow Autonomous System Services
 After=network.target network-online.target wpa_supplicant.service
 Wants=network-online.target
 
@@ -84,23 +85,23 @@ Wants=network-online.target
 Type=forking
 User=raspi
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/manage_services.sh start
-ExecStop=$PROJECT_DIR/manage_services.sh stop
-RemainAfterExit=yes
+ExecStart=$SERVICES_DIR/manage_services.sh start
+ExecStop=$SERVICES_DIR/manage_services.sh stop
+RemainAfterExit=yes`
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     sudo systemctl daemon-reload
-    sudo systemctl enable drone.service
+    sudo systemctl enable opticalflow.service
     echo "Systemd service enabled. It will run automatically on boot."
 }
 
 disable_boot() {
     echo "Disabling systemd service..."
-    sudo systemctl disable drone.service || true
-    sudo rm -f /etc/systemd/system/drone.service
+    sudo systemctl disable opticalflow.service || true
+    sudo rm -f /etc/systemd/system/opticalflow.service
     sudo systemctl daemon-reload
     echo "Systemd service disabled and removed."
 }
@@ -192,7 +193,7 @@ toggle_individual_services() {
                     pkill -f "hmc5883l.py"
                 else
                     echo "Starting HMC5883L Compass..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
+                    "$PYTHON_BIN" "$SERVICES_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
                 fi
                 ;;
             2)
@@ -202,7 +203,7 @@ toggle_individual_services() {
                     killall mediamtx 2>/dev/null || true
                 else
                     echo "Starting Optical Flow Stream..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+                    "$PYTHON_BIN" "$SERVICES_DIR/optical_flow_stream.py" -stream > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
                 fi
                 ;;
             3)
@@ -211,7 +212,7 @@ toggle_individual_services() {
                     pkill -f "geofence_buzzer_listener.py"
                 else
                     echo "Starting Geofence Buzzer Listener..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+                    "$PYTHON_BIN" "$SERVICES_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
                 fi
                 ;;
             4)
@@ -220,7 +221,7 @@ toggle_individual_services() {
                     pkill -f "send_attitude_udp.py"
                 else
                     echo "Starting Telemetry UDP Bridge..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
+                    "$PYTHON_BIN" "$SERVICES_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
                 fi
                 ;;
             5)
@@ -229,7 +230,7 @@ toggle_individual_services() {
                     pkill -f "web_server.py"
                 else
                     echo "Starting 3D Geofence Web Server..."
-                    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+                    "$PYTHON_BIN" "$SERVICES_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
                 fi
                 ;;
             6)
@@ -247,7 +248,7 @@ toggle_individual_services() {
 while true; do
     echo ""
     echo "============================================="
-    echo "          DRONE SERVICE MANAGER              "
+    echo "         SYSTEM SERVICE MANAGER              "
     echo "============================================="
     echo " 1) Start all active services"
     echo " 2) Stop all active services"
