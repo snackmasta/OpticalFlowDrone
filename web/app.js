@@ -125,7 +125,7 @@ function createControllerMesh() {
 
 let geofenceMesh = null;
 let geofenceBoxWireframe = null;
-let geofenceCenter = { x: 0, y: 0, z: 0 };
+let geofenceCenter = { x: 0, y: 1.5, z: 0 };
 
 let breachCountdownTimer = null;
 let breachCountdownSec = 30;
@@ -179,9 +179,9 @@ function recenterGeofenceToCube() {
 }
 
 function resetGeofenceCenter() {
-  geofenceCenter = { x: 0, y: 0, z: 0 };
+  geofenceCenter = { x: 0, y: 1.5, z: 0 };
   if (geofenceMesh) {
-    geofenceMesh.position.set(0, 0, 0);
+    geofenceMesh.position.set(0, 1.5, 0);
   }
   isBreachCountdownActive = false;
   breachCountdownSec = 30;
