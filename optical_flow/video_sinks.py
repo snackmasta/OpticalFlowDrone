@@ -4,9 +4,41 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import shutil
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 RECORDINGS_DIR = Path("recordings")
-MEDIAMTX_BIN = PROJECT_ROOT/ "./.." / ".tools" / "mediamtx" / "mediamtx"
+
+
+def find_mediamtx_binary():
+    """
+    Searches for the MediaMTX binary in system PATH, local project .tools directories,
+    and standard system paths.
+    """
+    # 1. Check system PATH
+    sys_path = shutil.which("mediamtx")
+    if sys_path:
+        return Path(sys_path)
+
+    # 2. Check candidate paths relative to this file and workspace roots
+    this_dir = Path(__file__).resolve().parent
+    candidates = [
+        this_dir / ".tools" / "mediamtx" / "mediamtx",
+        this_dir.parent / ".tools" / "mediamtx" / "mediamtx",
+        this_dir.parent.parent / ".tools" / "mediamtx" / "mediamtx",
+        Path.home() / ".tools" / "mediamtx" / "mediamtx",
+        Path("/usr/local/bin/mediamtx"),
+        Path("/usr/bin/mediamtx"),
+    ]
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    return None
+
+
+MEDIAMTX_BIN = find_mediamtx_binary()
 
 
 def choose_output_mode():
@@ -66,12 +98,15 @@ class FileSink:
         print(f"Saved recording: {self.output_path}")
 
 
-def ensure_mediamtx_config():
+def ensure_mediamtx_config(bin_path=None):
     """
     Ensures that mediamtx.yml exists in the MediaMTX directory so dynamic stream paths (e.g. /drone) are accepted.
     """
-    if MEDIAMTX_BIN.exists():
-        config_path = MEDIAMTX_BIN.parent / "mediamtx.yml"
+    if bin_path is None:
+        bin_path = find_mediamtx_binary()
+
+    if bin_path and bin_path.exists():
+        config_path = bin_path.parent / "mediamtx.yml"
         if not config_path.exists():
             config_content = (
                 "# MediaMTX configuration file\n"
@@ -89,10 +124,15 @@ class RtspServer:
     Spawns and manages a local MediaMTX RTSP server subprocess if one is not already running.
     """
     def __init__(self):
-        if not MEDIAMTX_BIN.exists():
-            raise RuntimeError(f"MediaMTX binary not found at {MEDIAMTX_BIN}")
+        mediamtx_bin = find_mediamtx_binary()
+        if not mediamtx_bin:
+            raise RuntimeError(
+                "MediaMTX binary not found in system PATH or .tools directory. "
+                "Please run install_mediamtx.sh or install MediaMTX."
+            )
 
-        ensure_mediamtx_config()
+        self.bin_path = mediamtx_bin
+        ensure_mediamtx_config(self.bin_path)
 
         self.spawned = False
         self.process = None
@@ -110,8 +150,8 @@ class RtspServer:
         log_file = open(log_dir / "mediamtx.log", "a")
 
         self.process = subprocess.Popen(
-            [str(MEDIAMTX_BIN)],
-            cwd=str(MEDIAMTX_BIN.parent),
+            [str(self.bin_path)],
+            cwd=str(self.bin_path.parent),
             stdout=log_file,
             stderr=log_file,
         )
@@ -232,6 +272,7 @@ class RtspSink:
 def create_output_sink(frame_size, fps, mode=None, rtsp_name=None):
     """
     Creates and returns the appropriate video output sink (FileSink or RtspSink) based on configuration.
+    Falls back gracefully to FileSink if RTSP initialization fails.
     """
     if mode is None:
         mode = choose_output_mode()
@@ -240,8 +281,15 @@ def create_output_sink(frame_size, fps, mode=None, rtsp_name=None):
             stream_name = choose_rtsp_url()
         else:
             stream_name = rtsp_name
-        server = RtspServer()
-        publish_url = f"rtsp://127.0.0.1:8554/{stream_name}"
-        print(f"Open this on Windows: rtsp://<drone-ip>:8554/{stream_name}")
-        return RtspSink(frame_size, fps, publish_url), True, server
+        try:
+            server = RtspServer()
+            publish_url = f"rtsp://127.0.0.1:8554/{stream_name}"
+            sink = RtspSink(frame_size, fps, publish_url)
+            print(f"Open this on Windows: rtsp://<drone-ip>:8554/{stream_name}")
+            return sink, True, server
+        except Exception as exc:
+            print(f"[RTSP WARNING] Failed to initialize MediaMTX RTSP Server: {exc}")
+            print("[RTSP WARNING] Falling back to local file recording mode (FileSink).")
+            return FileSink(frame_size, fps), False, None
+
     return FileSink(frame_size, fps), False, None
