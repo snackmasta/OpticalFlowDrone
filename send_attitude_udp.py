@@ -43,6 +43,47 @@ try:
 except ImportError:
     PYNMEA2_AVAILABLE = False
 
+BUZZER_PIN = 12
+buzzer_device = None
+buzzer_breached_state = False
+
+try:
+    from gpiozero import PWMOutputDevice
+    buzzer_device = PWMOutputDevice(BUZZER_PIN, frequency=2300)
+    buzzer_device.off()
+    print(f"[Buzzer] Hardware PWMOutputDevice initialized on GPIO {BUZZER_PIN} @ 2300 Hz.")
+except Exception as e:
+    print(f"[Buzzer] gpiozero PWMOutputDevice disabled or non-Pi system ({e}).")
+
+def _buzzer_loop_thread():
+    """Background thread looping 2300Hz buzzer beep (0.15s ON, 0.15s OFF) while outside geofence."""
+    global buzzer_breached_state
+    while True:
+        if buzzer_breached_state and buzzer_device is not None:
+            try:
+                buzzer_device.value = 0.5  # 2300Hz tone ON (50% duty cycle)
+                time.sleep(0.15)
+                buzzer_device.off()       # Tone OFF
+                time.sleep(0.15)
+            except Exception:
+                time.sleep(0.1)
+        else:
+            if buzzer_device is not None:
+                try:
+                    buzzer_device.off()
+                except Exception:
+                    pass
+            time.sleep(0.05)
+
+if buzzer_device is not None:
+    buzzer_thread = threading.Thread(target=_buzzer_loop_thread, daemon=True)
+    buzzer_thread.start()
+
+def trigger_geofence_buzzer(is_breached):
+    """Triggers the looping 2300Hz GPIO 12 buzzer alarm when outside the 1m x 1m geofence."""
+    global buzzer_breached_state
+    buzzer_breached_state = bool(is_breached)
+
 def convert_latitude(lat_str, lat_dir):
     if not lat_str or not lat_dir:
         return None
@@ -352,6 +393,16 @@ def main():
                 )
 
             fused_gps_state = fusion_engine.get_fused_state()
+            fused_x = fused_gps_state.get("fused_x_m", 0.0)
+            fused_y = fused_gps_state.get("fused_y_m", 0.0)
+
+            # Evaluate 1m x 1m Geofence breach (|X| > 0.5m or |Y| > 0.5m)
+            chk_x = fused_x if (fused_x != 0.0 or fused_y != 0.0) else pos_x
+            chk_y = fused_y if (fused_x != 0.0 or fused_y != 0.0) else pos_y
+            is_breached = (abs(chk_x) > 0.5) or (abs(chk_y) > 0.5)
+
+            # Ring hardware buzzer connected to GPIO 12 when outside geofence
+            trigger_geofence_buzzer(is_breached)
 
             telemetry_packet = {
                 "timestamp": ts,
@@ -370,18 +421,25 @@ def main():
                 },
                 "heading": round(yaw, 2),
                 "status": "connected",
+                "geofence_breach": is_breached,
                 "gps": gps_snapshot,
                 "fused_gps": fused_gps_state
             }
-
-            payload = json.dumps(telemetry_packet).encode("utf-8")
-            sock.sendto(payload, (args.ip, args.port))
 
             elapsed = time.time() - loop_start
             time.sleep(max(0.001, interval - elapsed))
     except KeyboardInterrupt:
         print("\n[SHM UDP Sender] Stopped.")
     finally:
+        global buzzer_breached_state
+        buzzer_breached_state = False
+        if buzzer_device is not None:
+            try:
+                buzzer_device.off()
+                buzzer_device.close()
+            except Exception:
+                pass
+        print("[SHM UDP Sender] Hardware resources cleaned up.")
         sock.close()
 
 
