@@ -262,7 +262,6 @@ def read_latest_flow():
         return None
 
 
-from madgwick_ahrs import MadgwickPositionEstimator
 from sensor_fusion import SensorFusionEngine
 
 def main():
@@ -275,17 +274,14 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     interval = 1.0 / args.rate
 
-    # Instantiate Madgwick AHRS Position Estimator & Sensor Fusion Engine
-    madgwick_estimator = MadgwickPositionEstimator(beta=0.1, sample_freq=args.rate)
+    # Instantiate Sensor Fusion Engine
     fusion_engine = SensorFusionEngine(gps_gain=0.15, flow_weight=0.85)
 
     # Start Hardware GPS thread (reading /dev/ttyAMA2 on drone side)
     gps_thread = threading.Thread(target=gps_hardware_thread, daemon=True)
     gps_thread.start()
 
-    print(f"[SHM UDP Sender] Streaming Madgwick AHRS, Optical Flow & Sensor-Fused GPS Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
-
-    start_time = time.time()
+    print(f"[SHM UDP Sender] Streaming Optical Flow & Sensor-Fused GPS Telemetry to UDP {args.ip}:{args.port} @ {args.rate} Hz...")
 
     try:
         while True:
@@ -297,42 +293,25 @@ def main():
                 roll = att["roll"]
                 pitch = att["pitch"]
                 yaw = att["yaw"]
-                gx = att["gx"]
-                gy = att["gy"]
-                gz = att["gz"]
                 ts = att["timestamp"]
             else:
-                # Fallback: Synthesize smooth dynamic 3D motion for demonstration
-                t = loop_start - start_time
-                roll = 18.0 * math.sin(t * 1.8)
-                pitch = 12.0 * math.cos(t * 1.4)
-                yaw = math.degrees(math.atan2(math.sin(t * 0.8), math.cos(t * 0.8)))
-                gx = 18.0 * 1.8 * math.cos(t * 1.8)
-                gy = -12.0 * 1.4 * math.sin(t * 1.4)
-                gz = 0.8 * (180.0 / math.pi)
+                # No attitude data available — hold zeros until SHM is ready
+                roll = 0.0
+                pitch = 0.0
+                yaw = 0.0
                 ts = loop_start
 
-            # Calculate gravity projections for accelerometer input
-            roll_rad = math.radians(roll)
-            pitch_rad = math.radians(pitch)
-            ax_g = -math.sin(pitch_rad)
-            ay_g = math.sin(roll_rad) * math.cos(pitch_rad)
-            az_g = math.cos(roll_rad) * math.cos(pitch_rad)
+            # Derive quaternion directly from IMU Euler angles
+            quaternion = euler_to_quaternion(roll, pitch, yaw)
 
-            # Update Madgwick AHRS & Position state
-            m_state = madgwick_estimator.update(
-                gx_dps=gx, gy_dps=gy, gz_dps=gz,
-                ax_g=ax_g, ay_g=ay_g, az_g=az_g
-            )
+            # Use optical flow displacement for position/velocity; fall back to zero when unavailable
+            pos_x = flow["x_m"] if flow else 0.0
+            pos_y = flow["y_m"] if flow else 0.0
+            pos_z = -flow["z_m"] if flow else 0.0
 
-            # Use optical flow displacement for xy position if available, fallback to Madgwick 3D position
-            pos_x = flow["x_m"] if flow else m_state["position"]["x"]
-            pos_y = flow["y_m"] if flow else m_state["position"]["y"]
-            pos_z = -flow["z_m"] if flow else -m_state["position"]["z"]
-
-            vel_x = flow["vx"] if flow else m_state["velocity"]["x"]
-            vel_y = flow["vy"] if flow else m_state["velocity"]["y"]
-            vel_z = -m_state["velocity"]["z"]
+            vel_x = flow["vx"] if flow else 0.0
+            vel_y = flow["vy"] if flow else 0.0
+            vel_z = 0.0
 
             # Multi-Sensor Fusion Engine Update (IMU + Compass + Optical Flow + GPS)
             fusion_engine.update_attitude(roll_deg=roll, pitch_deg=pitch, heading_deg=yaw)
@@ -356,7 +335,7 @@ def main():
             telemetry_packet = {
                 "timestamp": ts,
                 "rotation": {
-                    "quaternion": m_state["quaternion"],
+                    "quaternion": quaternion,
                     "euler": {
                         "roll": round(roll, 2),
                         "pitch": round(pitch, 2),
@@ -366,7 +345,7 @@ def main():
                 "translation": {
                     "position": {"x": round(pos_x, 3), "y": round(pos_z, 3), "z": round(pos_y, 3)},
                     "velocity": {"x": round(vel_x, 3), "y": round(vel_z, 3), "z": round(vel_y, 3)},
-                    "linear_accel": m_state["linear_accel"],
+                    "linear_accel": {"x": 0.0, "y": 0.0, "z": 0.0},
                 },
                 "heading": round(yaw, 2),
                 "status": "connected",
