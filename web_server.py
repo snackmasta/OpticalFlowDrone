@@ -519,9 +519,6 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
         super().log_message(format, *args)
 
 
-# Arm destination UDP settings
-ARM_UDP_IP = "192.168.137.54"
-ARM_UDP_PORT = 8888
 
 # Buzzer destination UDP settings
 BUZZER_UDP_IP = os.getenv("BUZZER_UDP_IP", "127.0.0.1")
@@ -561,25 +558,6 @@ def send_geofence_buzzer_udp(is_breached):
     except Exception as e:
         print(f"[Buzzer UDP Error] {e}")
 
-def send_arm_angles(roll_deg, pitch_deg):
-    """
-    Calculates arm joint angles (90 - roll° for Shoulder J2, 90 + pitch° for Wrist J4 clamped 0..180)
-    and streams to 4-DOF Robotic Arm via UDP.
-    Payload format: "90,<shoulder_angle>,90,<wrist_angle>"
-    """
-    try:
-        shoulder_angle = int(round(90.0 - roll_deg))
-        shoulder_angle = max(0, min(180, shoulder_angle))
-
-        wrist_angle = int(round(90.0 + pitch_deg))
-        wrist_angle = max(0, min(180, wrist_angle))
-
-        payload = f"90,{shoulder_angle},90,{wrist_angle}".encode('ascii')
-        arm_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        arm_sock.sendto(payload, (ARM_UDP_IP, ARM_UDP_PORT))
-        arm_sock.close()
-    except Exception as e:
-        pass
 
 def start_udp_listener():
     """
@@ -634,11 +612,7 @@ def start_udp_listener():
             with clients_lock:
                 latest_telemetry = payload
 
-            # Extract roll & pitch angles and stream to 4-DOF Arm
-            euler = payload.get("rotation", {}).get("euler", {})
-            roll_val = euler.get("roll", 0.0)
-            pitch_val = euler.get("pitch", 0.0)
-            send_arm_angles(roll_val, pitch_val)
+
         except Exception:
             pass
 

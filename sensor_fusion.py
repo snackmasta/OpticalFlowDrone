@@ -8,7 +8,7 @@ high-rate (50Hz) smooth 2D/3D state estimator.
 
 Mathematical Formulation:
 1. Attitude & Heading (IMU + Compass):
-   - Roll (phi), Pitch (theta) from IMU Madgwick AHRS or Accelerometer gravity vector.
+   - Roll (phi), Pitch (theta) from IMU orientation estimate or Accelerometer gravity vector.
    - Yaw (psi) from HMC5883L Compass with tilt compensation.
 
 2. Body-to-Earth Velocity Rotation:

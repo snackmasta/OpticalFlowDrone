@@ -43,7 +43,6 @@ graph TD
     E -->|Read: roll, pitch, yaw, gyro rates| SHM2
     E -->|Read: x_cm, y_cm, vx, vy, alt, heading| SHM3
     E -->|Read NMEA GGA/RMC sentences| E_GPS["/dev/ttyAMA2\n(Hardware GPS UART)"]
-    E -->|Import MadgwickPositionEstimator| E1[madgwick_ahrs.py]
     E -->|Import SensorFusionEngine| E2[sensor_fusion.py]
     E -->|JSON UDP Port 5005: rotation, translation,\nGPS, fused_gps, heading| F
 
@@ -56,7 +55,7 @@ graph TD
     F -->|SSE stream: telemetry JSON 50 Hz| F_BROWSER["Browser Client\n(Dashboard UI)"]
     F_BROWSER -->|POST /api/geofence/status breached=true/false| F
     F -->|UDP BREACH / SAFE payload Port 5006| D
-    F -->|UDP servo angles string Port 8888| F_ARM["4-DOF Robotic Arm\n(192.168.137.54:8888)"]
+
 
     %% ── geofence_buzzer_listener.py ──────────────────────────────────
     D -->|Listens UDP Port 5006: BREACH / SAFE packets| D
@@ -125,7 +124,6 @@ Telemetry bridge: reads all SHM segments, fuses data, and streams JSON UDP packe
 * **Hardware GPS Serial:**
   * `/dev/ttyAMA2` @ 9600 baud – Reads NMEA GGA and RMC sentences (parsed via `pynmea2`) for raw GPS lat/lon/alt/speed/satellites.
 * **Python Module Dependencies:**
-  * [`madgwick_ahrs.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/madgwick_ahrs.py) – `MadgwickPositionEstimator`: integrates gyro + accelerometer into quaternion attitude and 3D position/velocity estimate.
   * [`sensor_fusion.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/sensor_fusion.py) – `SensorFusionEngine`: multi-sensor fusion of optical flow velocity, compass heading, and raw GPS to produce a smoothed `fused_lat/lon` position.
 * **UDP Output (Producer):**
   * `UDP → 127.0.0.1:5005` (default) → **`web_server.py`** – Sends JSON telemetry packet at 50 Hz containing: `rotation` (quaternion + euler), `translation` (position + velocity + linear_accel), `heading`, `gps` (raw NMEA data), `fused_gps` (sensor-fused lat/lon).
@@ -156,8 +154,6 @@ Telemetry bridge: reads all SHM segments, fuses data, and streams JSON UDP packe
   * `recordings/*.csv` and `hasil_dan_pembahasan/*.csv` – Session log files scanned and parsed for flight log replay in the dashboard.
 * **UDP Output — Geofence Buzzer (Producer):**
   * `UDP → 127.0.0.1:5006` and `→ 192.168.137.54:5006` (broadcast) – Sends `b"BREACH"` or `b"SAFE"` payload to **`geofence_buzzer_listener.py`** when geofence status changes. Also broadcasts on local network.
-* **UDP Output — Robotic Arm (Producer):**
-  * `UDP → 192.168.137.54:8888` – Sends servo angle string `"90,<shoulder>,90,<wrist>"` derived from roll/pitch Euler angles, streaming to a 4-DOF robotic arm at 50 Hz.
 * **Log Output:** `$LOG_DIR/web_server.log`
 
 ---
