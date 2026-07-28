@@ -71,35 +71,7 @@ $$v_{x, \text{body}} = \frac{4.0\text{ px} \times 1.5\text{ m}}{554.26\text{ px}
 
 ---
 
-## 3. Tilt Compensation (Isolating Translation)
-When the drone tilts (rolls or pitches), the ground shifts in the frame even if the drone does not physically move. We must subtract this expected rotational flow from the measured flow.
 
-### 📐 Mathematical Formulation
-1. **Expected Rotational Displacement (pixels):**
-   $$t_{x, \text{rot}} = scale_x \cdot (roll_t - roll_{t-1}) \cdot S_{\phi}$$
-   $$t_{y, \text{rot}} = scale_y \cdot -(pitch_t - pitch_{t-1}) \cdot S_{\theta}$$
-   *(Where $S_{\phi} = 4.5\text{ px/deg}$ and $S_{\theta} = 6.0\text{ px/deg}$ are HUD reticle scaling constants)*
-
-2. **Compensated Flow Translation:**
-   $$tx_{\text{comp}} = tx - t_{x, \text{rot}}$$
-
-### 💻 Code Reference
-* [Reticle scaling in `optical_flow_stream.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow_stream.py#L389-L420)
-
-### 📝 Step-by-Step Example
-Suppose:
-* Calibrated $scale_x = 1.2$
-* Roll angle change: $\Delta \text{roll} = 0.5^\circ$
-* Measured flow shift ($tx$) = $3.5\text{ px}$
-
-**Step 1: Compute Expected Tilt Displacement**
-$$t_{x, \text{rot}} = 1.2 \times (0.5^\circ \times 4.5\text{ px/deg}) = 1.2 \times 2.25\text{ px} = 2.7\text{ px}$$
-
-**Step 2: Subtract from Measured Flow**
-$$tx_{\text{comp}} = 3.5\text{ px} - 2.7\text{ px} = 0.8\text{ px}$$
-*(Only $0.8\text{ px}$ of the shift was due to actual translation; the rest was due to tilting)*
-
----
 
 ## 4. Lever-Arm Correction (Camera Offset Compensation)
 If the camera is mounted away from the drone's Center of Gravity (CoG), yaw rotations ($\omega_z$) produce a linear velocity at the camera sensor. We must subtract this to find the CoG's true velocity.

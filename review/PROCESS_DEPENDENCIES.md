@@ -24,8 +24,7 @@ graph TD
     B -->|Write: heading, x, y, z, timestamp| SHM1[("SHM: compass_heading_stream")]
 
     %% ── optical_flow_stream.py ───────────────────────────────────────
-    C -->|Reads| C1[tilt_calibration.json]
-    C -->|Read/Write calibration| C1
+
     C -->|Write session log| C2["recordings/optical_flow_session_*.csv"]
     C -->|Read frames| C_CAM["PiCamera2\n(Raspberry Pi Camera)"]
     C <-->|I2C Bus 1 addr 0x68| C_IMU["MPU6050 IMU\n(Accel + Gyro)"]
@@ -101,8 +100,7 @@ High-priority optical flow camera capture, IMU fusion, and position tracking dae
   * `optical_flow_stream` → **Writes** x_cm, y_cm, raw_x_cm, raw_y_cm, vx, vy, alt, heading at 60 Hz. **Consumed by `send_attitude_udp.py`**.
 * **UDP Command Listener:**
   * `UDP 127.0.0.1:5009` – Accepts text commands: `reset` (zero position), `toggle` (switch flow/accel source), `offset <x> <y>` (update camera offset).
-* **Configuration & Calibration Files (Read / Written):**
-  * [`tilt_calibration.json`](file:///e:/OptFlowDrone/OpticalFlowDrone/tilt_calibration.json) – Camera tilt scale factors (`scale_x`, `scale_y`) and camera offset (`camera_offset_x/y`). Updated live during tilt calibration.
+
 * **Video Output (mode-dependent):**
   * **Record mode** → `recordings/optical_flow_<timestamp>.mp4` (via `cv2.VideoWriter` FileSink).
   * **RTSP stream mode** → Spawns `ffmpeg` subprocess piped raw BGR frames → H.264 encode → publishes to `rtsp://127.0.0.1:8554/drone` on MediaMTX RTSP server (`.tools/mediamtx/mediamtx`). MediaMTX logs to `logs/mediamtx.log`.

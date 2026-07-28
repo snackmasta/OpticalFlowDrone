@@ -125,33 +125,8 @@ from optical_flow.video_sinks import (
     create_output_sink
 )
 
-CALIBRATION_FILE = "tilt_calibration.json"
-scale_x = FLOW_SCALE
-scale_y = FLOW_SCALE
 camera_offset_x = 0.0
 camera_offset_y = 0.0
-
-def load_calibration():
-    """
-    Loads tilt calibration and camera offsets from tilt_calibration.json.
-    Falls back to default values if the file is not found or fails to parse.
-    """
-    global scale_x, scale_y, camera_offset_x, camera_offset_y
-    if os.path.exists(CALIBRATION_FILE):
-        try:
-            with open(CALIBRATION_FILE, "r") as f:
-                data = json.load(f)
-                scale_x = data.get("scale_x", FLOW_SCALE)
-                scale_y = data.get("scale_y", FLOW_SCALE)
-                camera_offset_x = data.get("camera_offset_x", 0.0)
-                camera_offset_y = data.get("camera_offset_y", 0.0)
-                print(f"Loaded calibration: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}, camera_offset_x={camera_offset_x:.2f}, camera_offset_y={camera_offset_y:.2f}")
-        except Exception as e:
-            print(f"Failed to load calibration: {e}")
-    else:
-        print(f"No calibration file found, using defaults: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
-
-load_calibration()
 
 
 TARGET_FPS = 60
@@ -304,11 +279,9 @@ def record_optical_flow():
     Captures video frames, estimates optical flow, applies tilt/offset compensation,
     updates state, and writes results to shared memory and video sink.
     """
-    global old_gray, output_sink, scale_x, scale_y
+    global old_gray, output_sink
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
-    prev_roll_px = None
-    prev_pitch_px = None
     x_raw_cm = 0.0
     y_raw_cm = 0.0
     vx_raw_prev = 0.0
@@ -319,13 +292,7 @@ def record_optical_flow():
     accel_vx_mps = 0.0
     accel_vy_mps = 0.0
     
-    is_calibrating = False
-    calib_paused = False
-    calib_samples_x = []
-    calib_samples_y = []
-    
     print("\n=======================================================")
-    print("Type 'c' and press Enter to start tilt calibration.")
     print("Type 'r' and press Enter to reset positions to zero.")
     print("Type 't' and press Enter to toggle translation source (FLOW vs ACCEL).")
     print("Press Ctrl+C to exit the program.")
@@ -412,34 +379,7 @@ def record_optical_flow():
                 pass
 
             if command is not None:
-                if command == 'c' and not is_calibrating:
-                    is_calibrating = True
-                    calib_paused = False
-                    calib_samples_x = []
-                    calib_samples_y = []
-                    print("\n>>> TILT CALIBRATION STARTED. Please pitch and roll the camera/drone without translating it.")
-                    print(">>> Type 's' + Enter to save & exit, 'p' + Enter to pause/resume, 'e' + Enter to discard & exit.\n")
-                elif is_calibrating:
-                    if command == 's':
-                        is_calibrating = False
-                        if calib_samples_x:
-                            scale_x = float(np.median(calib_samples_x))
-                        if calib_samples_y:
-                            scale_y = float(np.median(calib_samples_y))
-                        
-                        try:
-                            with open(CALIBRATION_FILE, "w") as f:
-                                json.dump({"scale_x": scale_x, "scale_y": scale_y}, f, indent=4)
-                            print(f"\n>>> TILT CALIBRATION COMPLETE & SAVED: scale_x={scale_x:.4f}, scale_y={scale_y:.4f} (from {len(calib_samples_x)}/{len(calib_samples_y)} samples)")
-                        except Exception as e:
-                            print(f"\n>>> Failed to save calibration to file: {e}")
-                    elif command == 'p':
-                        calib_paused = not calib_paused
-                        status = "PAUSED" if calib_paused else "RESUMED"
-                        print(f"\n>>> TILT CALIBRATION {status}.")
-                    elif command == 'e':
-                        is_calibrating = False
-                        print("\n>>> TILT CALIBRATION DISCARDED.")
+
                 
                 if isinstance(command, tuple) and command[0] == "offset":
                     global camera_offset_x, camera_offset_y
@@ -483,25 +423,12 @@ def record_optical_flow():
 
             dense_motion = estimate_dense_flow_and_motion(old_gray, frame_gray, step=8)
 
-            # Calculate reticle displacement for tilt compensation
+            # Get attitude and gyro rates
             with attitude_lock:
                 roll_deg = attitude_state["roll_deg"]
                 pitch_deg = attitude_state["pitch_deg"]
                 yaw_deg = attitude_state["yaw_deg"]
                 zgyro_dps = attitude_state.get("zgyro_dps", 0.0)
-
-            roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
-            pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
-
-            if prev_roll_px is None:
-                prev_roll_px = roll_px
-                prev_pitch_px = pitch_px
-
-            d_reticle_x = roll_px - prev_roll_px
-            d_reticle_y = pitch_px - prev_pitch_px
-
-            prev_roll_px = roll_px
-            prev_pitch_px = pitch_px
 
             with accel_lock:
                 xaccel_g = accel_state["x_g"]
@@ -517,25 +444,9 @@ def record_optical_flow():
                 tx, ty, scale, theta, inlier_old, inlier_new = dense_motion
                 tracked_count = len(inlier_new)
 
-                # Record calibration samples if mode is active and not paused, and movement is sufficient
-                if is_calibrating and not calib_paused:
-                    if abs(d_reticle_x) > 1.5:
-                        calib_samples_x.append(tx / d_reticle_x)
-                    if abs(d_reticle_y) > 1.5:
-                        calib_samples_y.append(ty / d_reticle_y)
-                    if len(calib_samples_x) % 20 == 0 or len(calib_samples_y) % 20 == 0:
-                        print(f"\rCollected X: {len(calib_samples_x)}, Y: {len(calib_samples_y)} samples", end="", flush=True)
-
-                # Apply reticle-based tilt compensation (subtracting expected displacement using calibrated scale)
-                tx_comp = tx - (scale_x * d_reticle_x)
-                ty_comp = ty - (scale_y * d_reticle_y)
-
-                altitude_cm = 150.0
-
-                # Calculate physical velocity using compensated translations (body frame)
                 altitude_m = 1.5
-                vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
-                vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
+                vx_mps_body = ((tx * altitude_m) / (focal_length_x_px * dt_s))
+                vy_mps_body = -((ty * altitude_m) / (focal_length_y_px * dt_s))
 
                 # Compensate for camera offset from center of rotation
                 yaw_rate_rad = math.radians(zgyro_dps)

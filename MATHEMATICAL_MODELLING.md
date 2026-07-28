@@ -141,35 +141,7 @@ vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
 ---
 
-## 4. Tilt Compensation Model
-When the camera rotates, the image plane shifts by $(t_{x, \text{rot}}, t_{y, \text{rot}})$ which must be subtracted from the total flow measurements $(tx, ty)$ to isolate translation:
 
-$$tx_{\text{comp}} = tx - t_{x, \text{rot}}$$
-$$ty_{\text{comp}} = ty - t_{y, \text{rot}}$$
-
-The rotational component is modeled as:
-
-$$t_{x, \text{rot}} = scale_x \cdot (roll_t - roll_{t-1}) \cdot S_{\phi}$$
-$$t_{y, \text{rot}} = scale_y \cdot -(pitch_t - pitch_{t-1}) \cdot S_{\theta}$$
-
-Where $S_{\phi}, S_{\theta}$ are constant pixels-per-degree display reticle scales (`RETICLE_ROLL_SCALE_PX_PER_DEG = 4.5`, `RETICLE_PITCH_SCALE_PX_PER_DEG = 6.0`).
-
-#### 💻 Code Implementation
-In [`optical_flow_stream.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow_stream.py#L389-L420):
-```python
-# Map roll/pitch angles to reticle displacements
-roll_px = np.clip(roll_deg * RETICLE_ROLL_SCALE_PX_PER_DEG, -frame_width * 0.35, frame_width * 0.35)
-pitch_px = np.clip(-pitch_deg * RETICLE_PITCH_SCALE_PX_PER_DEG, -frame_height * 0.35, frame_height * 0.35)
-
-d_reticle_x = roll_px - prev_roll_px
-d_reticle_y = pitch_px - prev_pitch_px
-
-# Subtract expected rotation from raw optical flow vectors (tx, ty)
-tx_comp = tx - (scale_x * d_reticle_x)
-ty_comp = ty - (scale_y * d_reticle_y)
-```
-
----
 
 ## 5. Camera Offset & Lever-Arm Compensation
 If the camera is mounted at an offset vector $\mathbf{r}_{\text{cam}} = [x_{\text{off}}, y_{\text{off}}, z_{\text{off}}]^T$ away from the drone's center of gravity (CoG), yaw rotations ($\omega_z$) generate a linear velocity at the camera sensor:
