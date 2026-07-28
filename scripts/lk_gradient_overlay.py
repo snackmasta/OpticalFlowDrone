@@ -8,7 +8,7 @@ Features:
 - Full integration with optical_flow HUD renderer (draw_ground_reticle, draw_osd) for standard drone telemetry UI.
 - Direct output pipeline integration with optical_flow.video_sinks (Local MP4 recording or RTSP streaming).
 - Auto-cycling visual modes or command line selection to showcase all overlays without needing a GUI window.
-- Background sensor reader threads (IMU, Compass, MAVLink distance sensor) with simulation fallback for desk-testing.
+- Background sensor reader threads (IMU, Compass) with simulation fallback for desk-testing.
 """
 
 import cv2

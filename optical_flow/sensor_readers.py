@@ -10,12 +10,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     SMBus = None
 
-try:
-    from pymavlink import mavutil
-except (ImportError, ModuleNotFoundError):
-    mavutil = None
 
-MAVLINK_CONNECTION_STRING = "udp:127.0.0.1:14551"
 IMU_I2C_BUS = 1
 IMU_I2C_ADDR = 0x68
 IMU_PWR_MGMT_1 = 0x6B
@@ -369,32 +364,9 @@ def compass_reader_thread():
 
 def start_distance_sensor_reader():
     """
-    Starts concurrent threads to read rangefinder data from MAVLink,
-    IMU data from the I2C MPU6050, and compass data from shared memory.
+    Starts concurrent threads to read IMU data from the I2C MPU6050,
+    and compass data from shared memory.
     """
-    def mavlink_reader():
-        """
-        Background reader that subscribes to MAVLink DISTANCE_SENSOR packets.
-        """
-        try:
-            master = mavutil.mavlink_connection(MAVLINK_CONNECTION_STRING)
-            master.wait_heartbeat()
-            print(f"Connected to MAVLink on {MAVLINK_CONNECTION_STRING}")
-
-            while True:
-                msg = master.recv_match(blocking=True, timeout=1)
-                if msg is None:
-                    continue
-
-                msg_type = msg.get_type()
-                now = time.time()
-
-                if msg_type == "DISTANCE_SENSOR":
-                    with distance_lock:
-                        distance_state["current_distance"] = msg.current_distance
-                        distance_state["last_update"] = now
-        except Exception as e:
-            print(f"MAVLink reader error: {e}")
 
     def imu_reader():
         """
@@ -519,16 +491,13 @@ def start_distance_sensor_reader():
         except Exception as e:
             print(f"I2C IMU reader error: {e}")
 
-    distance_thread = threading.Thread(target=mavlink_reader, daemon=True)
-    distance_thread.start()
-
     imu_thread = threading.Thread(target=imu_reader, daemon=True)
     imu_thread.start()
 
     compass_thread = threading.Thread(target=compass_reader_thread, daemon=True)
     compass_thread.start()
 
-    return distance_thread, imu_thread, compass_thread
+    return imu_thread, compass_thread
 
 
 def is_gyro_calibrated():

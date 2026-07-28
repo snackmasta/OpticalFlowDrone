@@ -30,7 +30,6 @@ graph TD
     C -->|Read frames| C_CAM["PiCamera2\n(Raspberry Pi Camera)"]
     C <-->|I2C Bus 1 addr 0x68| C_IMU["MPU6050 IMU\n(Accel + Gyro)"]
     C -->|UDP recv: commands reset/offset/toggle Port 5009| C_CMD["UDP 127.0.0.1:5009\n(Command Listener)"]
-    C <-->|MAVLink udp:127.0.0.1:14551\nREAD: DISTANCE_SENSOR msg| C_MAV["ArduPilot / Flight Controller\n(MAVLink UDP 14551)"]
     C -->|Read compass heading| SHM1
     C -->|Write: attitude roll/pitch/yaw/gyro rates| SHM2[("SHM: drone_attitude_stream")]
     C -->|Write: x_cm, y_cm, vx, vy, alt, heading| SHM3[("SHM: optical_flow_stream")]
@@ -87,7 +86,7 @@ High-priority optical flow camera capture, IMU fusion, and position tracking dae
 #### Internal Submodules Imported
 | Module | Purpose |
 |---|---|
-| [`optical_flow/sensor_readers.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow/sensor_readers.py) | I2C MPU6050 reader, MAVLink distance reader, Compass SHM reader, attitude SHM writer |
+| [`optical_flow/sensor_readers.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow/sensor_readers.py) | I2C MPU6050 reader, Compass SHM reader, attitude SHM writer |
 | [`optical_flow/flow_processor.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow/flow_processor.py) | Dense optical flow estimation, velocity & position state |
 | [`optical_flow/hud_renderer.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow/hud_renderer.py) | HUD / OSD overlay rendering onto video frames |
 | [`optical_flow/video_sinks.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow/video_sinks.py) | FileSink (MP4), RtspSink (ffmpeg pipe), DummySink (headless) |
@@ -96,7 +95,6 @@ High-priority optical flow camera capture, IMU fusion, and position tracking dae
 * **Hardware Sensors (via `sensor_readers.py`):**
   * `PiCamera2` – Captures raw video frames at 60 FPS.
   * `I2C Bus 1, addr 0x68 (MPU6050)` – Reads accelerometer (X/Y/Z) and gyroscope (X/Y/Z) raw samples; applies complementary filter to produce roll/pitch/yaw.
-  * `MAVLink UDP udp:127.0.0.1:14551` – Subscribes to `DISTANCE_SENSOR` MAVLink messages from ArduPilot / Flight Controller for altitude (rangefinder data).
 * **Shared Memory IPC (Consumer & Producer):**
   * `compass_heading_stream` ← **Reads** latest compass heading from `hmc5883l.py` to fuse into yaw estimation.
   * `drone_attitude_stream` → **Writes** roll, pitch, yaw, gyro rates (X/Y/Z) at ~50 Hz.

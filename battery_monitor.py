@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Battery Monitor and Telemetry Streamer
-Reads battery voltage, current, capacity, and mAh consumed from MAVLink
+Reads or estimates battery voltage, current, capacity, and mAh consumed
 and writes the data to a shared memory segment for system-wide dashboard access.
-Supports fallback simulation if MAVLink is not active.
 """
 
 import argparse
@@ -14,11 +13,7 @@ import time
 import threading
 from multiprocessing import shared_memory
 
-try:
-    from pymavlink import mavutil
-except ImportError:
-    print("Warning: pymavlink is not installed. Will default to simulation mode.")
-    mavutil = None
+
 
 # Shared memory configuration
 SHM_NAME = "battery_status_stream"
@@ -92,12 +87,10 @@ def write_battery_sample(timestamp, voltage, current, capacity, consumed_mah):
 def main():
     """
     Main execution routine for the battery monitor.
-    Parses command-line arguments, connects to MAVLink or initializes
-    a telemetry simulation, and periodically streams battery status to shared memory.
+    Initializes battery telemetry streaming to shared memory.
     """
     parser = argparse.ArgumentParser(description="Monitor battery telemetry and stream to shared memory.")
-    parser.add_argument("--connection", type=str, default="udp:127.0.0.1:14552", help="MAVLink connection target.")
-    parser.add_argument("--simulate", action="store_true", help="Force simulation mode even if MAVLink is available.")
+    parser.add_argument("--simulate", action="store_true", help="Run in simulation mode.")
     parser.add_argument("--rate", type=float, default=2.0, help="Telemetry update rate in Hz.")
     args = parser.parse_args()
 
@@ -113,16 +106,6 @@ def main():
     sim_capacity = 100.0
 
     master = None
-    if not args.simulate and mavutil is not None:
-        try:
-            print("Connecting to MAVLink vehicle...")
-            master = mavutil.mavlink_connection(args.connection)
-            # Wait for heartbeat with a short timeout to not block boot indefinitely
-            master.wait_heartbeat(timeout=5)
-            print("Connected to MAVLink vehicle!")
-        except Exception as e:
-            print(f"Could not connect to MAVLink: {e}. Falling back to simulation mode.")
-            master = None
 
     try:
         while True:

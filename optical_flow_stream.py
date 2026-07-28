@@ -1,5 +1,5 @@
 # Lightweight optical flow recorder
-# Requirements: opencv-python, numpy, picamera2, pymavlink, smbus2
+# Requirements: opencv-python, numpy, picamera2, smbus2
 
 import cv2
 # Configure OpenCV threading to spread load across multiple CPU cores
