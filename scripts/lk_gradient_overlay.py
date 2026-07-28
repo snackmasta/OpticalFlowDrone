@@ -28,8 +28,6 @@ if parent_dir not in sys.path:
 # Import core drone optical flow modules
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
-    distance_lock,
-    distance_state,
     attitude_lock,
     attitude_state,
     accel_lock,
@@ -286,12 +284,7 @@ def run_pipeline(initial_mode, cycle_interval, target_fps):
                     # Filter out outlier motion vectors via RANSAC
                     inlier_old, inlier_new = reject_outlier_tracks(good_old, good_new)
                     
-                    # Fetch drone altitude
-                    with distance_lock:
-                        altitude_cm = distance_state["current_distance"]
-                    
-                    if altitude_cm is None or altitude_cm <= 0:
-                        altitude_cm = 150.0  # 1.5 meters simulated height
+                    altitude_cm = 150.0  # 1.5 meters default height
                     
                     # Calculate physical drone body velocities
                     velocity_estimate = estimate_body_velocity_mps(

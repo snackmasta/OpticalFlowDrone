@@ -134,11 +134,7 @@ $$v_{y, \text{body}} = -\frac{ty \cdot Z}{f_y \cdot dt}$$
 
 #### 💻 Code Implementation
 In [`optical_flow_stream.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow_stream.py#L423-L428):
-```python
-with distance_lock:
-    altitude_cm = distance_state["current_distance"]
-
-altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+altitude_m = 1.5
 vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
 vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 ```

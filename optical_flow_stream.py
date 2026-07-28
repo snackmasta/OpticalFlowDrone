@@ -98,8 +98,6 @@ def udp_command_listener():
 
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
-    distance_lock,
-    distance_state,
     attitude_lock,
     attitude_state,
     accel_lock,
@@ -532,11 +530,10 @@ def record_optical_flow():
                 tx_comp = tx - (scale_x * d_reticle_x)
                 ty_comp = ty - (scale_y * d_reticle_y)
 
-                with distance_lock:
-                    altitude_cm = distance_state["current_distance"]
+                altitude_cm = 150.0
 
                 # Calculate physical velocity using compensated translations (body frame)
-                altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+                altitude_m = 1.5
                 vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
                 vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
@@ -663,9 +660,7 @@ def record_optical_flow():
                 current_y_cm = position_state["y_cm"]
             current_vx = velocity_state["vx_mps"]
             current_vy = velocity_state["vy_mps"]
-            with distance_lock:
-                altitude_cm = distance_state["current_distance"]
-            current_alt = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+            current_alt = 1.5
             write_flow_stream_sample(
                 frame_ts,
                 current_x_cm,

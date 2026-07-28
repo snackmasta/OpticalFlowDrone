@@ -4,7 +4,6 @@ import math
 import time
 
 from .sensor_readers import (
-    distance_lock, distance_state,
     attitude_lock, attitude_state,
     accel_lock, accel_state,
     compass_lock, compass_state,
@@ -126,8 +125,6 @@ def draw_osd(frame, total_tracked=0):
     Overlays a HUD dashboard OSD (On-Screen Display) with telemetry widgets, 
     minimap, compass, and analysis readouts on top of the video frame.
     """
-    with distance_lock:
-        current_distance = distance_state["current_distance"]
     with attitude_lock:
         roll_deg = attitude_state["roll_deg"]
         pitch_deg = attitude_state["pitch_deg"]
@@ -156,7 +153,6 @@ def draw_osd(frame, total_tracked=0):
     inliers = velocity_state["inliers"]
 
     lines = [
-        f"DIST: {current_distance if current_distance is not None else 'N/A'} cm",
         # f"VX: {vx_mps:+.3f} m/s",
         # f"VY: {vy_mps:+.3f} m/s",
         # f"SPD: {speed_mps:.3f} m/s ({inliers} inliers)",

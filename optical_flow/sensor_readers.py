@@ -109,11 +109,6 @@ gyro_bias = {
     "z": 0.0,
 }
 
-distance_state = {
-    "current_distance": None,
-    "last_update": 0.0,
-}
-distance_lock = threading.Lock()
 
 attitude_state = {
     "roll_deg": 0.0,
@@ -505,3 +500,7 @@ def is_gyro_calibrated():
     Returns True if the gyroscope bias calibration has completed.
     """
     return gyro_calibrated
+
+
+start_sensor_readers = start_distance_sensor_reader
+

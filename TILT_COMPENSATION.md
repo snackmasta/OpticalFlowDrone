@@ -104,9 +104,9 @@ ty_comp = ty - (scale_y * d_reticle_y)
 ```
 
 ### Step 5.2: Convert to Physical Body Velocity
-Using the current altitude (from the rangefinder/Lidar) and camera focal length (pixels), the compensated pixel displacement is converted to physical body-frame velocity (meters per second):
+Using the current altitude (altitude_m) and camera focal length (pixels), the compensated pixel displacement is converted to physical body-frame velocity (meters per second):
 ```python
-altitude_m = (altitude_cm / 100.0) if altitude_cm is not None else 1.5
+altitude_m = 1.5
 
 vx_mps_body = ((tx_comp * altitude_m) / (focal_length_x_px * dt_s))
 vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
