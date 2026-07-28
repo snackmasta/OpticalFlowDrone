@@ -141,35 +141,10 @@ vy_mps_body = -((ty_comp * altitude_m) / (focal_length_y_px * dt_s))
 
 ---
 
-
-
-## 5. Camera Offset & Lever-Arm Compensation
-If the camera is mounted at an offset vector $\mathbf{r}_{\text{cam}} = [x_{\text{off}}, y_{\text{off}}, z_{\text{off}}]^T$ away from the drone's center of gravity (CoG), yaw rotations ($\omega_z$) generate a linear velocity at the camera sensor:
-
-$$\mathbf{v}_{\text{lever}} = \boldsymbol{\omega} \times \mathbf{r}_{\text{cam}}$$
-
-We subtract this offset to find the velocity of the CoG:
-
-$$v_{offset, x} = -\omega_z \cdot y_{\text{off}}$$
-$$v_{offset, y} = \omega_z \cdot x_{\text{off}}$$
-
-#### 💻 Code Implementation
-In [`optical_flow_stream.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow_stream.py#L430-L435):
-```python
-# Compensate for camera offset from center of rotation
-yaw_rate_rad = math.radians(zgyro_dps)
-v_offset_x = -yaw_rate_rad * (camera_offset_y / 100.0)
-v_offset_y = yaw_rate_rad * (camera_offset_x / 100.0)
-vx_mps_body_comp = vx_mps_body - v_offset_x
-vy_mps_body_comp = vy_mps_body - v_offset_y
-```
-
----
-
-## 6. Global Frame Coordinate Transformation
+## 5. Global Frame Coordinate Transformation
 To find the velocities in the Earth-fixed frame ($V_{\text{east}}, V_{\text{north}}$), the body velocities are rotated through the yaw angle $\psi$:
 
-$$\begin{bmatrix} V_{\text{east}} \\ V_{\text{north}} \end{bmatrix} = \begin{bmatrix} \cos\psi & \sin\psi \\ -\sin\psi & \cos\psi \end{bmatrix} \begin{bmatrix} v_{x, \text{body, comp}} \\ v_{y, \text{body, comp}} \end{bmatrix}$$
+$$\begin{bmatrix} V_{\text{east}} \\ V_{\text{north}} \end{bmatrix} = \begin{bmatrix} \cos\psi & \sin\psi \\ -\sin\psi & \cos\psi \end{bmatrix} \begin{bmatrix} v_{x, \text{body}} \\ v_{y, \text{body}} \end{bmatrix}$$
 
 Expanding this matrix multiplication yields:
 

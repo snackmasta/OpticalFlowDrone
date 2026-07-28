@@ -538,40 +538,7 @@ def run_dashboard(port):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/api/opticalflow/offset", methods=["GET", "POST"])
-    def opticalflow_offset():
-        """
-        Gets or sets the camera tilt offset settings, updating both the config file
-        and sending updates via UDP.
-        """
-        import json
-        import os
-        config_file = "tilt_calibration.json"
-        if request.method == "POST":
-            try:
-                data = request.get_json() or {}
-                ox = float(data.get("offset_x", 0.0))
-                oy = float(data.get("offset_y", 0.0))
-                
-                # Send command via loopback UDP to optical_flow_stream
-                import socket
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.sendto(f"offset {ox} {oy}".encode("utf-8"), ("127.0.0.1", 5009))
-                
-                return jsonify({"success": True, "offset_x": ox, "offset_y": oy})
-            except Exception as e:
-                return jsonify({"error": str(e)}), 500
-        else:
-            ox, oy = 0.0, 0.0
-            if os.path.exists(config_file):
-                try:
-                    with open(config_file, "r") as f:
-                        cal = json.load(f)
-                        ox = cal.get("camera_offset_x", 0.0)
-                        oy = cal.get("camera_offset_y", 0.0)
-                except Exception:
-                    pass
-            return jsonify({"offset_x": ox, "offset_y": oy})
+
 
     @app.route("/api/shm/config", methods=["GET", "POST"])
 

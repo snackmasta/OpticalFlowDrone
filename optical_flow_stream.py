@@ -81,15 +81,6 @@ def udp_command_listener():
                 input_queue.put("r")
             elif cmd in ("toggle", "t"):
                 input_queue.put("t")
-            elif cmd.startswith("offset "):
-                parts = cmd.split()
-                if len(parts) == 3:
-                    try:
-                        ox = float(parts[1])
-                        oy = float(parts[2])
-                        input_queue.put(("offset", ox, oy))
-                    except ValueError:
-                        pass
     except Exception as e:
         print(f"UDP command listener error: {e}")
 
@@ -125,8 +116,7 @@ from optical_flow.video_sinks import (
     create_output_sink
 )
 
-camera_offset_x = 0.0
-camera_offset_y = 0.0
+
 
 
 TARGET_FPS = 60
@@ -381,23 +371,7 @@ def record_optical_flow():
             if command is not None:
 
                 
-                if isinstance(command, tuple) and command[0] == "offset":
-                    global camera_offset_x, camera_offset_y
-                    _, ox, oy = command
-                    camera_offset_x = ox
-                    camera_offset_y = oy
-                    try:
-                        calib_data = {}
-                        if os.path.exists(CALIBRATION_FILE):
-                            with open(CALIBRATION_FILE, "r") as f:
-                                calib_data = json.load(f)
-                        calib_data["camera_offset_x"] = camera_offset_x
-                        calib_data["camera_offset_y"] = camera_offset_y
-                        with open(CALIBRATION_FILE, "w") as f:
-                            json.dump(calib_data, f, indent=4)
-                        print(f"\n>>> CAMERA OFFSET UPDATED: x={camera_offset_x:.2f} cm, y={camera_offset_y:.2f} cm")
-                    except Exception as e:
-                        print(f"Failed to save camera offset calibration: {e}")
+
 
                 if command == 't':
                     new_source = "accel" if translation_source == "flow" else "flow"
@@ -448,20 +422,13 @@ def record_optical_flow():
                 vx_mps_body = ((tx * altitude_m) / (focal_length_x_px * dt_s))
                 vy_mps_body = -((ty * altitude_m) / (focal_length_y_px * dt_s))
 
-                # Compensate for camera offset from center of rotation
-                yaw_rate_rad = math.radians(zgyro_dps)
-                v_offset_x = -yaw_rate_rad * (camera_offset_y / 100.0)
-                v_offset_y = yaw_rate_rad * (camera_offset_x / 100.0)
-                vx_mps_body_comp = vx_mps_body - v_offset_x
-                vy_mps_body_comp = vy_mps_body - v_offset_y
-
-                # Rotate compensated velocities to absolute frame (East/North) using actual compass heading
+                # Rotate velocities to absolute frame (East/North) using actual compass heading
                 yaw_actual_deg = -yaw_deg
                 yaw_rad = math.radians(yaw_actual_deg)
                 cos_yaw = math.cos(yaw_rad)
                 sin_yaw = math.sin(yaw_rad)
-                vx_mps_calc = vx_mps_body_comp * cos_yaw + vy_mps_body_comp * sin_yaw
-                vy_mps_calc = -vx_mps_body_comp * sin_yaw + vy_mps_body_comp * cos_yaw
+                vx_mps_calc = vx_mps_body * cos_yaw + vy_mps_body * sin_yaw
+                vy_mps_calc = -vx_mps_body * sin_yaw + vy_mps_body * cos_yaw
 
                 # Apply acceleration rate-limiter and velocity clamps to compensated velocity
                 max_dv = 15.0 * dt_s

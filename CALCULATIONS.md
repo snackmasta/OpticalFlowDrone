@@ -73,34 +73,6 @@ $$v_{x, \text{body}} = \frac{4.0\text{ px} \times 1.5\text{ m}}{554.26\text{ px}
 
 
 
-## 4. Lever-Arm Correction (Camera Offset Compensation)
-If the camera is mounted away from the drone's Center of Gravity (CoG), yaw rotations ($\omega_z$) produce a linear velocity at the camera sensor. We must subtract this to find the CoG's true velocity.
-
-### 📐 Mathematical Formulation
-$$\mathbf{v}_{\text{lever}} = \boldsymbol{\omega} \times \mathbf{r}_{\text{cam}}$$
-In component form:
-$$v_{\text{offset}, x} = -\omega_z \cdot y_{\text{off}}$$
-$$v_{\text{offset}, y} = \omega_z \cdot x_{\text{off}}$$
-
-### 💻 Code Reference
-* [Lever-arm correction in `optical_flow_stream.py`](file:///e:/OptFlowDrone/OpticalFlowDrone/optical_flow_stream.py#L430-L435)
-
-### 📝 Step-by-Step Example
-Suppose:
-* Camera offset: $x_{\text{off}} = 10\text{ cm} = 0.1\text{ m}$, $y_{\text{off}} = 5\text{ cm} = 0.05\text{ m}$
-* Yaw rate: $\omega_z = 30^\circ/\text{s} \approx 0.5236\text{ rad/s}$
-* Body velocities computed at sensor: $v_{x, \text{body}} = 0.2\text{ m/s}$, $v_{y, \text{body}} = -0.1\text{ m/s}$
-
-**Step 1: Compute Offset Velocities**
-$$v_{\text{offset}, x} = -0.5236 \times 0.05 = -0.0262\text{ m/s}$$
-$$v_{\text{offset}, y} = 0.5236 \times 0.1 = 0.0524\text{ m/s}$$
-
-**Step 2: Subtract Offsets**
-$$v_{x, \text{body, comp}} = 0.2 - (-0.0262) = 0.2262\text{ m/s}$$
-$$v_{y, \text{body, comp}} = -0.1 - 0.0524 = -0.1524\text{ m/s}$$
-
----
-
 ## 5. Battery mAh Consumption Integration
 During simulation or fallback modes, the system estimates the accumulated battery energy consumption (in mAh) by integrating current draw over time.
 

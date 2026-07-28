@@ -99,7 +99,7 @@ High-priority optical flow camera capture, IMU fusion, and position tracking dae
   * `drone_attitude_stream` → **Writes** roll, pitch, yaw, gyro rates (X/Y/Z) at ~50 Hz.
   * `optical_flow_stream` → **Writes** x_cm, y_cm, raw_x_cm, raw_y_cm, vx, vy, alt, heading at 60 Hz. **Consumed by `send_attitude_udp.py`**.
 * **UDP Command Listener:**
-  * `UDP 127.0.0.1:5009` – Accepts text commands: `reset` (zero position), `toggle` (switch flow/accel source), `offset <x> <y>` (update camera offset).
+  * `UDP 127.0.0.1:5009` – Accepts text commands: `reset` (zero position), `toggle` (switch flow/accel source).
 
 * **Video Output (mode-dependent):**
   * **Record mode** → `recordings/optical_flow_<timestamp>.mp4` (via `cv2.VideoWriter` FileSink).
