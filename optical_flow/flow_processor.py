@@ -3,24 +3,10 @@ import numpy as np
 import math
 import threading
 
-TRACK_FEATURE_COUNT = 10
 FLOW_SCALE = 0.5
 CAMERA_HORIZONTAL_FOV_DEG = 62.2
 MAX_FLOW_STEP_PX = 80.0
 MIN_INLIERS_FOR_VELOCITY = 3
-
-feature_params = dict(
-    maxCorners=TRACK_FEATURE_COUNT,
-    qualityLevel=0.3,
-    minDistance=5,
-    blockSize=5
-)
-
-lk_params = dict(
-    winSize=(9, 9),
-    maxLevel=0,
-    criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 8, 0.03),
-)
 
 velocity_state = {
     "vx_mps": 0.0,
