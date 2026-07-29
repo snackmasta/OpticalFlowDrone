@@ -15,7 +15,6 @@ velocity_state = {
     "speed_mps": 0.0,
     "inliers": 0,
     "last_update": 0.0,
-    "translation_source": "flow",  # 'flow' or 'accel'
 }
 
 position_state = {

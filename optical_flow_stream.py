@@ -46,46 +46,8 @@ elif args.stream:
 elif args.record:
     mode = "record"
 
-import queue
 from multiprocessing import shared_memory
 from picamera2 import Picamera2
-
-input_queue = queue.Queue()
-
-def console_input_thread():
-    """
-    Reads commands from standard input in a loop and pushes them to input_queue.
-    Runs in a background thread to avoid blocking the main execution loop.
-    """
-    while True:
-        try:
-            line = sys.stdin.readline().strip().lower()
-            if line:
-                input_queue.put(line)
-        except Exception:
-            break
-
-def udp_command_listener():
-    """
-    Listens for UDP packets on port 5009 and processes commands like 'reset' or 'offset'.
-    Pushes valid commands into the global input_queue.
-    """
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.bind(("127.0.0.1", 5009))
-        while True:
-            data, addr = sock.recvfrom(1024)
-            cmd = data.decode("utf-8").strip().lower()
-            if cmd == "reset":
-                input_queue.put("r")
-            elif cmd in ("toggle", "t"):
-                input_queue.put("t")
-    except Exception as e:
-        print(f"UDP command listener error: {e}")
-
-# Start the console input reader thread
-# Moved to record_optical_flow() to prevent stdin conflict during startup prompts.
 
 from optical_flow.sensor_readers import (
     start_distance_sensor_reader,
@@ -277,21 +239,9 @@ def record_optical_flow():
     vx_raw_prev = 0.0
     vy_raw_prev = 0.0
     
-    translation_source = "flow"
-    velocity_state["translation_source"] = translation_source
-    accel_vx_mps = 0.0
-    accel_vy_mps = 0.0
-    
     print("\n=======================================================")
-    print("Type 'r' and press Enter to reset positions to zero.")
-    print("Type 't' and press Enter to toggle translation source (FLOW vs ACCEL).")
     print("Press Ctrl+C to exit the program.")
     print("=======================================================\n")
-    
-    # Start the console input reader thread now that startup prompts are complete
-    threading.Thread(target=console_input_thread, daemon=True).start()
-    # Start the UDP command listener thread
-    threading.Thread(target=udp_command_listener, daemon=True).start()
     
     # Determine CSV output path if enabled or in record mode
     csv_path = None
@@ -334,9 +284,6 @@ def record_optical_flow():
                 "Gyro Z (dps)",
                 "Accel X (g)",
                 "Accel Y (g)",
-                "Accel VX (m/s)",
-                "Accel VY (m/s)",
-                "Translation Source",
                 "Inliers"
             ])
             csv_file.flush()
@@ -360,35 +307,6 @@ def record_optical_flow():
             dt_s = frame_ts - previous_frame_ts
             previous_frame_ts = frame_ts
             next_frame_time = frame_ts + FRAME_INTERVAL_S
-
-            # Check for keyboard commands from the input queue non-blockingly
-            command = None
-            try:
-                command = input_queue.get_nowait()
-            except queue.Empty:
-                pass
-
-            if command is not None:
-
-                
-
-
-                if command == 't':
-                    new_source = "accel" if translation_source == "flow" else "flow"
-                    translation_source = new_source
-                    velocity_state["translation_source"] = translation_source
-                    print(f"\n>>> TRANSLATION SOURCE TOGGLED TO: {translation_source.upper()}")
-
-                if command == 'r':
-                    x_raw_cm = 0.0
-                    y_raw_cm = 0.0
-                    vx_raw_prev = 0.0
-                    vy_raw_prev = 0.0
-                    with position_lock:
-                        position_state["x_cm"] = 0.0
-                        position_state["y_cm"] = 0.0
-                        position_state["path"] = [(0.0, 0.0)]
-                    print("\n>>> POSITIONS RESET TO ZERO.")
 
             frame = ensure_bgr(picam2.capture_array())
             frame_gray = to_small_gray(frame)
@@ -469,42 +387,16 @@ def record_optical_flow():
                     roll_rad = math.radians(attitude_state["roll_deg"])
                     pitch_rad = math.radians(attitude_state["pitch_deg"])
 
-                # Subtract static gravity component based on tilt angle
-                accel_x_m_s2 = (xaccel_g - math.sin(pitch_rad)) * 9.80665
-                accel_y_m_s2 = (yaccel_g + math.sin(roll_rad)) * 9.80665
-
-                # Deadband filter to prevent static drift
-                if abs(accel_x_m_s2) < 0.15:
-                    accel_x_m_s2 = 0.0
-                if abs(accel_y_m_s2) < 0.15:
-                    accel_y_m_s2 = 0.0
-
-                # Integrate acceleration over time to update velocity (Earth/Body aligned)
-                accel_vx_mps = float(np.clip(accel_vx_mps + accel_x_m_s2 * dt_s, -5.0, 5.0))
-                accel_vy_mps = float(np.clip(accel_vy_mps + accel_y_m_s2 * dt_s, -5.0, 5.0))
-                # Apply high-pass damping/decay to prevent runaway accelerometer integration drift
-                accel_vx_mps *= 0.98
-                accel_vy_mps *= 0.98
-
-                # Select final active velocity based on translation_source toggle ('flow' vs 'accel')
-                if translation_source == "accel":
-                    active_vx_mps = accel_vx_mps
-                    active_vy_mps = accel_vy_mps
-                else:
-                    active_vx_mps = vx_mps
-                    active_vy_mps = vy_mps
-
-                velocity_state["vx_mps"] = active_vx_mps
-                velocity_state["vy_mps"] = active_vy_mps
+                velocity_state["vx_mps"] = vx_mps
+                velocity_state["vy_mps"] = vy_mps
                 velocity_state["vz_mps"] = vz_mps
-                velocity_state["speed_mps"] = float(math.hypot(active_vx_mps, active_vy_mps))
+                velocity_state["speed_mps"] = float(math.hypot(vx_mps, vy_mps))
                 velocity_state["inliers"] = tracked_count
                 velocity_state["last_update"] = frame_ts
-                velocity_state["translation_source"] = translation_source
 
                 with position_lock:
-                    position_state["x_cm"] += active_vx_mps * 100.0 * dt_s
-                    position_state["y_cm"] += active_vy_mps * 100.0 * dt_s
+                    position_state["x_cm"] += vx_mps * 100.0 * dt_s
+                    position_state["y_cm"] += vy_mps * 100.0 * dt_s
                     position_state["path"].append((position_state["x_cm"], position_state["y_cm"]))
                     if len(position_state["path"]) > 200:
                         position_state["path"].pop(0)
@@ -576,9 +468,6 @@ def record_optical_flow():
                         f"{zgyro_dps:.4f}",
                         f"{xaccel_g:.4f}",
                         f"{yaccel_g:.4f}",
-                        f"{accel_vx_mps:.4f}",
-                        f"{accel_vy_mps:.4f}",
-                        translation_source,
                         tracked_count
                     ])
                     csv_file.flush()

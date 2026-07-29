@@ -426,8 +426,7 @@ def draw_minimap_widget(frame):
     cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1, cv2.LINE_AA)
 
     # Text annotations
-    src_mode = velocity_state.get("translation_source", "flow").upper()
-    cv2.putText(frame, f"MINIMAP ({src_mode})", (x0 + 6, y0 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 220, 220), 1, cv2.LINE_AA)
+    cv2.putText(frame, "MINIMAP", (x0 + 6, y0 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 220, 220), 1, cv2.LINE_AA)
     cv2.putText(frame, f"X:{x_curr:+.2f}", (x0 + 6, y0 + box_h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(frame, f"Y:{y_curr:+.2f}", (x0 + 6, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(frame, "GRID: 10cm", (x0 + box_w - 75, y0 + box_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1, cv2.LINE_AA)
