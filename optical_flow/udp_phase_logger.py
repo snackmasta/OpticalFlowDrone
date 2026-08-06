@@ -132,12 +132,12 @@ class UDPPhaseLogger:
 
                 pos = packet.get("translation", {}).get("position", {})
                 fused_x_cm = float(pos.get("x", 0.0)) * 100.0
-                fused_y_cm = float(pos.get("z", 0.0)) * 100.0  # z in UDP payload corresponds to Y plane
-                static_alt = abs(float(pos.get("y", 1.5)))
+                fused_y_cm = float(pos.get("y", 0.0)) * 100.0
+                static_alt = abs(float(pos.get("z", 1.5)))
 
                 vel = packet.get("translation", {}).get("velocity", {})
                 of_vx = float(vel.get("x", 0.0))
-                of_vy = float(vel.get("z", 0.0))
+                of_vy = float(vel.get("y", 0.0))
                 speed = float((of_vx**2 + of_vy**2)**0.5)
 
                 flow_data = packet.get("optical_flow", {})

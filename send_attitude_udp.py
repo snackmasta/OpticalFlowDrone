@@ -311,7 +311,7 @@ def main():
             # Use optical flow displacement for position/velocity; fall back to zero when unavailable
             pos_x = flow["x_m"] if flow else 0.0
             pos_y = flow["y_m"] if flow else 0.0
-            pos_z = -flow["z_m"] if flow else 0.0
+            pos_z = flow["z_m"] if flow else 0.0
 
             vel_x = flow["vx"] if flow else 0.0
             vel_y = flow["vy"] if flow else 0.0
@@ -347,8 +347,8 @@ def main():
                     },
                 },
                 "translation": {
-                    "position": {"x": round(pos_x, 3), "y": round(pos_z, 3), "z": round(pos_y, 3)},
-                    "velocity": {"x": round(vel_x, 3), "y": round(vel_z, 3), "z": round(vel_y, 3)},
+                    "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
+                    "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(vel_z, 3)},
                     "linear_accel": {"x": 0.0, "y": 0.0, "z": 0.0},
                 },
                 "heading": round(yaw, 2),
