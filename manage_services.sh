@@ -51,22 +51,33 @@ start_services() {
     # Block until wlan0 is connected
     wait_for_wlan0
 
-    echo "Starting HMC5883L Compass..."
-    "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
+    if pgrep -f "optical_flow_stream.py" > /dev/null; then
+        echo "Optical Flow Stream & drone services are ALREADY RUNNING."
+    else
+        echo "Starting HMC5883L Compass..."
+        "$PYTHON_BIN" "$PROJECT_DIR/hmc5883l.py" > "$LOG_DIR/hmc5883l.log" 2>&1 &
 
-    echo "Starting High-Priority Optical Flow Stream (Mode: $FLOW_MODE, Priority: nice -n -5)..."
-    nice -n -5 "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
+        echo "Starting High-Priority Optical Flow Stream (Mode: $FLOW_MODE, Priority: nice -n -5)..."
+        nice -n -5 "$PYTHON_BIN" "$PROJECT_DIR/optical_flow_stream.py" $FLOW_MODE > "$LOG_DIR/optical_flow_stream.log" 2>&1 &
 
-    echo "Starting Geofence Buzzer Listener..."
-    "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
+        echo "Starting Geofence Buzzer Listener..."
+        "$PYTHON_BIN" "$PROJECT_DIR/geofence_buzzer_listener.py" > "$LOG_DIR/geofence_buzzer_listener.log" 2>&1 &
 
-    echo "Starting Telemetry UDP Bridge..."
-    "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
+        echo "Starting Telemetry UDP Bridge..."
+        "$PYTHON_BIN" "$PROJECT_DIR/send_attitude_udp.py" --ip 127.0.0.1 --port 5005 > "$LOG_DIR/send_attitude_udp.log" 2>&1 &
 
-    echo "Starting 3D Geofence Web Server & Dashboard..."
-    "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
+        echo "Starting 3D Geofence Web Server & Dashboard..."
+        "$PYTHON_BIN" "$PROJECT_DIR/web_server.py" > "$LOG_DIR/web_server.log" 2>&1 &
 
-    echo "All active Raspberry Pi services started."
+        echo "All active Raspberry Pi services started."
+    fi
+
+    # Check if requested to jump into phase-log or interactive mode
+    if [ "$2" == "--phase-log" ] || [ "$2" == "-log" ]; then
+        echo "Proceeding directly to Multi-Phase Flight Logger..."
+        sleep 1
+        "$PYTHON_BIN" "$PROJECT_DIR/multi_phase_logger_cli.py"
+    fi
 }
 
 stop_services() {
@@ -130,10 +141,13 @@ disable_boot() {
 if [ -n "$1" ]; then
     case "$1" in
         start|start-headless|--headless)
-            start_services "--headless"
+            start_services "--headless" "$2"
             ;;
         start-stream|-stream)
-            start_services "-stream"
+            start_services "-stream" "$2"
+            ;;
+        start-phase-log|start-log)
+            start_services "-stream" "--phase-log"
             ;;
         stop)
             stop_services
@@ -287,7 +301,12 @@ while true; do
 
     case $opt in
         1)
-            start_services
+            start_services "-stream"
+            echo ""
+            read -rp "Do you want to continue to Multi-Phase Log Mode now? [Y/n]: " run_log
+            if [[ "$run_log" =~ ^[Yy]?$ ]]; then
+                "$PYTHON_BIN" "$PROJECT_DIR/multi_phase_logger_cli.py"
+            fi
             ;;
         2)
             stop_services

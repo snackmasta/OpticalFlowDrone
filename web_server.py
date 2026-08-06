@@ -335,6 +335,12 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                 connected_sse_clients.append(client_queue)
 
             try:
+                # Disable socket timeout for long-lived SSE stream connection
+                try:
+                    self.request.settimeout(None)
+                except Exception:
+                    pass
+
                 # Send initial state
                 with clients_lock:
                     initial_data = json.dumps(latest_telemetry)
@@ -342,11 +348,13 @@ class TelemetryHTTPServer(http.server.SimpleHTTPRequestHandler):
                 self.wfile.flush()
 
                 while True:
-                    time.sleep(0.02)  # 50Hz streaming
+                    time.sleep(0.05)  # 20Hz streaming (smooth & lightweight)
                     with clients_lock:
                         data_str = json.dumps(latest_telemetry)
                     self.wfile.write(f"data: {data_str}\n\n".encode('utf-8'))
                     self.wfile.flush()
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, socket.error, OSError):
+                pass
             except Exception:
                 pass
             finally:
@@ -679,7 +687,7 @@ def start_udp_listener():
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
-    allow_reuse_address = os.name != 'nt'  # Prevent socket hijacking on Windows by zombie background processes
+    allow_reuse_address = True
 
     def handle_error(self, request, client_address):
         """Silently ignore routine client connection aborts/resets during browser refresh/close."""

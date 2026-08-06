@@ -41,28 +41,55 @@ def run_interactive_logger():
 
     pm = PhaseTestManager("F0")
 
-    # Start web_server.py process in background for live web dashboard telemetry
-    web_cmd = [sys.executable, "web_server.py"]
-    print(f"\n[LAUNCH] Starting background web dashboard server: http://localhost:8000")
-    try:
-        web_proc = subprocess.Popen(web_cmd)
-    except Exception as e:
-        print(f"[WARNING] Could not start web_server: {e}")
-        web_proc = None
+    # Helper function to check if a python script is already running
+    def is_running(script_name):
+        try:
+            if os.name == 'nt':
+                # On Windows, check using wmic or tasklist
+                cmd = f'wmic process where "name=\'python.exe\' and commandline like \'%{script_name}%\'" get processid'
+                res = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore')
+                lines = [line.strip() for line in res.splitlines() if line.strip() and line.strip().isdigit()]
+                return len(lines) > 0
+            else:
+                # On Linux (Raspberry Pi), check using pgrep
+                cmd = f'pgrep -f {script_name}'
+                res = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore')
+                return len(res.strip()) > 0
+        except Exception:
+            return False
 
-    # Start optical_flow_stream.py process in background with csv output
-    cmd = [sys.executable, "optical_flow_stream.py", "-stream", "-csv", csv_filename]
-    print(f"[LAUNCH] Starting background process: {' '.join(cmd)}")
-    
-    try:
-        proc = subprocess.Popen(cmd)
-    except Exception as e:
-        print(f"[ERROR] Failed to start optical_flow_stream process: {e}")
-        if web_proc:
-            web_proc.terminate()
-        return
+    web_running = is_running("web_server.py")
+    flow_running = is_running("optical_flow_stream.py")
 
-    time.sleep(2.0)
+    web_proc = None
+    proc = None
+
+    # Handle Web Server
+    if web_running:
+        print("[INFO] web_server.py is already RUNNING (attached to existing web server).")
+    else:
+        web_cmd = [sys.executable, "web_server.py"]
+        print("[LAUNCH] Starting background web dashboard server: http://localhost:8000")
+        try:
+            web_proc = subprocess.Popen(web_cmd)
+        except Exception as e:
+            print(f"[WARNING] Could not start web_server: {e}")
+
+    # Handle Optical Flow Streamer
+    if flow_running:
+        print("[INFO] optical_flow_stream.py is already RUNNING (attached to active services session).")
+    else:
+        cmd = [sys.executable, "optical_flow_stream.py", "-stream", "-csv", csv_filename]
+        print(f"[LAUNCH] Starting background process: {' '.join(cmd)}")
+        try:
+            proc = subprocess.Popen(cmd)
+        except Exception as e:
+            print(f"[ERROR] Failed to start optical_flow_stream process: {e}")
+            if web_proc:
+                web_proc.terminate()
+            return
+
+    time.sleep(1.0)
 
     try:
         for phase_code, phase_info in PhaseTestManager.PHASES.items():
@@ -109,8 +136,9 @@ def run_interactive_logger():
                         print(f"  -> Event Marker '{event_name}' recorded!")
                 elif choice == "q":
                     print("\n[STOP] User requested early session termination.")
-                    proc.terminate()
-                    proc.wait()
+                    if proc and proc.poll() is None:
+                        proc.terminate()
+                        proc.wait()
                     print(f"Session closed successfully. Log saved to {csv_filename}")
                     return
 
@@ -122,13 +150,13 @@ def run_interactive_logger():
     except KeyboardInterrupt:
         print("\n[INTERRUPT] Stopping flight logger session...")
     finally:
-        if proc.poll() is None:
+        if proc and proc.poll() is None:
             proc.terminate()
             proc.wait()
-        if 'web_proc' in locals() and web_proc and web_proc.poll() is None:
+        if web_proc and web_proc.poll() is None:
             web_proc.terminate()
             web_proc.wait()
-        print("\n[CLEANUP] Optical flow stream and web server processes terminated safely.")
+        print("\n[CLEANUP] Multi-phase flight logger CLI exited cleanly.")
 
 
 if __name__ == "__main__":
