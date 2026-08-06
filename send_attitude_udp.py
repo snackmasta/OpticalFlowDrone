@@ -347,8 +347,8 @@ def main():
                     },
                 },
                 "translation": {
-                    "position": {"x": round(pos_x, 3), "y": round(pos_y, 3), "z": round(pos_z, 3)},
-                    "velocity": {"x": round(vel_x, 3), "y": round(vel_y, 3), "z": round(vel_z, 3)},
+                    "position": {"x": round(pos_x, 3), "y": round(pos_z, 3), "z": round(pos_y, 3)},
+                    "velocity": {"x": round(vel_x, 3), "y": round(vel_z, 3), "z": round(vel_y, 3)},
                     "linear_accel": {"x": 0.0, "y": 0.0, "z": 0.0},
                 },
                 "heading": round(yaw, 2),

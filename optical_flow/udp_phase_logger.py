@@ -132,8 +132,8 @@ class UDPPhaseLogger:
 
                 pos = packet.get("translation", {}).get("position", {})
                 fused_x_cm = float(pos.get("x", 0.0)) * 100.0
-                fused_y_cm = float(pos.get("y", 0.0)) * 100.0
-                static_alt = abs(float(pos.get("z", 1.5)))
+                fused_y_cm = float(pos.get("z", 0.0)) * 100.0  # Z axis in 3D web packet is the 2D Y translation
+                static_alt = abs(float(pos.get("y", 1.5)))
 
                 vel = packet.get("translation", {}).get("velocity", {})
                 of_vx = float(vel.get("x", 0.0))
