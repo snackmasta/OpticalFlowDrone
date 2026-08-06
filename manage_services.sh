@@ -152,8 +152,11 @@ if [ -n "$1" ]; then
         disable-boot)
             disable_boot
             ;;
+        phase-log|log-multiphase|multiphase)
+            "$PYTHON_BIN" "$PROJECT_DIR/multi_phase_logger_cli.py"
+            ;;
         *)
-            echo "Usage: $0 {start|start-headless|start-stream|stop|restart|status|enable-boot|disable-boot}"
+            echo "Usage: $0 {start|start-headless|start-stream|stop|restart|status|phase-log|enable-boot|disable-boot}"
             exit 1
             ;;
     esac
@@ -275,11 +278,12 @@ while true; do
     echo " 3) Restart all active services"
     echo " 4) Check services status"
     echo " 5) Toggle individual services (start/stop)"
-    echo " 6) Enable autorun on boot (systemd)"
-    echo " 7) Disable autorun on boot"
-    echo " 8) Exit"
+    echo " 6) Run Multi-Phase Flight Logger (F0 - F6)"
+    echo " 7) Enable autorun on boot (systemd)"
+    echo " 8) Disable autorun on boot"
+    echo " 9) Exit"
     echo "============================================="
-    read -rp "Choose an option [1-8]: " opt
+    read -rp "Choose an option [1-9]: " opt
 
     case $opt in
         1)
@@ -300,12 +304,15 @@ while true; do
             toggle_individual_services
             ;;
         6)
-            enable_boot
+            "$PYTHON_BIN" "$PROJECT_DIR/multi_phase_logger_cli.py"
             ;;
         7)
-            disable_boot
+            enable_boot
             ;;
         8)
+            disable_boot
+            ;;
+        9)
             echo "Exiting."
             exit 0
             ;;

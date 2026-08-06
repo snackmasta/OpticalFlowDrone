@@ -562,7 +562,7 @@ def send_geofence_buzzer_udp(is_breached):
 def start_udp_listener():
     """
     Listens for incoming UDP telemetry packets from main.py
-    and updates global latest_telemetry state.
+    and reads shared memory (optical_flow_stream & drone_attitude_stream) for real-time telemetry.
     """
     global latest_telemetry
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -576,6 +576,24 @@ def start_udp_listener():
     except Exception as e:
         print(f"[ERROR] Failed to bind UDP listener: {e}")
         return
+
+    # Attempt attaching to shared memory segments for local live fallback
+    shm_flow = None
+    shm_att = None
+    try:
+        from multiprocessing import shared_memory
+        try:
+            shm_flow = shared_memory.SharedMemory(name="optical_flow_stream")
+        except Exception:
+            pass
+        try:
+            shm_att = shared_memory.SharedMemory(name="drone_attitude_stream")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    sock.settimeout(0.05)
 
     while True:
         try:
@@ -612,7 +630,49 @@ def start_udp_listener():
             with clients_lock:
                 latest_telemetry = payload
 
+        except socket.timeout:
+            # Poll shared memory if UDP is idle
+            if shm_flow is not None:
+                try:
+                    import struct
+                    # Read FLOW shared memory header: magic, write_index, sample_count
+                    magic, w_idx, count = struct.unpack_from("<4sII", shm_flow.buf, 0)
+                    if magic == b"FLOW" and count > 0:
+                        l_idx = (w_idx - 1) % 120
+                        rec_off = 12 + (l_idx * 88)
+                        ts, x_cm, y_cm, rx_cm, ry_cm, vx, vy, rvx, rvy, alt, hdeg = struct.unpack_from("<11d", shm_flow.buf, rec_off)
+                        
+                        r_deg = 0.0
+                        p_deg = 0.0
+                        y_deg = -hdeg
+                        if shm_att is not None:
+                            try:
+                                amagic, aw_idx, acount = struct.unpack_from("<4sII", shm_att.buf, 0)
+                                if amagic == b"ATT " and acount > 0:
+                                    al_idx = (aw_idx - 1) % 120
+                                    arec_off = 12 + (al_idx * 56)
+                                    ats, r_deg, p_deg, y_deg, gx, gy, gz = struct.unpack_from("<7d", shm_att.buf, arec_off)
+                            except Exception:
+                                pass
 
+                        with clients_lock:
+                            latest_telemetry = {
+                                "timestamp": ts,
+                                "rotation": {
+                                    "quaternion": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0},
+                                    "euler": {"roll": r_deg, "pitch": p_deg, "yaw": y_deg}
+                                },
+                                "translation": {
+                                    "position": {"x": round(x_cm / 100.0, 3), "y": round(y_cm / 100.0, 3), "z": round(alt, 2)},
+                                    "velocity": {"x": round(vx, 3), "y": round(vy, 3), "z": 0.0},
+                                    "linear_accel": {"x": 0, "y": 0, "z": 0}
+                                },
+                                "heading": round(hdeg, 1),
+                                "status": "connected",
+                                "gps": dict(gps_data_state)
+                            }
+                except Exception:
+                    pass
         except Exception:
             pass
 
