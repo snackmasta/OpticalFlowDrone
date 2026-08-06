@@ -242,6 +242,10 @@ def draw_osd(frame, total_tracked=0):
     )
     frame = draw_minimap_widget(frame)
 
+    # Phase Indicator
+    if hasattr(draw_osd, "current_phase_name") and draw_osd.current_phase_name:
+        cv2.putText(frame, f"PHASE: {draw_osd.current_phase_name}", (14, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
+
     return frame
 
 

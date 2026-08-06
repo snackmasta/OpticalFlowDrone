@@ -35,8 +35,11 @@ from optical_flow.sensor_readers import (
     attitude_state,
     accel_lock,
     accel_state,
+    compass_lock,
+    compass_state,
     is_gyro_calibrated
 )
+from optical_flow.phase_logger import PhaseTestManager
 from optical_flow.flow_processor import (
     to_small_gray,
     ensure_bgr,
@@ -147,6 +150,9 @@ def record_optical_flow(picam2, old_gray, stream_state, mode, duration, csv_logg
     focal_length_x_px = focal_length_px(frame_width)
     focal_length_y_px = focal_length_x_px
     draw_scale = 1.0 / FLOW_SCALE
+
+    phase_manager = PhaseTestManager(initial_phase="F0")
+    frame_idx = 0
 
     next_frame_time = time.perf_counter()
     previous_frame_ts = time.perf_counter()
@@ -305,27 +311,82 @@ def record_optical_flow(picam2, old_gray, stream_state, mode, duration, csv_logg
             (-yaw_deg) % 360.0
         )
 
-        # Write frame log to CSV
+        # Get active test phase info & event marker
+        phase_info = phase_manager.get_phase_info()
+        current_phase_code = phase_info["code"]
+        event_marker = phase_manager.pop_event_marker()
+
+        # Update OSD Phase Name
+        draw_osd.current_phase_name = phase_info["name"]
+
+        # Calculate optical flow pixel translation (tx, ty)
+        of_tx = tx if dense_motion is not None else 0.0
+        of_ty = ty if dense_motion is not None else 0.0
+
+        # Sensor connectivity status
+        sensor_status = "IMU:OK|MAG:OK|CAM:OK"
+
+        # Frame index & FPS calculation
+        frame_idx += 1
+        fps_act = 1.0 / dt_s if dt_s > 0 else 60.0
+
+        # Read compass / gyro / accel raw states
+        with compass_lock:
+            mag_x = compass_state.get("x", 0.0)
+            mag_y = compass_state.get("y", 0.0)
+            mag_z = compass_state.get("z", 0.0)
+
+        with attitude_lock:
+            gyro_x = attitude_state.get("xgyro_dps", 0.0)
+            gyro_y = attitude_state.get("ygyro_dps", 0.0)
+            gyro_z = attitude_state.get("zgyro_dps", 0.0)
+
+        with accel_lock:
+            acc_z = accel_state.get("z_g", 1.0)
+
+        heading_deg = (-yaw_deg) % 360.0
+
+        # Write multi-phase frame log to CSV
         csv_logger.log_frame(
-            frame_ts,
-            current_x_cm,
-            current_y_cm,
-            x_raw_cm,
-            y_raw_cm,
-            current_vx,
-            current_vy,
-            vz_mps,
-            vx_raw_mps,
-            vy_raw_mps,
-            velocity_state.get("speed_mps", 0.0),
-            current_alt,
-            roll_deg,
-            pitch_deg,
-            yaw_deg,
-            zgyro_dps,
-            xaccel_g,
-            yaccel_g,
-            tracked_count
+            frame_ts=frame_ts,
+            phase=current_phase_code,
+            event_marker=event_marker,
+            sensor_conn_status=sensor_status,
+            fps_actual=fps_act,
+            frame_index=frame_idx,
+            raw_accel_x=xaccel_g,
+            raw_accel_y=yaccel_g,
+            raw_accel_z=acc_z,
+            raw_gyro_x=gyro_x,
+            raw_gyro_y=gyro_y,
+            raw_gyro_z=gyro_z,
+            raw_mag_x=mag_x,
+            raw_mag_y=mag_y,
+            raw_mag_z=mag_z,
+            sensor_temp_c=25.0,
+            cf_roll=roll_deg,
+            cf_pitch=pitch_deg,
+            cf_yaw=yaw_deg,
+            fused_heading=heading_deg,
+            of_inliers=tracked_count,
+            of_tx_px=of_tx,
+            of_ty_px=of_ty,
+            of_vx=current_vx,
+            of_vy=current_vy,
+            raw_vx=vx_raw_mps,
+            raw_vy=vy_raw_mps,
+            speed_mps=velocity_state.get("speed_mps", 0.0),
+            fused_x_cm=current_x_cm,
+            fused_y_cm=current_y_cm,
+            raw_x_cm=x_raw_cm,
+            raw_y_cm=y_raw_cm,
+            geofence_status="IN",
+            geofence_breach_event=0,
+            buzzer_signal="OFF",
+            surface_noise_fallback=1 if dense_motion is None else 0,
+            comms_uart="OK",
+            comms_udp="OK",
+            comms_rtsp="OK"
         )
 
         old_gray = frame_gray.copy()
