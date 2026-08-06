@@ -1,6 +1,27 @@
+"""
+Modul Output Video & Streaming RTSP (Video Sinks Engine)
+=========================================================
+Deskripsi:
+    Modul ini menyediakan abstraksi untuk penanganan output video dari pemprosesan 
+    Optical Flow. Mendukung penyimpanan berkas video lokal (MP4) serta streaming 
+    video real-time menggunakan protokol RTSP via FFmpeg dan MediaMTX server.
+
+Fitur Utama:
+    1. Local Video Recording (`FileSink`):
+       - Menyimpan frame hasil pemprosesan dan overlay OSD ke file MP4 lokal (`cv2.VideoWriter`).
+       - Pembuatan otomatis direktori rekaman dengan format stempel waktu (timestamp).
+    2. Streaming RTSP Real-Time (`RtspSink`):
+       - Otomatisasi eksekusi server MediaMTX secara background jika belum berjalan.
+       - Pipelining frame mentah (raw bytes) ke proses FFmpeg via stdin untuk encoding H.264 teroptimasi.
+    3. Null Output (`NullSink`) & Factory Pattern (`create_output_sink`):
+       - Penyediaan Null Sink jika output video dinonaktifkan.
+       - Inisialisasi sink yang fleksibel berdasarkan argumen mode (`record`, `rtsp`, `none`).
+"""
+
 import cv2
 import subprocess
 import time
+import datetime
 from datetime import datetime
 from pathlib import Path
 

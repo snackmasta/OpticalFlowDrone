@@ -1,3 +1,23 @@
+"""
+Modul Penulis Shared Memory Inter-Process Communication (SHM Writer Engine)
+=============================================================================
+Deskripsi:
+    Modul ini mengelola alokasi dan penulisan data telemetri serta Optical Flow ke 
+    Shared Memory (SHM) sistem (`optical_flow_stream`). Data yang ditulis dapat diakses 
+    secara real-time oleh modul/proses lain (seperti Standalone Geofence Engine dan Web Server) 
+    tanpa overhead I/O jaringan.
+
+Fitur Utama:
+    1. Manajemen Blok Shared Memory (`attach_flow_stream_shm`):
+       - Inisialisasi dan pembuat/penyambung ke Shared Memory bernama `optical_flow_stream`.
+       - Struktur memori berbasis header magik (`FLOW`) dan buffer sirkular (ring buffer) 120 sampel.
+    2. Penulisan Sampel Real-Time (`write_flow_stream_sample`):
+       - Serialisasi 11 nilai float64 (timestamp, vx, vy, vz, inliers, distance, roll, pitch, compass, pos_x, pos_y).
+       - Penguncian thread (`threading.Lock`) untuk menjamin thread-safety saat penulisan.
+    3. Pembersihan Resource Memori (`close_flow_stream_shm`):
+       - Menutup handle Shared Memory secara aman saat program dihentikan.
+"""
+
 import struct
 import threading
 from multiprocessing import shared_memory

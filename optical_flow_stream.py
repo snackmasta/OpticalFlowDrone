@@ -1,3 +1,24 @@
+"""
+Program Utama: Optical Flow Streamer & Logger (DIS Optical Flow & Telemetry Engine)
+===================================================================================
+Deskripsi:
+    Script ini merupakan modul utama untuk estimasi pergerakan berbasis visi komputasional
+    menggunakan algoritma Dense Inverse Search (DIS) Optical Flow dengan integrasi sensor.
+
+Fitur Utama:
+    1. Akuisisi Kamera & Sensor:
+       - Pengambilan frame video dari kamera (Picamera2 / OpenCV).
+       - Pembacaan sensor jarak (Distance Sensor) dan telemetry IMU/Attitude (Gyro, Accel).
+    2. Estimasi Optical Flow & Kompensasi Gerak:
+       - Komputasi dense optical flow (DIS Optical Flow) pada resolusi teroptimasi.
+       - Estimasi kecepatan spasial (vx, vy) dan akumulasi posisi pergeseran (x, y).
+       - Kompensasi rotasi kamera berbasis gyro/attitude untuk mengisolasi translasi drone.
+    3. Output & Inter-Process Communication (IPC):
+       - Penulisan data telemetry & flow ke Shared Memory (SHM) untuk dikonsumsi service lain (e.g. Geofence Engine, Web Server).
+       - Logging data penerbangan ke file CSV.
+       - Rendering OSD (On-Screen Display / Reticle HUD) dan streaming video via RTSP, MJPEG, atau file output.
+"""
+
 # Lightweight optical flow recorder and streamer
 # Requirements: opencv-python, numpy, picamera2, smbus2
 

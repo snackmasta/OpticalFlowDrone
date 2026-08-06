@@ -1,3 +1,22 @@
+"""
+Modul Logging CSV Telemetri Penerbangan (CSV Telemetry Logger Engine)
+======================================================================
+Deskripsi:
+    Modul ini menyediakan kelas `CSVLogger` untuk mencatat log telemetry penerbangan, 
+    kalkulasi Optical Flow, estimasi posisi/kecepatan, serta pembacaan sensor hardware 
+    secara terstruktur ke dalam berkas format CSV untuk keperluan analisis pasca-terbang.
+
+Fitur Utama:
+    1. Resolusi Jalur Berkas Otomatis (`_resolve_csv_path`):
+       - Pembuatan otomatis berkas log di direktori `recordings/` dengan format penamaan berbasis stempel waktu.
+    2. Format Data Log Terstruktur (`_init_csv`):
+       - Pencatatan 23 kolom telemetri mencakup frame index, delta time, inliers, kecepatan linier (vx, vy, vz), 
+         posisi (x, y), ketinggian/jarak, orientasi roll/pitch/yaw IMU & kompas, serta akselerasi 3-sumbu.
+    3. Logging Frame-by-Frame (`log_frame`) & Safe Close (`close`):
+       - Penulisan baris data secara langsung per frame.
+       - Penutupan handle file berkas CSV secara aman saat sesi berakhir.
+"""
+
 import os
 import csv
 import time

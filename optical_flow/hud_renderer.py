@@ -1,3 +1,24 @@
+"""
+Modul Visualisasi OSD & Render HUD (On-Screen Display Renderer)
+================================================================
+Deskripsi:
+    Modul ini bertanggung jawab untuk merender elemen grafis Head-Up Display (HUD) 
+    dan On-Screen Display (OSD) secara real-time pada frame video. 
+    Menampilkan data telemetri penerbangan, attitude (roll, pitch, heading), 
+    kecepatan spasial, serta pergerakan Optical Flow.
+
+Fitur Utama:
+    1. Reticle Horizon Buatan (Ground Reticle):
+       - Visualisasi proyeksi horizon tanah berbasis sudut roll dan pitch IMU.
+    2. Widget Kompas (Compass Rose):
+       - Visualisasi kompas analog/digital dengan penunjuk arah mata angin (N, NW, W, dsb.) dan indikator kebaruan data.
+    3. Render OSD & Overlays Telemetri (`draw_osd`):
+       - Indikator pitch ladder & roll arc.
+       - Tampilan numerik kecepatan linier (vx, vy, vz), altitude/jarak, dan koordinat pergeseran posisi.
+       - Visualisasi vektor pergerakan Optical Flow dan jejak lintasan (path tracking).
+       - Status kalibrasi sensor, jumlah inliers, dan peringatan batas geofence.
+"""
+
 import cv2
 import numpy as np
 import math

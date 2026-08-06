@@ -1,3 +1,25 @@
+"""
+Modul Pembaca Sensor & Integrasi Telemetri IMU/Jarak (Sensor Readers Engine)
+=============================================================================
+Deskripsi:
+    Modul ini bertanggung jawab untuk membaca data dari sensor hardware (IMU, Sensor Jarak)
+    serta menerima stream data telemetri (Attitude & Compass) melalui Shared Memory (SHM).
+    Data ini digunakan untuk memperkirakan ketinggian (altitude) dan orientasi (roll, pitch, yaw) 
+    drone guna kompensasi pergerakan pada kalkulasi Optical Flow.
+
+Fitur Utama:
+    1. Pembacaan Sensor Jarak (Altitude/Distance Reader):
+       - Mendukung berbagai jenis sensor (TF-Luna, VL53L0X, Serial, Ultrasonic, I2C).
+       - Thread background pembacaan dengan filtering outlier/deret waktu.
+    2. Pembacaan IMU & Estimasi Attitude (MPU6050/MPU9250):
+       - Akses bus I2C untuk membaca accelerometer dan gyroscope.
+       - Kalibrasi offset gyro otomatis pada inisialisasi.
+       - Filter komplementer (Complementary Filter) untuk penggabungan data roll & pitch.
+    3. Integrasi Shared Memory Telemetri (SHM IPC):
+       - Pembacaan data kompas dari Shared Memory (`compass_heading_stream`).
+       - Pembacaan data attitude/telemetry eksternal dari Shared Memory (`drone_attitude_stream`).
+"""
+
 import time
 import math
 import struct

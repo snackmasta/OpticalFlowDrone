@@ -1,3 +1,24 @@
+"""
+Modul Pemprosesan Optical Flow & Estimasi Gerak (Optical Flow Processor Engine)
+================================================================================
+Deskripsi:
+    Modul ini bertanggung jawab untuk menghitung dense optical flow menggunakan 
+    algoritma DIS (Dense Inverse Search), melakukan estimasi model transformasi gerak
+    (translasi, rotasi, scaling) berbasis RANSAC, serta mengukur estimasi kecepatan 
+    spasial (vx, vy, vz) dan akumulasi posisi pergeseran (x, y).
+
+Fitur Utama:
+    1. Estimasi Dense Flow & Matriks Afin:
+       - Penggunaan OpenCV DISOpticalFlow (preset ULTRAFAST).
+       - Sampling grid titik pergerakan dan eliminasi outlier menggunakan RANSAC (cv2.estimateAffinePartial2D).
+    2. Utilitas Geometri & Konversi Kamera:
+       - Perhitungan fokal kamera dalam piksel (focal_length_px) berbasis FOV.
+       - Downscaling frame (to_small_gray) untuk efisiensi komputasi real-time.
+    3. Pengelolaan State Kecepatan & Posisi:
+       - `velocity_state`: Menyimpan kecepatan linier (m/s) dan status inlier tracking.
+       - `position_state`: Akumulasi posisi pergeseran (cm) dan jejak lintasan (path tracking).
+"""
+
 import cv2
 import numpy as np
 import math
