@@ -43,7 +43,7 @@ def print_logging_status_box(udp_logger, current_phase="F0"):
         yaw = euler.get("yaw", 0.0)
         pos = last.get("translation", {}).get("position", {})
         px = pos.get("x", 0.0) * 100.0
-        py = pos.get("z", 0.0) * 100.0
+        py = pos.get("y", 0.0) * 100.0
         print(f" [UDP MONITOR] Latest UDP Packet : t={ts:.2f}s | Phase={current_phase} | Roll={roll:.2f}°, Pitch={pitch:.2f}°, Yaw={yaw:.2f}° | Pos=({px:.1f}, {py:.1f})cm")
     print("--------------------------------------------------------------------------")
 
