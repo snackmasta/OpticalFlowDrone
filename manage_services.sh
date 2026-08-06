@@ -147,6 +147,13 @@ if [ -n "$1" ]; then
             start_services "-stream" "$2"
             ;;
         start-phase-log|start-log)
+            echo "======================================================================"
+            echo "  STARTING MULTI-PHASE TELEMETRY LOGGER SESSION (VERBOSE MODE)       "
+            echo "======================================================================"
+            echo "[INFO] Project Directory : $PROJECT_DIR"
+            echo "[INFO] Python Binary     : $PYTHON_BIN"
+            echo "[INFO] Log Directory     : $LOG_DIR"
+            echo "----------------------------------------------------------------------"
             start_services "-stream" "--phase-log"
             ;;
         stop)
@@ -167,6 +174,17 @@ if [ -n "$1" ]; then
             disable_boot
             ;;
         phase-log|log-multiphase|multiphase)
+            echo "======================================================================"
+            echo "  LAUNCHING MULTI-PHASE FLIGHT TELEMETRY LOGGER (VERBOSE MODE)        "
+            echo "======================================================================"
+            echo "[INFO] Project Directory : $PROJECT_DIR"
+            echo "[INFO] Python Binary     : $PYTHON_BIN"
+            echo "[INFO] Log Directory     : $LOG_DIR"
+            echo "----------------------------------------------------------------------"
+            check_status
+            echo "----------------------------------------------------------------------"
+            echo "[INFO] Handing control to Multi-Phase Flight Logger CLI..."
+            echo ""
             "$PYTHON_BIN" "$PROJECT_DIR/multi_phase_logger_cli.py"
             ;;
         *)

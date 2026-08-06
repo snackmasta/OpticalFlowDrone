@@ -272,6 +272,10 @@ def main():
     args = parser.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    except Exception:
+        pass
     interval = 1.0 / args.rate
 
     # Instantiate Sensor Fusion Engine
@@ -349,6 +353,8 @@ def main():
                 },
                 "heading": round(yaw, 2),
                 "status": "connected",
+                "gyro": {"gx": att["gx"], "gy": att["gy"], "gz": att["gz"]} if att else {"gx": 0.0, "gy": 0.0, "gz": 0.0},
+                "optical_flow": flow if flow else {},
                 "gps": gps_snapshot,
                 "fused_gps": fused_gps_state
             }
