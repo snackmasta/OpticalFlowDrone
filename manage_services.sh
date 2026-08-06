@@ -1,5 +1,26 @@
 #!/bin/bash
 
+# ==============================================================================
+# Script Manajemen Service & Layanan Systemd (OpticalFlowDrone Service Manager)
+# ==============================================================================
+# Deskripsi:
+#   Script bash ini mengelola siklus hidup (lifecycle) seluruh service Python
+#   pada Raspberry Pi, termasuk pengecekan jaringan wlan0, pembentukan service,
+#   pemantauan status, serta integrasi autostart systemd.
+#
+# Fitur Utama:
+#   1. Manajemen Service Python (start / stop / restart / status):
+#      - HMC5883L Compass (hmc5883l.py)
+#      - DIS Optical Flow Stream Engine (optical_flow_stream.py dengan prioritas nice -n -5)
+#      - Geofence Warning Buzzer Listener (geofence_buzzer_listener.py)
+#      - Telemetry UDP Bridge (send_attitude_udp.py)
+#      - Web Server & Dashboard 3D (web_server.py)
+#   2. Integrasi Systemd Daemon (install-systemd / uninstall-systemd):
+#      - Pemasangan service otomatis opticalflow.service untuk autostart saat Raspberry Pi boot.
+#   3. Monitoring & Penanganan Jaringan:
+#      - Pengecekan status alokasi IP interface wlan0 sebelum service dijalankan.
+# ==============================================================================
+
 # Configuration
 PROJECT_DIR="/home/raspi/Desktop/OpticalFlowDrone"
 PYTHON_BIN="$PROJECT_DIR/venv/bin/python"
